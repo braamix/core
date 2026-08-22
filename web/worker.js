@@ -69,6 +69,11 @@ function emit(kind, text) {
     self.postMessage({ kind, text });
 }
 
+// The boot step under way. The page records it and shows it only if boot stalls.
+function stage(text) {
+    self.postMessage({ kind: "stage", text });
+}
+
 // The clipboard, the file picker and the download need the DOM, so the page
 // does them and answers by id. Everything else in svc.js happens right here.
 let next_relay = 1;
@@ -85,7 +90,10 @@ function relay(msg) {
 async function boot() {
     const url = new URL(options.wasmUrl || "./kernel.wasm", import.meta.url);
     const rootfs = new URL(options.rootfsUrl || "./rootfs.zip", import.meta.url);
-    store = await openStore(rootfs, await persistedKnown);
+    stage("waiting for the durability answer");
+    const durable = await persistedKnown;
+    stage(`opening the store from ${rootfs}`);
+    store = await openStore(rootfs, durable);
 
     // A reply arrives on a promise, so it is never on the stack of the tick
     // that issued the request; pumping from here is what gets the resumed task
@@ -133,6 +141,7 @@ async function boot() {
 
     // Streaming needs an application/wasm content type; not every static host
     // sets one, so fall back to a buffered instantiate.
+    stage(`fetching ${url}`);
     let instance;
     try {
         ({ instance } = await WebAssembly.instantiateStreaming(fetch(url), imports));
@@ -141,6 +150,7 @@ async function boot() {
         ({ instance } = await WebAssembly.instantiate(buf, imports));
     }
 
+    stage("starting the kernel");
     mem.bind(instance.exports.memory);
 
     // 0 means "use the linker's __heap_base"; an isolated process (M8) is
@@ -414,6 +424,7 @@ self.onmessage = ({ data }) => {
 
 // Nothing is fetched until the embedder's options arrive, since they say what
 // to fetch. web/braam.js posts them before anything else.
+stage("waiting for the embedder's options");
 configuredKnown
     .then(boot)
     .catch((e) => emit("error", `boot failed: ${e && e.message ? e.message : e}`));

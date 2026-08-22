@@ -68,8 +68,33 @@
 <canvas id="screen"></canvas>
 <div id="keys"></div>
 <pre id="status"></pre>
+<!-- With scripting off, nothing below runs. This is the only thing that speaks. -->
+<noscript>
+<div class="error">braam: JavaScript is off for this page, so nothing here can run.
+Allow scripting for this site — an extension such as a script blocker can hold it
+off even while the extension itself is disabled.</div>
+</noscript>
+<!-- Classic, not a module: no fetch of its own, so it runs when braam.js's never
+     answers. braam.js disarms it and takes the watch over from there. -->
+<script>
+const BRAAM_STALL_MS = 5000; // BOOT_STALL_MS in braam.js, which takes over
+window.braamStage = "fetching braam.js";
+setTimeout(() => {
+    if (!window.braamStage)
+        return;
+    const line = document.createElement("div");
+    line.className = "error";
+    line.textContent = `braam: nothing happened in ${BRAAM_STALL_MS / 1000}s while `
+        + `${window.braamStage}. The page loaded but its script did not.`
+        + " A blocking extension or a proxy can hold a fetch open for ever;"
+        + " try a private window or a profile with extensions off.";
+    document.getElementById("status").appendChild(line);
+}, BRAAM_STALL_MS);
+</script>
 <script type="module">
 import { mount } from "./braam.js";
+
+window.braamStage = null; // disarms the watchdog above
 
 const status = document.getElementById("status");
 

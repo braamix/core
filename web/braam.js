@@ -51,6 +51,10 @@ function persistOnce(wanted) {
 // goes down after this, and the real answer follows and corrects it.
 const PERSIST_GRACE_MS = 250;
 
+// How long a boot may take before it is reported as stuck. A stalled fetch
+// throws nothing and leaves a black canvas.
+const BOOT_STALL_MS = 5000;
+
 // A canvas hands its pixels over exactly once, so a terminal that has been
 // disposed cannot be mounted again on the same element — make a new one.
 export function mount(options = {}) {
@@ -65,6 +69,15 @@ export function mount(options = {}) {
 
     const worker = new Worker(new URL(options.workerUrl || "./worker.js", import.meta.url),
                               { type: "module" });
+
+    // Until the worker names a step of its own.
+    let stage = "loading the worker";
+    let spoke = false;
+    const stall = setTimeout(() => {
+        onError(`braam: boot is stuck ${stage} (${BOOT_STALL_MS / 1000}s).`
+                + " A blocking extension or a proxy can hold a fetch open for ever;"
+                + " try a private window or a profile with extensions off.");
+    }, BOOT_STALL_MS);
 
     // First of all: the worker fetches nothing until it knows what to fetch.
     worker.postMessage({
@@ -556,6 +569,15 @@ export function mount(options = {}) {
     }
 
     worker.onmessage = ({ data }) => {
+        if (data.kind === "stage") {
+            stage = data.text;
+            return;
+        }
+        // Anything else means boot got far enough to speak.
+        if (!spoke) {
+            spoke = true;
+            clearTimeout(stall);
+        }
         if (data.kind === "selection") {
             selection = data.text;
             return;
@@ -579,7 +601,10 @@ export function mount(options = {}) {
             onLog(data.text);
     };
 
-    worker.onerror = (e) => onError(`worker error: ${e.message}`);
+    worker.onerror = (e) => {
+        clearTimeout(stall);
+        onError(`worker error: ${e.message}`);
+    };
 
     return {
         canvas,
@@ -598,6 +623,7 @@ export function mount(options = {}) {
         // must be able to let go of a terminal completely.
         dispose() {
             live = false;
+            clearTimeout(stall);
             observer.disconnect();
             canvas.removeEventListener("focus", focusSink);
             canvas.removeEventListener("click", focusSink);

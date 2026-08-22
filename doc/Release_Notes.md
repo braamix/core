@@ -7,6 +7,43 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## A boot that goes nowhere says so
+
+A black screen was the one failure braam had no words for. Reported against
+Microsoft Edge: the page loaded, the title was right, the canvas stayed black,
+and nothing appeared in the status line or the console. It was not Edge. A
+script-blocking extension in the profile — "Script Defender" — had left
+`javascript: block` for `http://*` and `https://*` in the profile's content
+settings, with an allow rule for one origin. Chromium applies those from the
+stored profile at startup, and it does so **even though the extension itself was
+switched off**, which is why the same profile boots on a second launch and not
+on a cold one. The document parsed to a DOM, the canvas element existed at its
+untouched 300x150 default, and not one line of script ran.
+
+Nothing in braam could report that, because reporting it was itself script. The
+whole diagnostic path — `index.html`'s try/catch, `onError`, the status line —
+lives below the point where execution had already stopped. So the first of three
+guards is a `<noscript>`, the only thing in the page that speaks without
+scripting, and it names the cause rather than the symptom: a blocker can hold
+scripting off while appearing disabled, which otherwise reads as a browser that
+cannot run braam at all.
+
+The other two cover the neighbouring silence, since a stalled fetch throws
+nothing and an unresolved promise is indistinguishable from work in progress.
+Above the module sits a classic `<script>` — deliberately classic, so it needs
+no fetch of its own and runs when the module's never arrives — holding a five
+second watchdog that the module disarms on entry. After that `mount` owns the
+question, and the worker now names each boot step it starts (`kind: "stage"`,
+recorded and shown only if the watchdog fires) so the message is "stuck fetching
+kernel.wasm" rather than "stuck". The stages are messages the page never
+displays in the ordinary case, which is the point: the cost of a boot that works
+is three postMessages.
+
+Five seconds is long enough that a slow network does not trip it and short
+enough to beat the reflex to reload. A watchdog that fires on a merely slow page
+teaches people to ignore it; every condition here is permanent rather than slow,
+so the fetch is not late, it is never coming.
+
 ## `pkg list` lists the repository, and `-i` what is installed
 
 The index was reachable only through `pkg search <pattern>`: a person who wanted
