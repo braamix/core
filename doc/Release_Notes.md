@@ -7,6 +7,27 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## 0.5 — A system a program can be written for, not only in
+
+`BRAAM_VERSION_BASE` moves to 0.5; the commit count and the hash behind it carry
+on unedited. 0.4 was a system that could install software it was not built with
+— a repository, an anchor, an index and a transaction, all of it about how a
+program *arrives*. 0.5 is about what a program may assume once it is here: a
+libm, vendored from musl and checked against a real oracle, so that arithmetic
+on a float is no longer a link error; signals delivered through a third export,
+so a program can be told something happened without being told it is dead;
+`/bin/unzip` for archives that make no claims; and the publisher tools in the
+installed SDK, so a package can be built outside this tree by whoever wrote the
+program.
+
+**The move is the assertion, not the count.** No single commit between 0.4 and
+here forced a new base: a vendored libm, a leaf-call signal export, a
+subcommand that lists the index, a boot that says why it went nowhere. Taken one
+at a time they are a system being finished. Taken together they change who the
+system is for — 0.4's answer to "what can I run here" was "whatever a repository
+signs", and 0.5's is "whatever you write, against a floating-point library, a
+signal, and an SDK that packages it".
+
 ## Signals, and the two facts cancellation was conflating
 
 `sched_cancel` is one sticky `bool` on a `CancelState`, checked at every await
