@@ -2,6 +2,14 @@
 
 An operating system that runs in a browser tab.
 
+[![Launch Braam](doc/launch.svg)](https://braamix.github.io)
+
+**[braamix.github.io](https://braamix.github.io) — a whole system in under a
+megabyte, and it is running before you have finished reading this line.**
+Nothing to install, nobody to sign up with, no server anywhere: the page
+downloads a kernel and gives you a prompt. Your files stay in the browser and
+are still there tomorrow. It works on a phone.
+
 Braam is a small command-line system: a kernel, a filesystem, a terminal, a
 shell, thirty-nine programs and a package manager. It is written from scratch in
 C++20 and compiled to WebAssembly, which browsers run at close to native speed.

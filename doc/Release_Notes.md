@@ -46,6 +46,17 @@ the only copy. `test/smoke/subst.mjs` counts three copies of the file as its
 many-writes case, so the numbers beside it move with the trim — which is the
 comment there saying they would.
 
+**The README's launch button is a file in the tree, not a badge service.**
+`https://braamix.github.io` serves the system itself at the root and the
+package index beside it, so the same address the repository line names is also
+the thing to click. The usual way to put a green button in a README is an
+`img.shields.io` URL, which makes a project whose first claim is that nothing
+is borrowed fetch its own front door from somebody else's server, and breaks
+the day that server does. `doc/launch.svg` is two rectangles, a triangle and
+one `<text>`, drawn with presentation attributes because GitHub strips
+`<style>` out of an SVG, and naming a font *stack* rather than a font because
+the browser rendering it is not this one.
+
 ## 0.5 — A system a program can be written for, not only in
 
 `BRAAM_VERSION_BASE` moves to 0.5; the commit count and the hash behind it carry
