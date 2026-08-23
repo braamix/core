@@ -277,26 +277,30 @@ Task<Result<void>> local_load(Txn &in, Str word, Operand kind, LocalStep &step)
     }
 
     step = LocalStep::Archive;
-    Vec<ZipEntry> entries;
-    if (zip_entries(got.zip.str(), entries) != ZipRead::Ok)
-        co_return Err(Error::Invalid);
+    MemZipSource src(got.zip.str());
+    ZipDir dir;
+    if (Task<ZipRead> t = zip_entries(src, dir)) {
+        if (co_await t != ZipRead::Ok)
+            co_return Err(Error::Invalid);
+    } else
+        co_return Err(Error::NoMemory);
 
     step                 = LocalStep::Metadata;
     const ZipEntry *info = nullptr;
-    for (const ZipEntry &e : entries)
+    for (const ZipEntry &e : dir.entries)
         if (zip_meta(e.name) == ZipMeta::PkgInfo)
             info = &e;
     if (!info)
         co_return Err(Error::NotFound);
 
     Result<String> text = Err(Error::NoMemory);
-    if (Task<Result<String>> t = zip_read(*info))
+    if (Task<Result<String>> t = zip_read(src, *info))
         text = co_await t;
     if (text.is_err())
         co_return Err(text.error());
     got.info = move(text.value());
 
-    CO_TRY_VOID(local_stanza(got, entries, step));
+    CO_TRY_VOID(local_stanza(got, Span<const ZipEntry>(dir.entries), step));
 
     step = LocalStep::Index;
     if (local_conflicts(in.index, got.stanza))
@@ -417,9 +421,14 @@ bool check_size(Span<const ZipEntry> entries, const PackageStanza &p)
 Task<Result<void>> unpack(Txn &in, const PackageStanza &p, Str &step)
 {
     step = "archive";
-    Vec<ZipEntry> entries;
-    if (zip_entries(in.archive.str(), entries) != ZipRead::Ok)
-        co_return Err(Error::Invalid);
+    MemZipSource src(in.archive.str());
+    ZipDir dir_;
+    if (Task<ZipRead> t = zip_entries(src, dir_)) {
+        if (co_await t != ZipRead::Ok)
+            co_return Err(Error::Invalid);
+    } else
+        co_return Err(Error::NoMemory);
+    Span<const ZipEntry> entries(dir_.entries);
 
     step                 = "metadata";
     const ZipEntry *info = nullptr;
@@ -430,7 +439,7 @@ Task<Result<void>> unpack(Txn &in, const PackageStanza &p, Str &step)
         co_return Err(Error::NotFound);
 
     Result<String> text = Err(Error::NoMemory);
-    if (Task<Result<String>> t = zip_read(*info))
+    if (Task<Result<String>> t = zip_read(src, *info))
         text = co_await t;
     if (text.is_err())
         co_return Err(text.error());
@@ -515,7 +524,7 @@ Task<Result<void>> unpack(Txn &in, const PackageStanza &p, Str &step)
                 continue;
 
             Result<String> bytes = Err(Error::NoMemory);
-            if (Task<Result<String>> t = zip_read(e))
+            if (Task<Result<String>> t = zip_read(src, e))
                 bytes = co_await t;
             if (bytes.is_err())
                 co_return Err(bytes.error());

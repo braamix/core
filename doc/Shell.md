@@ -695,9 +695,11 @@ both ends. A last line with no newline is still a line. End of input is status
 `read: <name>: not a valid name` and status 1, and every name is checked
 **before** the read, so a usage error does not consume the line.
 
-`Sys::Read` carries no length, so a chunk is whatever the writer wrote: what
-followed the newline is kept in a pushback buffer keyed by the descriptor, and
-dropped when the next read is on another one. **There is no `-r` and no `-p`.**
+The line is all that is taken. A seekable descriptor is over-read and wound back
+to just past the newline with `Sys::Seek`; anything else is read a byte at a time,
+which `Sys::Read`'s length makes exact. So a later `read`, or a command the
+descriptor is handed to, starts where the line ended. **There is no `-r` and no
+`-p`.**
 
 ### `return [<status>]`
 
@@ -949,9 +951,9 @@ change to argue in Concept.md first.
   so `echo (x)` is a syntax error rather than a word.
 - **A script is parsed whole**, so a syntax error anywhere means none of it
   runs, where v7 runs everything above the error.
-- **`read` reads past the line it was asked for**, keeping the remainder in a
-  pushback buffer. `sh -s` has a reader of its own, so a `read` inside a script
-  off standard input sees a different position in the same stream.
+- **`sh -s` has a reader of its own**, so a `read` inside a script off standard
+  input sees a different position in the same stream. `read` itself no longer
+  takes more than the line it was asked for.
 - **No `command <cmd>`.** Only the query half, `command -v`, is here:
   suppressing function lookup for one command has to reach the per-stage
   resolution in `job.cpp`, and a builtin runs after that decision rather than

@@ -144,9 +144,10 @@ reaches everything *below* a program; the pure shell sources (`parse.cpp`,
 `tokenize.cpp`, `expand.cpp`, `match.cpp`, `cond.cpp`), `proc/opt.cpp`,
 `proc/time.cpp` and the syscall-free half of `src/cmd/pkg/` are compiled
 straight into the suite rather than linked, so a syscall in any of them is a
-link error. `src/cmd/pkg/trust.cpp` and `index.cpp` are in that half by taking a
-`PkgHost` — syscalls from `/bin/pkg` (`src/cmd/pkg/host.cpp`), the kernel's own
-services from the suite (`test/unit/fakehost.h`) — which is how a check that
+link error. `src/cmd/pkg/trust.cpp`, `index.cpp` and `zip.cpp` are in that half
+by taking a `PkgHost` or a `ZipSource` — syscalls from `/bin/pkg`
+(`src/cmd/pkg/host.cpp`), the kernel's own services from the suite
+(`test/unit/fakehost.h`) — which is how a check that
 must be tested keeps out of the half that cannot be. `pkg/unzip.cpp`,
 `store.cpp`, `host.cpp` and `install.cpp` stay out, and `sh/glob.cpp` and
 `sh/condrun.cpp` with them, because they walk the store. `braam_math` is the one

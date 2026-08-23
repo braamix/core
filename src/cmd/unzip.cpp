@@ -94,12 +94,89 @@ Task<i32> list_them(Span<const ZipEntry> entries, Args names)
     co_return 0;
 }
 
+// Everything the archive's directory makes possible, so that proc_main closes
+// the descriptor in one place.
+Task<i32> extract(ZipSource &src, Span<const ZipEntry> entries, Args names, bool list, bool pipe,
+                  Str dest)
+{
+    // A name no entry carries is reported; the rest still run.
+    i32 status = 0;
+    for (usize i = 0; i < names.size(); i++) {
+        bool found = false;
+        for (const ZipEntry &e : entries)
+            found = found || e.name == names[i];
+        if (found)
+            continue;
+        if (Task<void> e = errln("unzip", names[i], Error::NotFound))
+            co_await e;
+        status = 1;
+    }
+
+    if (list) {
+        i32 bad = 1;
+        if (Task<i32> t = list_them(entries, names))
+            bad = co_await t;
+        co_return bad != 0 ? bad : status;
+    }
+
+    // One entry inflated at a time, written and freed — unpack()'s discipline.
+    for (const ZipEntry &e : entries) {
+        if (!wanted(names, e.name))
+            continue;
+
+        Result<String> bytes = Err(Error::NoMemory);
+        if (Task<Result<String>> t = zip_read(src, e))
+            bytes = co_await t;
+        if (bytes.is_err()) {
+            if (bytes.error() == Error::Cancelled)
+                co_return 130;
+            if (Task<void> x = errln("unzip", e.name, bytes.error()))
+                co_await x;
+            status = 1;
+            continue;
+        }
+
+        if (pipe) {
+            if (Result<void> w = co_await write_all(SYS_STDOUT, bytes.value().str()); w.is_err())
+                co_return 1;
+            continue;
+        }
+
+        String path;
+        if (!join(dest, e.name, path))
+            co_return 1;
+
+        Result<void> done = Err(Error::NoMemory);
+        Str parent        = parent_of(path.str());
+        if (parent.empty()) {
+            done = Result<void>();
+        } else if (Task<Result<void>> t = make_dir_all(parent)) {
+            done = co_await t;
+        }
+        if (done.is_ok())
+            if (Task<Result<void>> t = put_file(path.str(), bytes.value().str()))
+                done = co_await t;
+
+        if (done.is_err()) {
+            if (done.error() == Error::Cancelled)
+                co_return 130;
+            if (Task<void> x = errln("unzip", path.str(), done.error()))
+                co_await x;
+            status = 1;
+        }
+    }
+
+    co_return status;
+}
+
 Error why_of(ZipRead r)
 {
     if (r == ZipRead::Unsupported)
         return Error::Unsupported;
     if (r == ZipRead::NoMemory)
         return Error::NoMemory;
+    if (r == ZipRead::Io)
+        return Error::Io;
     return Error::Invalid;
 }
 
@@ -145,90 +222,49 @@ Task<i32> proc_main(Args args)
     Str archive = rest[0];
     Args names{ rest.v.subspan(1) };
 
-    Result<String> got = Err(Error::NoMemory);
-    if (Task<Result<String>> t = read_file(archive))
-        got = co_await t;
-    if (got.is_err()) {
-        if (got.error() == Error::Cancelled)
+    // The archive is read where it is looked at — the directory is at its end
+    // — so nothing here holds it whole.
+    Result<FileInfo> st = Err(Error::NoMemory);
+    if (Task<Result<FileInfo>> t = stat_of(archive))
+        st = co_await t;
+    if (st.is_ok() && st.value().kind != SYS_KIND_FILE)
+        st = Err(Error::IsDir);
+    if (st.is_err()) {
+        if (st.error() == Error::Cancelled)
             co_return 130;
-        if (Task<void> e = errln("unzip", archive, got.error()))
+        if (Task<void> e = errln("unzip", archive, st.error()))
             co_await e;
         co_return 1;
     }
 
-    Vec<ZipEntry> entries;
-    if (ZipRead how = zip_entries(got.value().str(), entries); how != ZipRead::Ok) {
+    Result<i32> fd = Err(Error::NoMemory);
+    if (Task<Result<i32>> t = open_read(archive))
+        fd = co_await t;
+    if (fd.is_err()) {
+        if (fd.error() == Error::Cancelled)
+            co_return 130;
+        if (Task<void> e = errln("unzip", archive, fd.error()))
+            co_await e;
+        co_return 1;
+    }
+    FdZipSource src(u32(fd.value()), st.value().size);
+    ZipDir dir;
+    ZipRead how = ZipRead::NoMemory;
+    if (Task<ZipRead> t = zip_entries(src, dir))
+        how = co_await t;
+    if (how != ZipRead::Ok) {
         if (Task<void> e = errln("unzip", archive, why_of(how)))
             co_await e;
+        if (Task<void> c = close_fd(u32(fd.value())))
+            co_await c;
         co_return 1;
     }
+    Span<const ZipEntry> entries(dir.entries);
 
-    // A name no entry carries is reported; the rest still run.
-    i32 status = 0;
-    for (usize i = 0; i < names.size(); i++) {
-        bool found = false;
-        for (const ZipEntry &e : entries)
-            found = found || e.name == names[i];
-        if (found)
-            continue;
-        if (Task<void> e = errln("unzip", names[i], Error::NotFound))
-            co_await e;
-        status = 1;
-    }
-
-    if (list) {
-        i32 bad = 1;
-        if (Task<i32> t = list_them(entries, names))
-            bad = co_await t;
-        co_return bad != 0 ? bad : status;
-    }
-
-    // One entry inflated at a time, written and freed — unpack()'s discipline.
-    for (const ZipEntry &e : entries) {
-        if (!wanted(names, e.name))
-            continue;
-
-        Result<String> bytes = Err(Error::NoMemory);
-        if (Task<Result<String>> t = zip_read(e))
-            bytes = co_await t;
-        if (bytes.is_err()) {
-            if (bytes.error() == Error::Cancelled)
-                co_return 130;
-            if (Task<void> x = errln("unzip", e.name, bytes.error()))
-                co_await x;
-            status = 1;
-            continue;
-        }
-
-        if (pipe) {
-            if (Result<void> w = co_await write_all(SYS_STDOUT, bytes.value().str()); w.is_err())
-                co_return 1;
-            continue;
-        }
-
-        String path;
-        if (!join(dest, e.name, path))
-            co_return 1;
-
-        Result<void> done = Err(Error::NoMemory);
-        Str parent        = parent_of(path.str());
-        if (parent.empty()) {
-            done = Result<void>();
-        } else if (Task<Result<void>> t = make_dir_all(parent)) {
-            done = co_await t;
-        }
-        if (done.is_ok())
-            if (Task<Result<void>> t = put_file(path.str(), bytes.value().str()))
-                done = co_await t;
-
-        if (done.is_err()) {
-            if (done.error() == Error::Cancelled)
-                co_return 130;
-            if (Task<void> x = errln("unzip", path.str(), done.error()))
-                co_await x;
-            status = 1;
-        }
-    }
-
+    i32 status = 1;
+    if (Task<i32> t = extract(src, entries, names, list, pipe, dest))
+        status = co_await t;
+    if (Task<void> c = close_fd(u32(fd.value())))
+        co_await c;
     co_return status;
 }

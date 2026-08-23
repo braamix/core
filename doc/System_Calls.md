@@ -259,7 +259,7 @@ it, and how much memory to give it. It lives in a wasm custom section named
 ```c
 struct ProcMeta {
     u32 magic;          // 0x6d617262, "bram"
-    u32 abi;            // PROC_ABI, currently 16
+    u32 abi;            // PROC_ABI, currently 18
     u32 flags;
     u32 initial_pages;
     u32 max_pages;
@@ -765,7 +765,7 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | # | Name | Op-word arg | Payload | Status | Data |
 |---|---|---|---|---|---|
 | 16 | `Write` | fd | the bytes | bytes written | — |
-| 17 | `Read` | fd | — | bytes read, 0 at end | the chunk |
+| 17 | `Read` | fd | —, or `u32 max` | bytes read, 0 at end | the chunk |
 | 18 | `Open` | `SYS_O_*` | the path | the fd | — |
 | 19 | `Close` | fd | — | 0 | — |
 | 20 | `Stat` | bit 0 = do not follow a final link | the path | 0 | `u32 kind`, `u64 size`, `u64 mtime` |
@@ -778,6 +778,7 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 27 | `Symlink` | — | `u32 target_len`, the target, the link's own path | 0 | — |
 | 28 | `ReadLink` | — | the path | 0 | the target, unresolved |
 | 29 | `Rename` | — | `u32 from_len`, the old path, the new one | 0 | — |
+| 30 | `Seek` | fd | `u32 whence`, `i64 offset` | 0 | `u64` position |
 | 32 | `Sleep` | — | `u32 ms` | 0 | — |
 | 48 | `Clock` | — | — | 0 | `u64 epoch_ms`, `i32 tz_min` |
 | 49 | `Storage` | — | — | 0 | `u64 quota`, `u64 usage`, `u32 flags` |
@@ -808,6 +809,35 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 
 Every multi-byte field is little-endian, and a `u64` is a low word then a high
 word.
+
+**`Seek` reports where it landed as data rather than as the status.** A position
+is a `u64` and the status is an `i32`; truncating it would be silently wrong
+past 2 GiB, and `Stat`, `Clock` and `Storage` already answer 0 with their wide
+values in the data. The offset travels in the payload for the same reason — the
+op word's argument is 24 bits and holds the descriptor.
+
+**Anything that is not a file is `Err(Unsupported)`, and so are 0, 1 and 2.**
+That is Unix's `ESPIPE`. `Perm` in this ABI means "you may not" — a busy handle,
+a writer holding the file — where this is "not here", which is what `Rename`
+across a mount already answers; the `read` builtin branches on the difference.
+Descriptors 0, 1 and 2 are not in the table at all (§9), so there is no handle
+to move: making them seekable means reaching through the stage's `Stdio`, which
+is a §4.3 decision and not a patch. Seeking *past* the end is not an error — a
+read there returns 0 bytes, which is already an end of input — and 31 is left
+free for the `Truncate` that §8's opening rule forbids adding on speculation.
+
+**`SYS_O_APPEND` is a `Seek(0, SYS_SEEK_END)` folded into the open**, and stays
+folded: `>>` must not cost two round trips, and the position has to be taken at
+the open rather than one call later.
+
+**`Read` grew an optional length, and it can only ever shorten a read.** A `max`
+above `SYS_CHUNK` clamps to it, because 512 is the allocator's top size class on
+both sides of the wire and not a number the caller may raise. What a short read
+leaves of a chunk already taken off a stream is kept on the descriptor — on the
+`Handle`, or on the process record for descriptor 0 — so nothing is lost and the
+next read serves it first. That is what lets `/bin/sh`'s `read` take one line off
+a pipe without taking the next one, and it lives in the kernel because a buffer
+in a program outlives the descriptor number it was keyed to.
 
 **`SigAct` carries its mask as a payload, which nothing else this small does.**
 The op word's argument is 24 bits and `SIG_WINCH` is bit 28, so the mask does
@@ -1139,6 +1169,9 @@ failure.
 | `SYS_STAGE_MAX` | 1 MiB | the cap on `Sys::Stage`, which is the largest blit there can be |
 | `SYS_BLIT_HEAD` | 7 | `ScreenBlit`'s header, in `u32`s |
 | `SYS_O_READ`…`APPEND` | 1, 2, 4, 8, 16 | open flags, restated rather than shared with the VFS |
+| `SYS_SEEK_SET`/`CUR`/`END` | 0, 1, 2 | `Seek`'s whence, in Unix's numbers |
+| `SYS_SEEK_MAX` | 2^63 − 1 | the largest position; the wire's offset is signed |
+| `SYS_SEEK_WORDS` | 3 | `Seek`'s payload, in `u32`s |
 | `SYS_KIND_FILE`/`DIR`/`LINK` | 0, 1, 2 | what `Stat` and `List` report |
 | `SYS_STAT_NOFOLLOW` | 1 | `Stat`'s arg: report a final symbolic link itself |
 | `SYS_STORE_*` | 1, 2, 4, 8 | OPFS, sync, persisted, and "the host answered at all" |
@@ -1214,6 +1247,12 @@ A `Handle` is a descriptor whatever is behind it, and there are eight kinds:
 | `PickFile` | `PickOpen` | `pick_read` | — | `Close` |
 | `PipeRead` | `Pipe` | the channel, EOF when the writer goes | — | `Close`, **or being moved into a child** |
 | `PipeWrite` | `Pipe` | — | the channel | `Close`, **or being moved into a child** |
+
+`File` is the only kind `Seek` accepts: its offset is a number the handle keeps,
+where every other kind is a stream nothing can wind back. Each of those keeps
+instead whatever a short `Read` left of a chunk it had already taken, so a length
+never loses bytes; that remainder dies with the handle, which is why a reused
+descriptor number cannot inherit one.
 
 Making the host services descriptors is what lets `Read`, `Write` and `Close`
 serve all of them. The alternative was a `fetch` family, a socket family and a

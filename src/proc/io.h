@@ -18,6 +18,11 @@ Task<Result<void>> write_all(u32 fd, Str s);
 // One chunk, or Err(Closed) at end of input.
 Task<Result<String>> read_chunk(u32 fd);
 
+// At most `max` bytes, clamped to SYS_CHUNK. What is left stays on the
+// descriptor, so a stream loses nothing and the next read serves it first —
+// which is how a reader takes a line off a pipe without taking the next one.
+Task<Result<String>> read_some(u32 fd, u32 max);
+
 // Opens `path` with SYS_O_* flags (sysabi.h). The flags ride in the op word
 // rather than the payload, so the payload is the path and nothing else.
 Task<Result<i32>> open_at(Str path, u32 flags);
@@ -40,6 +45,13 @@ Task<void> close_fd(u32 fd);
 // A second descriptor for the same open thing. One handle behind both, so a
 // file's offset is shared and closing one shuts nothing.
 Task<Result<u32>> dup_fd(u32 fd);
+
+// The descriptor's read/write position, in lseek(2)'s three forms, reporting
+// where it landed. `whence` is SYS_SEEK_SET, SYS_SEEK_CUR or SYS_SEEK_END.
+// Err(Unsupported) on anything that is not a file — a pipe, a socket, a fetched
+// body, and 0, 1 and 2. Past the end is not an error; a read there is an end of
+// input.
+Task<Result<u64>> seek_fd(u32 fd, i64 off, u32 whence);
 
 // What Sys::Stat answers with, and one entry of what Sys::List answers with.
 // `kind` is SYS_KIND_FILE, SYS_KIND_DIR or SYS_KIND_LINK; `mtime` is

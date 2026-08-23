@@ -68,5 +68,22 @@ export function check() {
     // to name the stream this shell was handed.
     rfile("(exec > /home/rd/log; echo one; echo two)", "/home/rd/log", "one|two");
     t.is("(exec > /home/rd/log); echo back", "back");
+
+    // `read` on a seekable descriptor leaves the position just past the newline
+    // rather than wherever the chunk ended, so whoever reads next sees the rest
+    // of the file. A Spawn moves the descriptor, so `cat` is that reader.
+    rfile("{ echo a; echo b; echo c; } > /home/rd/f", "/home/rd/f", "a|b|c");
+    t.is("{ read x; cat; } < /home/rd/f", "b|c");
+    t.is("{ read x; read y; echo $x-$y; } < /home/rd/f", "a-b");
+    t.is("read x < /home/rd/f; echo $x", "a");
+    t.is("while read l; do echo $l; done < /home/rd/f", "a|b|c");
+
+    // A pipe is not seekable, so it is read a byte at a time and the line is
+    // all that leaves the stream. Nothing is held over to the next reader, so
+    // a reused descriptor number cannot inherit another's bytes.
+    t.is("echo hi | read x; echo $x", "hi");
+    t.is("cat /home/rd/f | read x; echo $x", "a");
+    t.is("echo one two | read x y; echo $y", "two");
+
     submit("rm -r /home/rd", t.at(0.01));
 }

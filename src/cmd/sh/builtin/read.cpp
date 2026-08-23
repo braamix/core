@@ -1,18 +1,9 @@
 #include "cmd/sh/name.h"
 #include "cmd/sh/var.h"
 #include "decl.h"
-#include "kernel/alloc.h"
 #include "kernel/string.h"
 
 namespace {
-
-// What the last read took past its newline. Sys::Read carries no length, so a
-// chunk is whatever the writer wrote and a read of one line keeps the rest of
-// it. Kept per descriptor and dropped when the next read is on another one:
-// two streams cannot share a pushback. A pointer, so the global stays
-// trivially destructible (CLAUDE.md).
-String *g_rest;
-u32 g_rest_fd;
 
 bool is_ifs(char c, Str ifs)
 {
@@ -45,30 +36,31 @@ Str take_rest(Str rest, Str ifs)
 }
 
 // One line off `fd`, without its newline. Err(Closed) at end of input.
+//
+// The line is all that is taken: a seekable descriptor is over-read a chunk at
+// a time and wound back to just past the newline, and anything else is read a
+// byte at a time. So whoever reads the same descriptor next — a later `read`,
+// or a child a Spawn moved it into — starts where this line ended.
 Task<Result<String>> read_line(u32 fd)
 {
-    String buf;
-    if (g_rest && g_rest_fd == fd && !buf.assign(g_rest->str()))
-        co_return Err(Error::NoMemory);
-    heap_delete(g_rest);
-    g_rest = nullptr;
+    bool seekable = false;
+    if (Task<Result<u64>> t = seek_fd(fd, 0, SYS_SEEK_CUR))
+        seekable = (co_await t).is_ok();
 
+    String buf;
     for (;;) {
         usize nl = buf.str().find('\n');
         if (nl != Str::npos) {
-            String line, rest;
-            if (!line.assign(buf.str().substr(0, nl)) || !rest.assign(buf.str().substr(nl + 1)))
+            String line;
+            if (!line.assign(buf.str().substr(0, nl)))
                 co_return Err(Error::NoMemory);
-            if (!rest.empty()) {
-                g_rest = heap_new<String>(move(rest));
-                if (!g_rest)
-                    co_return Err(Error::NoMemory);
-                g_rest_fd = fd;
-            }
+            if (usize back = buf.size() - (nl + 1); back)
+                if (Task<Result<u64>> t = seek_fd(fd, -i64(back), SYS_SEEK_CUR))
+                    co_await t;
             co_return move(line);
         }
 
-        Task<Result<String>> t = read_chunk(fd);
+        Task<Result<String>> t = seekable ? read_chunk(fd) : read_some(fd, 1);
         Result<String> r       = t ? co_await t : Err(Error::NoMemory);
         if (r.is_err()) {
             // A last line with no newline is a line.

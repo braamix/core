@@ -92,6 +92,52 @@ void test_sysabi()
     CHECK_EQ(u32(Sys::Cursor), 69u);
     CHECK_EQ(u32(Sys::Tty), 72u);
     CHECK_EQ(u32(Sys::Fg), 84u);
+    CHECK_EQ(u32(Sys::Seek), 30u); // the filesystem block's growth room
+
+    // Seek names its descriptor in the op word, as every descriptor operation
+    // does; the offset is too wide for that field and rides in the payload.
+    CHECK_EQ(sys_op_fd(sys_op(Sys::Seek, 7)), 7);
+    CHECK(sys_op_code(sys_op(Sys::Seek, 7)) == Sys::Seek);
+
+    // That payload, whose offset is signed and crosses two words.
+    auto round = [](i64 want) {
+        u8 buf[SYS_SEEK_WORDS * 4];
+        u32 whence = 0;
+        i64 off    = 0;
+        sys_seek_put(buf, SYS_SEEK_END, want);
+        sys_seek_get(buf, whence, off);
+        return whence == SYS_SEEK_END && off == want;
+    };
+    CHECK(round(0));
+    CHECK(round(1));
+    CHECK(round(-1));
+    CHECK(round(-511));
+    CHECK(round(0x7fffffffffLL));
+    CHECK(round(-0x7fffffffffLL));
+    CHECK(round(i64(SYS_SEEK_MAX)));
+    CHECK(round(-i64(SYS_SEEK_MAX) - 1)); // INT64_MIN
+
+    // Where a seek lands. SET counts from the start, CUR from where it is and
+    // END from the size; a result before the start is refused and one past the
+    // end is not, since a read there is an end of input.
+    {
+        u64 at = 0;
+        CHECK(sys_seek_to(100, 400, SYS_SEEK_SET, 7, at) && at == 7);
+        CHECK(sys_seek_to(100, 400, SYS_SEEK_CUR, 7, at) && at == 107);
+        CHECK(sys_seek_to(100, 400, SYS_SEEK_CUR, -7, at) && at == 93);
+        CHECK(sys_seek_to(100, 400, SYS_SEEK_END, 0, at) && at == 400);
+        CHECK(sys_seek_to(100, 400, SYS_SEEK_END, -400, at) && at == 0);
+        CHECK(sys_seek_to(100, 400, SYS_SEEK_END, 64, at) && at == 464); // past the end
+        CHECK(sys_seek_to(0, 0, SYS_SEEK_SET, 0, at) && at == 0);
+
+        CHECK(!sys_seek_to(100, 400, SYS_SEEK_SET, -1, at));
+        CHECK(!sys_seek_to(100, 400, SYS_SEEK_CUR, -101, at));
+        CHECK(!sys_seek_to(100, 400, SYS_SEEK_END, -401, at));
+        CHECK(!sys_seek_to(100, 400, 3, 0, at));                        // no such whence
+        CHECK(!sys_seek_to(100, 400, SYS_SEEK_CUR, i64(-1) << 63, at)); // INT64_MIN
+        CHECK(!sys_seek_to(1, 400, SYS_SEEK_CUR, i64(SYS_SEEK_MAX), at));
+        CHECK(sys_seek_to(0, 0, SYS_SEEK_SET, i64(SYS_SEEK_MAX), at) && at == SYS_SEEK_MAX);
+    }
 
     // A spawn request's flags word: the two page counts, in one word because
     // `aux` is the pid and nothing else may ride on that.

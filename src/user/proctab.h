@@ -123,6 +123,11 @@ struct Handle {
     u32 set  = 0;     // PickFile: the descriptor of the set it came from
     usize ix = 0;     // PickFile: which of that set's files
     u64 off  = 0;     // Body and PickFile: how far it has been read
+
+    // What a short Sys::Read left of a chunk this descriptor had already taken
+    // off its stream. The next read serves it before asking again; it dies with
+    // the handle, so a reused descriptor number never inherits one.
+    String pend;
 };
 
 void handle_release(Handle *h);
@@ -257,6 +262,9 @@ struct Proc {
     // The environment blob this process was entered with, inherited by a child
     // whose Sys::Spawn names none. Fixed at spawn: there is no setenv.
     String env;
+
+    // Handle::pend, for descriptor 0, which is a stream rather than a handle.
+    String in_pend;
 
     // What this process started, and who is waiting on it. `dead` is the
     // stepper's End having run: a child that finishes afterwards has nobody

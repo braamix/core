@@ -43,6 +43,9 @@ matcher, `test`'s expression), `proc/opt.cpp` and `proc/time.cpp` (the option
 parser and the calendar), and the syscall-free half of `src/cmd/pkg/`.
 `pkg/trust.cpp` and `pkg/index.cpp` qualify by taking a `PkgHost`: the suite
 hands them the kernel's own services where `/bin/pkg` hands them syscalls.
+`pkg/zip.cpp` qualifies the same way, by taking a `ZipSource`: the archive's
+bytes arrive through an interface, so `/bin/unzip` can seek a descriptor while
+the suite reads a buffer.
 `pkg/unzip.cpp`, `store.cpp`, `host.cpp` and `install.cpp` stay out.
 `sh/glob.cpp` and `sh/condrun.cpp` stay out for the same reason — they walk the
 store. Each group carries its reason in

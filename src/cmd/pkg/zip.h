@@ -1,13 +1,14 @@
 // A package is a zip: §5.2 is parseZip's rules (web/fs.js) written down once,
 // §5.1 the top-level dot-entry split (Package_Formats.md). unzip.h is the half
 // that inflates; nothing here needs a syscall.
-//
-// Every Str views the archive the caller holds.
 #pragma once
 
+#include "kernel/result.h"
+#include "kernel/span.h"
 #include "kernel/str.h"
 #include "kernel/string.h"
 #include "kernel/sysabi.h"
+#include "kernel/task.h"
 #include "kernel/types.h"
 #include "kernel/vec.h"
 
@@ -16,11 +17,42 @@
 constexpr u32 ZIP_STORE   = 0;
 constexpr u32 ZIP_DEFLATE = 8;
 
+// Where a reader gets the archive's bytes. A zip is read back to front — the
+// directory is at the end — so this is random access and not a stream. Keeping
+// it abstract is what leaves zip.cpp with no syscall in it: /bin/unzip reads a
+// descriptor, /bin/pkg and the unit suite read a buffer.
+struct ZipSource {
+    // The archive's length, known before anything is read.
+    virtual u64 size() = 0;
+
+    // Exactly out.size() bytes at `off`. Err(Invalid) past the end.
+    virtual Task<Result<void>> read(u64 off, Span<u8> out) = 0;
+};
+
+// A ZipSource over bytes already in hand.
+struct MemZipSource : ZipSource {
+    explicit MemZipSource(Str bytes) : bytes_(bytes) {}
+
+    u64 size() override { return bytes_.size(); }
+
+    Task<Result<void>> read(u64 off, Span<u8> out) override;
+
+private:
+    Str bytes_;
+};
+
 struct ZipEntry {
-    Str name;
-    Str data; // where the *local* header says, never the central one
-    u32 method = ZIP_STORE;
+    Str name;       // views the ZipDir this came from
+    u64 at     = 0; // where the data begins, as the *local* header says
+    u64 packed = 0; // its length there
     u64 size   = 0; // the declared uncompressed size: the inflate's ceiling
+    u32 method = ZIP_STORE;
+};
+
+// The archive's directory, held together because a name views it.
+struct ZipDir {
+    String central;
+    Vec<ZipEntry> entries;
 };
 
 enum class ZipRead {
@@ -28,6 +60,7 @@ enum class ZipRead {
     Malformed,   // not a zip this reader reads
     Unsupported, // zip64, an encrypted entry, or a method that is not 0 or 8
     NoMemory,
+    Io, // the source would not answer
 };
 
 // The most an entry may be compressed to: Sys::Inflate stages its input, so a
@@ -35,10 +68,14 @@ enum class ZipRead {
 constexpr usize ZIP_PACKED_MAX = SYS_STAGE_MAX;
 
 // The central directory, in its own order. A name ending in `/` is skipped.
-ZipRead zip_entries(Str archive, Vec<ZipEntry> &out);
+// Two reads plus one small one per entry, whatever the archive weighs.
+Task<ZipRead> zip_entries(ZipSource &src, ZipDir &out);
 
-// Method 0: the archive's own bytes, once the declared size agrees.
-bool zip_stored(const ZipEntry &e, Str &out);
+// An entry's bytes as the archive holds them, compressed or not.
+Task<Result<String>> zip_packed(ZipSource &src, const ZipEntry &e);
+
+// Method 0: the same bytes, once the declared size agrees.
+Task<Result<String>> zip_stored(ZipSource &src, const ZipEntry &e);
 
 // ---------------------------------------------------- §5.1, the dot-entries
 

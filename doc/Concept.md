@@ -800,19 +800,19 @@ The wire's conventions:
   and its own scheduler job, so a socket read that never completes cannot starve
   the keystroke behind it.
 
-**The table is forty-four operations and `PROC_ABI` is 16**: four synchronous —
-`exit`, `getpid`, `now`, `stage` — and forty asynchronous. `Verify` and
-`Inflate` are the newest, and are what `/bin/pkg` needs of the host (§6): a
-signature checked before an index is believed, and a way to read a zip that is
-not the boot archive. [System_Calls.md](System_Calls.md) lists them all with
-what each carries.
+**The table is forty-six operations and `PROC_ABI` is 18**: four synchronous —
+`exit`, `getpid`, `now`, `stage` — and forty-two asynchronous. `Seek` is the
+newest: a descriptor's read/write position, in `lseek(2)`'s three forms.
+[System_Calls.md](System_Calls.md) lists them all with what each carries.
 
 Four rules bound the table:
 
 - **Every operation has a caller in `src/cmd/`.** That is a rule against
   *growing* the table on speculation, not one that retires an operation whose
   caller is refactored. `Dup`'s caller is `/bin/sh`, which is a program like any
-  other.
+  other, and so is `Seek`'s: the `read` builtin winds a seekable descriptor back
+  to just past the newline, and `/bin/tail` seeks to the window it needs instead
+  of reading the whole file.
 - **The synchronous half is closed at four.** Each is answerable inside the
   process's own worker with no kernel to ask — `getpid` from the closure, `now`
   from the step message's clock plus elapsed time, `exit` buffered onto the
@@ -1264,7 +1264,9 @@ Two constraints to build around:
   open-file table. The table holds **one backend handle per file and shares
   it**: a second open takes a reference on the handle that is already there
   rather than asking OPFS for one it would refuse. Offsets live above the VFS,
-  so descriptors sharing a handle cannot disturb each other's position. What the
+  so two separate opens cannot disturb each other's position — a `Dup` or a
+  descriptor moved into a child share one, and `Sys::Seek` is what moves it on
+  purpose. What the
   table still refuses is a second opener while a *writer* holds the file, and a
   writer while anyone holds it — `O_TRUNC` counts as writing, since a share
   skips the backend open that would have performed it. Sharing is what makes

@@ -47,88 +47,170 @@ bool name_ok(Str name)
     return true;
 }
 
-// The last EOCD in the comment window, or npos.
-usize find_eocd(Str archive)
+// The last EOCD in `window`, the tail of the archive, or npos.
+usize find_eocd(Str window)
 {
-    if (archive.size() < EOCD_BYTES)
+    if (window.size() < EOCD_BYTES)
         return Str::npos;
-    usize last  = archive.size() - EOCD_BYTES;
-    usize first = last > COMMENT_MAX ? last - COMMENT_MAX : 0;
-    for (usize at = last + 1; at-- > first;)
-        if (u32at(archive, at) == EOCD_SIG)
+    for (usize at = window.size() - EOCD_BYTES + 1; at-- > 0;)
+        if (u32at(window, at) == EOCD_SIG)
             return at;
     return Str::npos;
 }
 
+// `n` bytes at `off`, as a String of exactly that length.
+Task<Result<String>> src_read(ZipSource &src, u64 off, u64 n)
+{
+    if (n > src.size() || off > src.size() - n)
+        co_return Err(Error::Invalid);
+
+    // Reserved first, so the fill cannot fail and the read has somewhere to go.
+    String out;
+    if (!out.reserve(usize(n)))
+        co_return Err(Error::NoMemory);
+    for (u64 i = 0; i < n; i++)
+        out.push(0);
+
+    if (n) {
+        Span<u8> into(reinterpret_cast<u8 *>(out.data()), usize(n));
+        Result<void> r = Err(Error::NoMemory);
+        if (Task<Result<void>> t = src.read(off, into))
+            r = co_await t;
+        if (r.is_err())
+            co_return Err(r.error());
+    }
+    co_return move(out);
+}
+
 } // namespace
 
-ZipRead zip_entries(Str archive, Vec<ZipEntry> &out)
+Task<Result<void>> MemZipSource::read(u64 off, Span<u8> out)
 {
-    usize eocd = find_eocd(archive);
-    if (eocd == Str::npos)
-        return ZipRead::Malformed;
+    if (out.size() > bytes_.size() || off > bytes_.size() - out.size())
+        co_return Err(Error::Invalid);
+    for (usize i = 0; i < out.size(); i++)
+        out[i] = u8(bytes_[usize(off) + i]);
+    co_return {};
+}
 
-    u32 count   = u16at(archive, eocd + 10);
-    u32 catalog = u32at(archive, eocd + 16);
+Task<ZipRead> zip_entries(ZipSource &src, ZipDir &out)
+{
+    u64 total = src.size();
+    if (total < EOCD_BYTES)
+        co_return ZipRead::Malformed;
+
+    // The last EOCD_BYTES are the end record itself when there is no comment,
+    // which is the usual archive; only one that has one costs the window.
+    u64 span            = EOCD_BYTES;
+    Result<String> tail = Err(Error::NoMemory);
+    if (Task<Result<String>> t = src_read(src, total - span, span))
+        tail = co_await t;
+    if (tail.is_err())
+        co_return tail.error() == Error::NoMemory ? ZipRead::NoMemory : ZipRead::Io;
+
+    usize found = find_eocd(tail.value().str());
+    if (found == Str::npos) {
+        span = EOCD_BYTES + COMMENT_MAX;
+        if (span > total)
+            span = total;
+        if (Task<Result<String>> t = src_read(src, total - span, span))
+            tail = co_await t;
+        else
+            co_return ZipRead::NoMemory;
+        if (tail.is_err())
+            co_return tail.error() == Error::NoMemory ? ZipRead::NoMemory : ZipRead::Io;
+        found = find_eocd(tail.value().str());
+    }
+    if (found == Str::npos)
+        co_return ZipRead::Malformed;
+
+    Str end     = tail.value().str().substr(found);
+    u32 count   = u16at(end, 10);
+    u64 catalog = u32at(end, 16);
+    u64 eocd_at = total - span + found;
     // Zip64 announces itself by saturating these.
     if (count == 0xffff || catalog == 0xffffffff)
-        return ZipRead::Unsupported;
+        co_return ZipRead::Unsupported;
+    if (catalog > eocd_at)
+        co_return ZipRead::Malformed;
 
-    usize at = catalog;
+    // And one read of the directory, which every name goes on viewing.
+    Result<String> dir = Err(Error::NoMemory);
+    if (Task<Result<String>> t = src_read(src, catalog, eocd_at - catalog))
+        dir = co_await t;
+    if (dir.is_err())
+        co_return dir.error() == Error::NoMemory ? ZipRead::NoMemory : ZipRead::Io;
+    out.central = move(dir.value());
+
+    Str central = out.central.str();
+    usize at    = 0;
     for (u32 i = 0; i < count; i++) {
-        if (at > archive.size() || archive.size() - at < CENTRAL_BYTES ||
-            u32at(archive, at) != CENTRAL_SIG)
-            return ZipRead::Malformed;
+        if (at > central.size() || central.size() - at < CENTRAL_BYTES ||
+            u32at(central, at) != CENTRAL_SIG)
+            co_return ZipRead::Malformed;
 
-        u32 flags     = u16at(archive, at + 8);
-        u32 method    = u16at(archive, at + 10);
-        usize packed  = u32at(archive, at + 20);
-        u64 size      = u32at(archive, at + 24);
-        usize namelen = u16at(archive, at + 28);
-        usize local   = u32at(archive, at + 42);
-        if (archive.size() - at - CENTRAL_BYTES < namelen)
-            return ZipRead::Malformed;
-        Str name = archive.substr(at + CENTRAL_BYTES, namelen);
-        at += CENTRAL_BYTES + namelen + u16at(archive, at + 30) + u16at(archive, at + 32);
+        u32 flags     = u16at(central, at + 8);
+        u32 method    = u16at(central, at + 10);
+        u64 packed    = u32at(central, at + 20);
+        u64 size      = u32at(central, at + 24);
+        usize namelen = u16at(central, at + 28);
+        u64 local     = u32at(central, at + 42);
+        if (central.size() - at - CENTRAL_BYTES < namelen)
+            co_return ZipRead::Malformed;
+        Str name = central.substr(at + CENTRAL_BYTES, namelen);
+        at += CENTRAL_BYTES + namelen + u16at(central, at + 30) + u16at(central, at + 32);
 
         if (flags & 1)
-            return ZipRead::Unsupported; // encrypted
+            co_return ZipRead::Unsupported; // encrypted
         if (name.ends_with("/"))
             continue; // a directory entry; the paths imply it anyway
         if (!name_ok(name))
-            return ZipRead::Malformed;
+            co_return ZipRead::Malformed;
 
         // Re-read the local header: taking the central directory's offset for
         // the data is the classic way to get this wrong.
-        if (local > archive.size() || archive.size() - local < LOCAL_BYTES ||
-            u32at(archive, local) != LOCAL_SIG)
-            return ZipRead::Malformed;
-        usize from = local + LOCAL_BYTES + u16at(archive, local + 26) + u16at(archive, local + 28);
-        if (from > archive.size() || archive.size() - from < packed)
-            return ZipRead::Malformed;
+        if (local > total || total - local < LOCAL_BYTES)
+            co_return ZipRead::Malformed;
+        Result<String> head = Err(Error::NoMemory);
+        if (Task<Result<String>> t = src_read(src, local, LOCAL_BYTES))
+            head = co_await t;
+        if (head.is_err())
+            co_return head.error() == Error::NoMemory ? ZipRead::NoMemory : ZipRead::Io;
+        Str lh = head.value().str();
+        if (u32at(lh, 0) != LOCAL_SIG)
+            co_return ZipRead::Malformed;
+
+        u64 from = local + LOCAL_BYTES + u16at(lh, 26) + u16at(lh, 28);
+        if (from > total || total - from < packed)
+            co_return ZipRead::Malformed;
 
         // Last, as parseZip judges it: the order the two readers refuse in is
         // part of what they agree on.
         if (method != ZIP_STORE && method != ZIP_DEFLATE)
-            return ZipRead::Unsupported;
+            co_return ZipRead::Unsupported;
 
         ZipEntry e;
         e.name   = name;
-        e.data   = archive.substr(from, packed);
+        e.at     = from;
+        e.packed = packed;
         e.method = method;
         e.size   = size;
-        if (!out.push(e))
-            return ZipRead::NoMemory;
+        if (!out.entries.push(e))
+            co_return ZipRead::NoMemory;
     }
-    return ZipRead::Ok;
+    co_return ZipRead::Ok;
 }
 
-bool zip_stored(const ZipEntry &e, Str &out)
+Task<Result<String>> zip_packed(ZipSource &src, const ZipEntry &e)
 {
-    if (e.method != ZIP_STORE || e.data.size() != e.size)
-        return false;
-    out = e.data;
-    return true;
+    co_return co_await src_read(src, e.at, e.packed);
+}
+
+Task<Result<String>> zip_stored(ZipSource &src, const ZipEntry &e)
+{
+    if (e.method != ZIP_STORE || e.packed != e.size)
+        co_return Err(Error::Invalid);
+    co_return co_await zip_packed(src, e);
 }
 
 namespace {

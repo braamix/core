@@ -60,14 +60,73 @@ u32 vfs_flags(u32 f)
     return out;
 }
 
+// Moves a file handle's offset; Sys::Seek and SYS_O_APPEND are the same sum.
+// Only SYS_SEEK_END asks for the size.
+Result<u64> handle_seek(Handle &h, u32 whence, i64 off)
+{
+    u64 end = 0;
+    if (whence == SYS_SEEK_END) {
+        Result<u64> at = vfs_size(h.file.fd);
+        if (at.is_err())
+            return Err(at.error());
+        end = at.value();
+    }
+
+    u64 to = 0;
+    if (!sys_seek_to(h.file.off, end, whence, off, to))
+        return Err(Error::Invalid);
+    h.file.off = to;
+    return to;
+}
+
+// How much one Sys::Read may take. An absent length is a whole chunk, and no
+// length grows one past SYS_CHUNK.
+u32 read_want(Str payload)
+{
+    if (payload.size() < 4)
+        return SYS_CHUNK;
+    u32 max = sys_get_u32(reinterpret_cast<const u8 *>(payload.data()));
+    if (max == 0 || max > SYS_CHUNK)
+        return SYS_CHUNK;
+    return max;
+}
+
+// What a short read left last time, before the stream is asked again. True when
+// it answered, whether with bytes or with an error.
+bool pend_reply(String &pend, u32 want, String &reply, i32 &status)
+{
+    if (pend.empty())
+        return false;
+
+    usize n = pend.size() < want ? pend.size() : want;
+    String rest;
+    if (!reply.append(pend.str().substr(0, n)) || !rest.assign(pend.str().substr(n))) {
+        status = -i32(Error::NoMemory);
+        return true;
+    }
+    pend   = move(rest);
+    status = i32(n);
+    return true;
+}
+
 // A chunk into the reply: its size is the status, and an end of input is 0.
-i32 chunk_reply(const Result<String> &r, String &reply)
+// Whatever `want` did not cover stays on the descriptor.
+i32 chunk_keep(const Result<String> &r, u32 want, String &pend, String &reply)
 {
     if (r.is_err())
         return r.error() == Error::Closed ? 0 : -i32(r.error());
-    if (!reply.append(r.value().str()))
-        return -i32(Error::NoMemory); // nothing was appended, so the reply stands
-    return i32(r.value().size());
+
+    Str s = r.value().str();
+    if (s.size() > want) {
+        String rest;
+        if (!rest.assign(s.substr(want)))
+            return -i32(Error::NoMemory);
+        pend = move(rest);
+        s    = s.substr(0, want);
+    }
+    if (!reply.append(s))
+        return -i32(Error::NoMemory);
+    return i32(s.size());
 }
 
 // The same for a write: what went is the status.
@@ -486,10 +545,14 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         }
 
         case Sys::Read: {
+            u32 want = read_want(payload);
+
             if (fd == SYS_STDIN) {
+                if (pend_reply(p.in_pend, want, reply, status))
+                    break;
                 Result<String> r = Err(Error::Again);
                 CO_RETRY(r, p.io.in.read());
-                status = chunk_reply(r, reply);
+                status = chunk_keep(r, want, p.in_pend, reply);
                 break;
             }
             Handle *h = proc_handle(p, fd);
@@ -508,10 +571,12 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             // everywhere else: the writer's end went, and that is an end of
             // input rather than a failure.
             if (h->kind == Handle::Kind::PipeRead) {
+                if (pend_reply(h->pend, want, reply, status))
+                    break;
                 Source in        = pipe_source(h->pipe.q->ch);
                 Result<String> r = Err(Error::Again);
                 CO_RETRY(r, in.read());
-                status = chunk_reply(r, reply);
+                status = chunk_keep(r, want, h->pend, reply);
                 break;
             }
 
@@ -538,7 +603,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 }
                 if (r.is_ok())
                     h->off += r.value().size();
-                status = chunk_reply(r, reply);
+                status = chunk_keep(r, want, h->pend, reply);
                 break;
             }
 
@@ -547,7 +612,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 status = -i32(Error::NoMemory);
                 break;
             }
-            Result<usize> r = vfs_read(h->file.fd, h->file.off, block, SYS_CHUNK);
+            Result<usize> r = vfs_read(h->file.fd, h->file.off, block, want);
             if (r.is_ok()) {
                 h->file.off += r.value();
                 status = i32(r.value());
@@ -584,10 +649,10 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
 
             // Appending is a starting offset, not a mode: nothing below the VFS
             // is seekable, so the position is this side's to keep — and this
-            // side is the process's handle, since M8 gave it one.
+            // side is the process's handle, since M8 gave it one. Folded into
+            // the open, so `>>` costs one call.
             if (sys_op_arg(c.op) & SYS_O_APPEND)
-                if (Result<u64> at = vfs_size(h->file.fd); at.is_ok())
-                    h->file.off = at.value();
+                (void)handle_seek(*h, SYS_SEEK_END, 0);
 
             status = handle_bind(p, h);
             break;
@@ -625,6 +690,33 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             h->refs++;
             h->fds++;
             status = nfd;
+            break;
+        }
+
+        case Sys::Seek: {
+            // 0, 1 and 2 are the stage's streams and are not in the table.
+            Handle *h = fd < SYS_FD_MIN ? nullptr : proc_handle(p, fd);
+            if (fd < SYS_FD_MIN || (h && h->kind != Handle::Kind::File)) {
+                status = -i32(Error::Unsupported);
+                break;
+            }
+            if (!h || payload.size() < SYS_SEEK_WORDS * 4) {
+                status = -i32(Error::Invalid);
+                break;
+            }
+
+            u32 whence = 0;
+            i64 off    = 0;
+            sys_seek_get(reinterpret_cast<const u8 *>(payload.data()), whence, off);
+
+            Result<u64> at = handle_seek(*h, whence, off);
+            if (at.is_err()) {
+                status = -i32(at.error());
+                break;
+            }
+            if (!reply_u32(reply, u32(at.value()), u32(at.value() >> 32)))
+                co_return Err(Error::NoMemory);
+            status = 0;
             break;
         }
 

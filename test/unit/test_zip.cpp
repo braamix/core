@@ -89,11 +89,31 @@ String zip_make(Str name, Str data, const Made &m)
 
 // A case that reads nothing back, so the entries need not outlive the archive
 // they view. Everything that does look at an entry keeps its own String.
+// The directory of an archive in memory. Nothing a memory source does can
+// suspend, so the coroutine runs to completion here.
+ZipRead read_dir(Str archive, ZipDir &out)
+{
+    MemZipSource src(archive);
+    return run_now(zip_entries(src, out));
+}
+
+// One entry's bytes, as the archive holds them.
+String read_entry(Str archive, const ZipEntry &e)
+{
+    MemZipSource src(archive);
+    Result<String> r = run_now(zip_packed(src, e));
+    String out;
+    if (r.is_ok())
+        out = move(r.value());
+    return out;
+}
+
 ZipRead refused(Str name, const Made &m)
 {
-    Vec<ZipEntry> v;
     String zip = zip_make(name, "hi", m);
-    return zip_entries(zip.str(), v);
+    MemZipSource src(zip.str());
+    ZipDir dir;
+    return run_now(zip_entries(src, dir));
 }
 
 // ------------------------------------------------------ the rootfs.zip case
@@ -115,10 +135,16 @@ ZipDigest hex_of(const u8 d[SHA256_SIZE])
 // The kernel's own inflate, which is as far as tests.wasm reaches: a syscall
 // needs a program. src/cmd/pkg/unzip.cpp is the same loop over Sys::Inflate,
 // and the ceiling both stop at is zip.h's ZipSink either way.
-Task<Result<String>> inflate_entry(const ZipEntry &e)
+Task<Result<String>> inflate_entry(ZipSource &src, const ZipEntry &e)
 {
+    Result<String> packed = Err(Error::NoMemory);
+    if (Task<Result<String>> t = zip_packed(src, e))
+        packed = co_await t;
+    if (packed.is_err())
+        co_return Err(packed.error());
+
     Result<HttpResponse> open = Err(Error::NoMemory);
-    if (Task<Result<HttpResponse>> t = svc_inflate(e.data))
+    if (Task<Result<HttpResponse>> t = svc_inflate(packed.value().str()))
         open = co_await t;
     if (open.is_err())
         co_return Err(open.error());
@@ -205,14 +231,20 @@ Task<i32> ask_rootfs()
         co_return 1;
     }
 
-    Vec<ZipEntry> entries;
-    if (zip_entries(text_of(zip.value()), entries) != ZipRead::Ok) {
+    MemZipSource src(text_of(zip.value()));
+    ZipDir dir;
+    if (Task<ZipRead> t = zip_entries(src, dir)) {
+        if (co_await t != ZipRead::Ok) {
+            blame("the archive would not parse", "");
+            co_return 1;
+        }
+    } else {
         blame("the archive would not parse", "");
         co_return 1;
     }
 
     Str rest = text_of(manifest.value());
-    for (const ZipEntry &e : entries) {
+    for (const ZipEntry &e : dir.entries) {
         Str line = rest.split('\n', rest);
         Str name = line.split(' ', line);
         Str size = line.split(' ', line);
@@ -222,7 +254,7 @@ Task<i32> ask_rootfs()
         }
 
         Result<String> body = Err(Error::NoMemory);
-        if (Task<Result<String>> t = inflate_entry(e))
+        if (Task<Result<String>> t = inflate_entry(src, e))
             body = co_await t;
         if (body.is_err()) {
             blame(error_name(body.error()), e.name);
@@ -261,16 +293,16 @@ void test_zip()
 
     // §5.2: a stored entry, read back whole.
     {
-        Vec<ZipEntry> v;
+        ZipDir v;
         String zip = zip_make("share/hello", "hi", {});
-        CHECK(zip_entries(zip.str(), v) == ZipRead::Ok);
-        CHECK_EQ(v.size(), 1);
-        CHECK(v[0].name == "share/hello");
-        CHECK(v[0].data == "hi");
-        CHECK_EQ(u32(v[0].size), 2);
-        Str body;
-        CHECK(zip_stored(v[0], body));
-        CHECK(body == "hi");
+        CHECK(read_dir(zip.str(), v) == ZipRead::Ok);
+        CHECK_EQ(v.entries.size(), 1);
+        CHECK(v.entries[0].name == "share/hello");
+        CHECK(read_entry(zip.str(), v.entries[0]).str() == "hi");
+        CHECK_EQ(u32(v.entries[0].size), 2);
+        MemZipSource src(zip.str());
+        Result<String> body = run_now(zip_stored(src, v.entries[0]));
+        CHECK(body.is_ok() && body.value().str() == "hi");
     }
 
     // The local header is re-read, so an extra field the central record does
@@ -278,57 +310,57 @@ void test_zip()
     // is the classic way to get this wrong, and rootfs.zip cannot catch it:
     // pack.py writes no extra field at either end.
     {
-        Vec<ZipEntry> v;
+        ZipDir v;
         Made m;
         m.local_extra = 7;
         String zip    = zip_make("a", "hi", m);
-        CHECK(zip_entries(zip.str(), v) == ZipRead::Ok);
-        CHECK(v.size() == 1 && v[0].data == "hi");
+        CHECK(read_dir(zip.str(), v) == ZipRead::Ok);
+        CHECK(v.entries.size() == 1 && read_entry(zip.str(), v.entries[0]).str() == "hi");
     }
     {
-        Vec<ZipEntry> v;
+        ZipDir v;
         Made m;
         m.central_extra = 11;
         String zip      = zip_make("a", "hi", m);
-        CHECK(zip_entries(zip.str(), v) == ZipRead::Ok);
-        CHECK(v.size() == 1 && v[0].data == "hi");
+        CHECK(read_dir(zip.str(), v) == ZipRead::Ok);
+        CHECK(v.entries.size() == 1 && read_entry(zip.str(), v.entries[0]).str() == "hi");
     }
 
     // Flag bit 3 leaves the local sizes zero; the compressed size comes from
     // the central record and nowhere else.
     {
-        Vec<ZipEntry> v;
+        ZipDir v;
         Made m;
         m.flags       = 8;
         m.local_sizes = false;
         String zip    = zip_make("a", "hi", m);
-        CHECK(zip_entries(zip.str(), v) == ZipRead::Ok);
-        CHECK(v.size() == 1 && v[0].data == "hi");
+        CHECK(read_dir(zip.str(), v) == ZipRead::Ok);
+        CHECK(v.entries.size() == 1 && read_entry(zip.str(), v.entries[0]).str() == "hi");
     }
 
     // The end record, behind a comment and past the window.
     {
-        Vec<ZipEntry> v;
+        ZipDir v;
         Made m;
         m.comment  = 100;
         String zip = zip_make("a", "hi", m);
-        CHECK(zip_entries(zip.str(), v) == ZipRead::Ok);
+        CHECK(read_dir(zip.str(), v) == ZipRead::Ok);
     }
     {
-        Vec<ZipEntry> v;
+        ZipDir v;
         Made m;
         m.comment  = 0x10000;
         String zip = zip_make("a", "hi", m);
-        CHECK(zip_entries(zip.str(), v) == ZipRead::Malformed);
+        CHECK(read_dir(zip.str(), v) == ZipRead::Malformed);
     }
 
     // No end record at all, and an archive too short to hold one.
     {
-        Vec<ZipEntry> v;
-        CHECK(zip_entries("", v) == ZipRead::Malformed);
-        CHECK(zip_entries("PK", v) == ZipRead::Malformed);
+        ZipDir v;
+        CHECK(read_dir("", v) == ZipRead::Malformed);
+        CHECK(read_dir("PK", v) == ZipRead::Malformed);
         String zip = zip_make("a", "hi", {});
-        CHECK(zip_entries(zip.str().substr(0, zip.size() - 4), v) == ZipRead::Malformed);
+        CHECK(read_dir(zip.str().substr(0, zip.size() - 4), v) == ZipRead::Malformed);
     }
 
     // Zip64 announces itself by saturating either field.
@@ -374,14 +406,14 @@ void test_zip()
     // A directory entry is skipped and not refused — the `/` test runs before
     // the name test, which is what web/fs.js does.
     {
-        Vec<ZipEntry> v;
+        ZipDir v;
         String zip = zip_make("share/", "", {});
-        CHECK(zip_entries(zip.str(), v) == ZipRead::Ok);
-        CHECK_EQ(v.size(), 0);
-        Vec<ZipEntry> w;
+        CHECK(read_dir(zip.str(), v) == ZipRead::Ok);
+        CHECK_EQ(v.entries.size(), 0);
+        ZipDir w;
         String bad = zip_make("../", "", {});
-        CHECK(zip_entries(bad.str(), w) == ZipRead::Ok);
-        CHECK_EQ(w.size(), 0);
+        CHECK(read_dir(bad.str(), w) == ZipRead::Ok);
+        CHECK_EQ(w.entries.size(), 0);
     }
 
     // A name out of an archive is not a path until it has been looked at.
@@ -389,17 +421,17 @@ void test_zip()
                                 "C:\\out", "a\\b",        "./x",       "x/./y",
                                 "x/../y",  "..",          "." };
     for (Str name : HOSTILE) {
-        Vec<ZipEntry> v;
+        ZipDir v;
         String zip = zip_make(name, "hi", {});
         // The name is the expression, so a failure names the case.
-        test_check(zip_entries(zip.str(), v) == ZipRead::Malformed, name, __FILE_NAME__, __LINE__);
+        test_check(read_dir(zip.str(), v) == ZipRead::Malformed, name, __FILE_NAME__, __LINE__);
     }
 
     constexpr Str SAFE[] = { "bin/.keep", "share/x", "a..b", "...", "a..", "1:x" };
     for (Str name : SAFE) {
-        Vec<ZipEntry> v;
+        ZipDir v;
         String zip = zip_make(name, "hi", {});
-        test_check(zip_entries(zip.str(), v) == ZipRead::Ok, name, __FILE_NAME__, __LINE__);
+        test_check(read_dir(zip.str(), v) == ZipRead::Ok, name, __FILE_NAME__, __LINE__);
     }
 
     // §5.1: a top-level dot-entry is metadata, and an unknown one makes the
@@ -447,10 +479,10 @@ void test_zip()
 
     // The entry that refuses the package it is in.
     {
-        Vec<ZipEntry> v;
+        ZipDir v;
         String zip = zip_make(".evil", "hi", {});
-        CHECK(zip_entries(zip.str(), v) == ZipRead::Ok);
-        CHECK(v.size() == 1 && zip_meta(v[0].name) == ZipMeta::Unknown);
+        CHECK(read_dir(zip.str(), v) == ZipRead::Ok);
+        CHECK(v.entries.size() == 1 && zip_meta(v.entries[0].name) == ZipMeta::Unknown);
     }
 
     // The ceiling. Sys::Inflate caps its input and not its output, so this is

@@ -7,6 +7,139 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## A descriptor can be told where to be
+
+`Sys::Seek` is op 30, and `Sys::Read` grows an optional length. `PROC_ABI` moves
+to 18.
+
+**The position already existed; nothing could name it.** Everything below the
+process is positional — `vfs_read(fd, off, …)`, `vfs_write`, `vfs_size` — and
+deliberately stateless, because that is what lets several descriptors share one
+backend handle under OPFS's exclusive lock (§5.2). The offset therefore had to
+live *above* the VFS, and it does: `FileIo::off`, on the process's own `Handle`.
+So the kernel has always known where each descriptor was, and a program had no
+operation with which to ask or say. `SYS_O_APPEND` was the one thing that moved
+it, open-coded as a flag; it is now a `Seek(0, SYS_SEEK_END)` folded into the
+open, which leaves exactly one place in the system where a position becomes
+something other than the next byte.
+
+**Why the answer is data and not the status.** A position is a `u64` and the
+status is an `i32`. Returning a truncated one would be wrong only past 2 GiB,
+which is the worst kind of wrong: invisible until it is not. `Stat`, `Clock` and
+`Storage` already answer 0 and put their wide values in the data.
+
+**Why 0, 1 and 2 refuse.** They are not descriptors at all — they are the
+`Stdio` the pipeline stage was handed, and there is no handle behind them to
+move. Making them seekable means identifying a file-backed stream by comparing a
+function pointer through a type-erased context, which `console_is_input` already
+does once and which should not become a habit without §4.3 saying so. None of
+the callers needs it.
+
+**The length on `Read` is the more interesting half.** It exists because of a
+bug the seek work uncovered rather than caused. `/bin/sh`'s `read` has to stop
+at a newline, but a chunk is whatever the writer wrote, so it over-read and kept
+the remainder in a process-global buffer keyed by the descriptor *number*.
+Numbers are reused. A pushback left by one pipe was therefore matched against
+the next pipe to be handed the same number, and prepended another stream's bytes
+to a later line — a real corruption, sitting in the tree, reachable from two
+ordinary pipelines in a row.
+
+Seek fixes it for files and cannot fix it for pipes, which nothing can wind
+back. A length can: the shell now reads a pipe a byte at a time and never takes
+more than the line. That costs a syscall per byte on a non-seekable descriptor,
+which is the price of correctness on a stream whose lines are short; a *file*
+still reads a chunk at a time and seeks back, so the fast path is unchanged.
+
+For a length to be honest on a stream, the bytes it does not cover cannot be
+discarded — so the kernel keeps them, on the `Handle` for a descriptor and on
+the process record for 0. That is the same buffer the shell was keeping, moved
+to the one place where it belongs to the open description rather than to a
+number: it dies with the handle, so a reused descriptor cannot inherit one. The
+shell's global is gone, and with it the gap `Shell.md` used to list.
+
+A `max` above `SYS_CHUNK` clamps rather than growing the read. 512 is
+`FS_BLOCK`, the allocator's top size class on both sides of the wire (§8.2), and
+one byte more costs a whole 64 KiB span — so the length may shorten a read and
+must never lengthen one.
+
+**Op 31 is left free** for the `Truncate` that `vfs_truncate` would need if
+anything ever called it. §8's rule against growing the table on speculation says
+not to add it now.
+
+### `tail` stops reading the whole file
+
+`tail -n 10` on a four-megabyte log was some eight thousand reads, because the
+last line is the last one and there was no way to start anywhere else. It now
+seeks to a window at the end and widens it — 512 bytes, doubling — until the
+window holds the lines asked for. A window that starts mid-line begins with a
+fragment of a line that is not ours, and dropping it is the whole subtlety.
+
+The cost is a re-read of at most the final window, so under twice the bytes of
+the answer, against the whole file before. `TAIL_WINDOW_MAX` stops the doubling
+at a megabyte: a file that is one enormous line must not be pulled into memory
+by a program that handled it before, so past the cap it reads the file through
+as it always did. Any refusal to seek does the same, which makes the fallback
+one path rather than two.
+
+**The fast path is one named file only.** Several files are the last lines of
+their *concatenation* — not GNU's per-file headers — and seeking backwards
+through a reversed file list to preserve that is real complexity for something
+nobody runs. Both paths feed the same ring and the same printer, so the bytes
+out are the bytes out; `test/smoke/tail.mjs` asserts the two agree by running
+`tail -n N file` against `cat file | tail -n N`, stdin being the thing that
+cannot seek.
+
+`Input` was left alone. It multiplexes several paths and stdin and opens them
+one at a time, and handing out a descriptor would leak that into every caller
+for one program's benefit.
+
+### The zip reader reads through a source
+
+A zip is read back to front — the directory is at the end — and with no way to
+seek, the only way to reach it was to hold the whole archive. `zip_entries` took
+a `Str` of the entire file, and `unzip -l big.zip` therefore read every byte of
+it to print a listing.
+
+It now takes a `ZipSource`: `size()`, and a read of exactly *n* bytes at an
+offset. `/bin/unzip` implements it over a descriptor with `Sys::Seek`, and
+`/bin/pkg` and the unit suite over a buffer they already hold. Parsing is two
+reads — the end record, then the directory — plus a thirty-byte local header per
+entry, whatever the archive weighs.
+
+The first of those is twenty-two bytes, not the sixty-four kilobyte window the
+format allows: an archive with no comment has its end record exactly at the end,
+and that is every archive `tools/pack.py` writes. The window is read only when
+those twenty-two bytes are not it, which is what keeps a correct reader from
+paying for a case almost nothing exercises.
+
+**The shape of the interface is `PkgHost`'s, and for the same reason.**
+`zip.cpp` is compiled *into* `tests.wasm`, where a syscall is a link error by
+design (Testing.md), so the bytes have to arrive through something abstract. It
+is the trick `trust.cpp` and `index.cpp` already use, applied once more.
+
+**The central directory stays resident, and that is deliberate.** It is small,
+and it is what a `ZipEntry::name` views — so `DbFile`, `local.cpp` and the
+`§8.1` record keep their `Str`s and needed no edit at all. `ZipEntry` loses its
+`data` view and gains the offset and length it was derived from; `ZipDir` holds
+the directory and the entries together so the lifetime is one object's.
+
+**What this buys, and what it does not.** `unzip -l` and `unzip one-entry` stop
+holding the archive, so one larger than the sixteen megabytes a process gets is
+now readable. `/bin/pkg` gains nothing: `acquire` hashes the whole archive and
+`local_load` caps it at `PACKAGE_MAX` before reading, so it is resident either
+way — it passes a `MemZipSource` over what it already has. Deflated entries gain
+nothing either, since `Sys::Inflate` stages its input and the packed bytes must
+be in memory to be handed over. And `tools/pack.py` always deflates, so the
+stored path this makes cheap is exercised by the unit suite and by nothing in
+the tree. The win is narrow and real; it is not a general reduction in what a
+package costs.
+
+`ZipRead` gains `Io`. As a coroutine over a source that can fail, a read error
+had nowhere to go but `Malformed`, and calling a working archive malformed
+because a descriptor hiccuped would be a lie.
+
+---
+
 ## The repository has an address of its own
 
 `/etc/repositories` moves from `https://pub.sergev.org/braam` to

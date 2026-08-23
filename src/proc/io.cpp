@@ -28,6 +28,24 @@ Task<Result<String>> read_chunk(u32 fd)
     co_return move(s);
 }
 
+Task<Result<String>> read_some(u32 fd, u32 max)
+{
+    u8 want[4];
+    sys_put_u32(want, max);
+
+    Result<SysReply> r =
+        co_await sys_call(Sys::Read, fd, Str(reinterpret_cast<const char *>(want), sizeof(want)));
+    if (r.is_err())
+        co_return Err(r.error());
+    if (r.value().data.empty())
+        co_return Err(Error::Closed); // end of input
+
+    String s;
+    if (!s.assign(r.value().data))
+        co_return Err(Error::NoMemory);
+    co_return move(s);
+}
+
 Task<Result<i32>> open_at(Str path, u32 flags)
 {
     Result<SysReply> r = co_await sys_call(Sys::Open, flags, path);
@@ -126,6 +144,20 @@ u64 wide(const u8 *p)
 }
 
 } // namespace
+
+Task<Result<u64>> seek_fd(u32 fd, i64 off, u32 whence)
+{
+    u8 req[SYS_SEEK_WORDS * 4];
+    sys_seek_put(req, whence, off);
+
+    Result<SysReply> r =
+        co_await sys_call(Sys::Seek, fd, Str(reinterpret_cast<const char *>(req), sizeof(req)));
+    if (r.is_err())
+        co_return Err(r.error());
+    if (r.value().data.size() < 8)
+        co_return Err(Error::Io);
+    co_return wide(reinterpret_cast<const u8 *>(r.value().data.data()));
+}
 
 Task<Result<FileInfo>> stat_of(Str path, bool follow)
 {
