@@ -7,6 +7,45 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## The repository has an address of its own
+
+`/etc/repositories` moves from `https://pub.sergev.org/braam` to
+`https://braamix.github.io`. Nothing in the code or the formats changes: it is
+one line of configuration, and the URL never appears in a source file, a test
+fixture or a manual — the documents say `https://packages.example/braam` and
+`tools/mkrepo.py` says `https://packages.test/braam`, so a real host was
+already only ever in this one place.
+
+**The move is a move of hosting, not of trust.** `/etc/anchor` is untouched,
+because the keys did not change — only the machine serving what they signed.
+What did have to be redone is the index itself: `N` is inside the signed
+region and `index.cpp` refuses an index whose `N` disagrees with the line that
+fetched it (§7's `header` step, `Err(Perm)`), so the repository was re-issued
+under the same index key rather than re-pointed. That check is why a repository
+cannot be relocated by a redirect, and moving one is the case it was written
+against.
+
+**No client has to be told.** The boot unpack replaces `/etc` wholesale at
+every version change (Package_Management.md §6), so a tab that has ever run
+this version has the new line; a tab that never opens another version keeps
+fetching an address that is no longer answered, and the `pkg -v` trace added in
+0.4 is what tells it apart from a repository that is merely down. An upgrade
+path for the file was not considered, for the same reason a stale `/share` is
+not deleted at boot: the archive is the upgrade path.
+
+Two prose files named the old address by implication rather than by spelling —
+README.md said there was no public repository, and `rootfs/README` said a URL
+"should be put in" a file that already had one. Both now say where the system
+points, which is the only reason the change touches documents at all.
+
+**`/etc/help` goes back to being a list.** The five prose passages explaining
+command lookup, package checking, generations and `pkg verify`'s limits are
+what the manuals are for; a page reached by typing `help` is worth more when
+what is on it is the names and their spellings, and nothing on that page was
+the only copy. `test/smoke/subst.mjs` counts three copies of the file as its
+many-writes case, so the numbers beside it move with the trim — which is the
+comment there saying they would.
+
 ## 0.5 — A system a program can be written for, not only in
 
 `BRAAM_VERSION_BASE` moves to 0.5; the commit count and the hash behind it carry

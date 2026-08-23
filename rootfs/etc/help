@@ -1,17 +1,6 @@
 braam — the commands
 ====================
 
-The shell looks for a command word in three places: shell functions, then the
-builtins below, then files on PATH — /bin:/pkg/bin at boot. Only a file costs a
-process: a wasm binary in a worker of its own, with its own memory limit, which
-^C kills.
-
-Builtins live inside /bin/sh. echo, test, true and false are files in /bin as
-well, so anything can spawn them; [ and : are builtins only.
-
-This list is the file /etc/help, and covers what the system ships with. Every
-program also prints how it is spelled and exits 2 when you get it wrong.
-
 Shell builtins
 --------------
 
@@ -97,19 +86,6 @@ Programs in /bin
 Packages
 --------
 
-  `pkg` installs into /pkg. A system update does not touch /pkg, so packages
-  survive one. /pkg/bin comes after /bin on PATH, so a package cannot replace a
-  system command. /etc/repositories holds the repository URL.
-
-  Packages from a repository are always checked. The index is signed with the
-  keys in /etc/anchor, and each package must match the size and digest the
-  index gives before anything is unpacked. If a check fails, pkg says which one
-  and installs nothing.
-
-  You can also install an archive directly — a path ending .zip, or a URL.
-  Nothing vouches for it, so pkg warns you, records it as `G: 0`, and `pkg
-  verify` calls it `unvouched`. The commands are spelled `pkg <name>`:
-
   update    download the repository index, and check it
   search    <pattern> — find packages by name or description
   info      <package> — what the index says about one package
@@ -126,18 +102,6 @@ Packages
   clean     delete downloaded archives and old generations; the one before the
             current is kept
   help      print a short version of this list
-
-  `-v` shows the network traffic — the request, the status, the headers and the
-  body's size. It works anywhere on the line.
-
-  An install builds a new generation under /pkg/gen, then moves the symbolic
-  link /pkg/active onto it. That is the moment it takes effect. To go back, move
-  the link yourself: `ln -sf /pkg/gen/<n> /pkg/active`. There is no
-  `pkg rollback`.
-
-  `pkg verify` tells you a file has changed since it was installed. It cannot
-  promise that none did: files are checked once, at install, and anything here
-  can overwrite anything.
 
 More
 ----

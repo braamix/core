@@ -67,8 +67,10 @@ programs, not part of the kernel.
 system. A repository is just files on a web server: an index and one zip per
 package. The index is signed, and the keys it is checked against ship inside the
 archive. An install is committed by renaming a single symbolic link, so a tab
-that dies partway has installed nothing. There is no public repository yet;
-[doc/Package_Formats.md](doc/Package_Formats.md) §10 explains running one.
+that dies partway has installed nothing. The system ships pointed at the public
+repository <https://braamix.github.io>, and
+[doc/Package_Formats.md](doc/Package_Formats.md) §10 explains running one of
+your own.
 
 **An embedding API.** `web/braam.js` puts a terminal on any web page with
 `mount({ canvas })`, and `web/embed.html` is a working example.
