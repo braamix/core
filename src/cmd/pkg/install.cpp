@@ -26,9 +26,10 @@ namespace {
 constexpr Str USAGE          = "Usage: pkg install <package|file.zip|url>...\n";
 constexpr Str USAGE_REMOVE   = "Usage: pkg remove <package>...\n";
 constexpr Str USAGE_AUTO     = "Usage: pkg autoremove\n";
-constexpr Str USAGE_UPGRADE  = "Usage: pkg upgrade\n";
+constexpr Str USAGE_UPGRADE  = "Usage: pkg upgrade [<package>...]\n";
 constexpr Str NO_MEMORY      = "pkg: out of memory\n";
 constexpr Str NOTHING        = "nothing installed\n";
+constexpr Str NOT_INSTALLED  = "not installed";
 constexpr Str CANNOT_INSTALL = "pkg: cannot install:";
 constexpr Str CANNOT_REMOVE  = "pkg: cannot remove:";
 constexpr Str CANNOT_UPGRADE = "pkg: cannot upgrade:";
@@ -1114,24 +1115,38 @@ Task<i32> operands_ok(Args args, Str usage, bool local = false)
     co_return 0;
 }
 
+// Whether a package answers to `name`, by its own or by a §6.1 p:.
+bool stanza_provides(const PackageStanza &p, Str name)
+{
+    if (p.name == name)
+        return true;
+    Str rest = p.provides, spec;
+    while (dep_next(rest, spec)) {
+        Dep d;
+        if (dep_parse(spec, d) != DepParse::Malformed && d.name == name)
+            return true;
+    }
+    return false;
+}
+
+// Whether the active generation provides `name`.
+bool installed_provides(const Txn &in, Str name)
+{
+    for (const PackageStanza &p : in.installed)
+        if (stanza_provides(p, name))
+            return true;
+    return false;
+}
+
 // Whether what the transaction leaves installed still provides `name`.
 // SOLVE_REMOVE unseats a preference and does not uninstall, so it can. The
 // changeset carries the unchanged packages too, which is what makes this
 // answerable when there is nothing to print.
 bool survives(const Txn &in, Str name)
 {
-    for (const SolveChange &c : in.cset.changes) {
-        if (!c.new_pkg)
-            continue;
-        if (c.new_pkg->name == name)
+    for (const SolveChange &c : in.cset.changes)
+        if (c.new_pkg && stanza_provides(*c.new_pkg, name))
             return true;
-        Str rest = c.new_pkg->provides, spec;
-        while (dep_next(rest, spec)) {
-            Dep d;
-            if (dep_parse(spec, d) != DepParse::Malformed && d.name == name)
-                return true;
-        }
-    }
     return false;
 }
 
@@ -1321,11 +1336,11 @@ Task<i32> pkg_remove(Args args)
 
 Task<i32> pkg_upgrade(Args args)
 {
-    if (args.size() != 1) {
-        if (Task<Result<void>> t = put(SYS_STDERR, USAGE_UPGRADE))
-            co_await t;
-        co_return 2;
-    }
+    i32 bad = 1;
+    if (Task<i32> t = operands_ok(args, USAGE_UPGRADE))
+        bad = co_await t;
+    if (bad != 0)
+        co_return bad;
 
     Held held{ heap_new<Txn>() };
     if (!held.p) {
@@ -1337,13 +1352,32 @@ Task<i32> pkg_upgrade(Args args)
 
     // §6's set signed as one file: one solve and one generation, never a
     // loop of installs.
-    i32 bad = 1;
+    bad = 1;
     if (Task<i32> t = begin(in, true))
         bad = co_await t;
     if (bad != 0)
         co_return bad;
 
-    in.flags = SOLVE_UPGRADE;
+    // apk's `upgrade`: no operand is the run-wide flag; an operand flags that
+    // name instead and drops world's hold on its version.
+    if (args.size() == 1) {
+        in.flags = SOLVE_UPGRADE;
+    } else {
+        for (usize i = 1; i < args.size(); i++) {
+            Dep d;
+            dep_parse(args[i], d);
+            if (!installed_provides(in, d.name)) {
+                if (Task<void> e = refuse_line(d.name, NOT_INSTALLED))
+                    co_await e;
+                co_return 1;
+            }
+            if (world_unpin(in.specs, d.name))
+                in.world_changed = true;
+            if (!in.named.push(SolveRequest{ d.name, SOLVE_UPGRADE, SOLVE_UPGRADE }))
+                co_return 1;
+        }
+    }
+
     if (Task<i32> t = decide(in, CANNOT_UPGRADE))
         bad = co_await t;
     if (bad != 0)

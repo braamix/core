@@ -285,10 +285,17 @@ That version is a **pin**, which is what makes an archive install the bytes it
 named whichever way the versions compare, a downgrade included. Two
 consequences follow, and neither is incidental:
 
-- `pkg upgrade` leaves a pinned package where it is, even once an index starts
-  listing the name. That is what a pin means.
-- `pkg install <name>` replaces the pin with the bare name, so a package that
-  arrived by hand goes back to being upgraded like any other by naming it.
+- `pkg upgrade` **with no operands** leaves a pinned package where it is, even
+  once an index starts listing the name. That is what a pin means.
+- Naming the package takes it off — `pkg install <name>` replaces the pin with
+  the bare name, and `pkg upgrade <name>` drops the clause where it stands. So a
+  package that arrived by hand goes back to being upgraded like any other by
+  naming it, and neither command needs a flag to say so.
+
+`pkg upgrade <name>` clears **any** version clause world holds that name under,
+not only the `=` a sideload wrote: naming a package there is asking for the
+newest of it, and a hold is a hold however it was spelled. A `!name` conflict is
+not a hold and is left alone.
 
 A `V` the §6 grammar cannot spell back — §3.2 holds it to a path component and
 not to §7's versions — joins under the bare name instead.

@@ -84,6 +84,12 @@ export function check() {
     // standing rather than solving it away.
     prints("pkg upgrade", "generation 1, unchanged");
 
+    // Naming it takes the pin off, which is the other half of §7.1: the
+    // archive said which version, and this says stop holding it there.
+    prints("pkg upgrade mine", "generation 1, unchanged");
+    if (text("/pkg/world") !== "mine\n")
+        fail(`the operand left world at ${JSON.stringify(text("/pkg/world"))}`);
+
     // Its D: is honoured from the record too, so what it needs is not taken
     // out from under it — the request drops world's preference and libz stays,
     // exactly as it would for a package the index vouched for.

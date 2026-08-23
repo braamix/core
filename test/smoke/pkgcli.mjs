@@ -2,7 +2,7 @@
 // Part of the smoke suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, prompt, row, rows, submit } from "./harness.mjs";
+import { fail, prompt, regrid, row, rows, submit } from "./harness.mjs";
 
 // The second line of the block: `Usage:` is a heading and the command line is
 // indented under it.
@@ -38,7 +38,7 @@ export function check() {
     // with the operands its own usage line spells and one line of what it is
     // for.
     piped("pkg | grep \"install <package>\"", 1184.72,
-        "    install <package>...  install or upgrade packages");
+        "    install <package>...    install or upgrade packages");
 
     piped("pkg nonesuch 2>&1 | head -n 1", 1184.73, "pkg: unknown command: nonesuch");
     status("pkg nonesuch", 1184.74, 2);
@@ -55,9 +55,13 @@ export function check() {
     status("pkg help x", 1184.8, 2);
 
     // -v is pkg's own, taken out of the words wherever it was typed, so it
-    // reaches no command's operand check. The block names it.
+    // reaches no command's operand check. The block names it, in the column
+    // the table computes — this row is aligned to it by hand, and is one wider
+    // than the grid.
+    regrid(100, 24, "the resize before the option row failed");
     piped("pkg | grep 'v, --verbose'", 1184.83,
-        "    -v, --verbose         trace each HTTP request and reply");
+        "    -v, --verbose           trace each HTTP request and reply");
+    regrid(60, 16, "the resize after the option row failed");
     status("pkg -v", 1184.84, 0);
     status("pkg -v list -i", 1184.85, 0);
     status("pkg list -i -v", 1184.86, 0);

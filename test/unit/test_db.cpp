@@ -281,6 +281,28 @@ void test_db()
         CHECK(none.empty());
     }
 
+    // The clause off, by name: an operand said to upgrade it, so what world
+    // holds it at stops applying. A conflict is not a hold.
+    {
+        Vec<Str> specs;
+        CHECK(world_read("awk\nless>=1.6\nhello=1.0-r0\n!bad=2\n", specs));
+        CHECK(world_unpin(specs, "less") && world_unpin(specs, "hello"));
+        CHECK(!world_unpin(specs, "bad"));
+        CHECK(!world_unpin(specs, "less"));
+        CHECK(!world_unpin(specs, "awk"));
+        CHECK(!world_unpin(specs, "nonesuch"));
+
+        String out;
+        CHECK(world_write(specs, out));
+        CHECK(out.str() == "awk\nless\nhello\n!bad=2\n");
+
+        // Twice over, which a hand-edited world may say.
+        Vec<Str> twice;
+        CHECK(world_read("less=1\nawk\nless>2\n", twice));
+        CHECK(world_unpin(twice, "less"));
+        CHECK(twice[0] == "less" && twice[2] == "less");
+    }
+
     // The lines as dependencies, and one that is not a token at all is not.
     {
         Vec<Str> specs;

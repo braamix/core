@@ -20,7 +20,7 @@ constexpr PkgCommand TABLE[] = {
     { "install", "<package>...", "install or upgrade packages", pkg_install },
     { "remove", "<package>...", "remove packages", pkg_remove },
     { "autoremove", "", "remove dependencies nothing needs", pkg_autoremove },
-    { "upgrade", "", "upgrade everything installed", pkg_upgrade },
+    { "upgrade", "[<package>...]", "upgrade everything installed, or what is named", pkg_upgrade },
     { "list", "[-i]", "list available packages, -i installed", pkg_list },
     { "files", "<package>", "the files a package installed", pkg_files },
     { "verify", "[<package>]", "re-check installed files", pkg_verify },
@@ -33,7 +33,7 @@ constexpr PkgCommand TABLE[] = {
 constexpr Str HEAD = "Usage:\n"
                      "    pkg [-v] <command> [<arg>...]\n"
                      "Options:\n"
-                     "    -v, --verbose         trace each HTTP request and reply\n"
+                     "    -v, --verbose           trace each HTTP request and reply\n"
                      "Commands:\n";
 constexpr Str USAGE_HELP = "Usage: pkg help\n";
 constexpr Str NO_MEMORY  = "pkg: out of memory\n";

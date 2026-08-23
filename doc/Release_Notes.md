@@ -7,6 +7,75 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## `pkg upgrade` learns operands, and the pin learns how to come off
+
+The section below says "**`pkg upgrade` keeps its no-operand form.** `pkg
+upgrade hello` remains a usage error rather than a second spelling of the new
+`install`: one command per act." That was written a commit ago and it is now
+wrong, as is P20's older "There are no operands here … so an argument is a usage
+error". Both stand where they are; this supersedes them. What changed is not the
+reasoning but what the two commands are for.
+
+**The act really is different, which is why it is an operand and not a second
+command.** `install` adds a root to `/pkg/world` and then makes the world
+consistent; `upgrade` adds nothing and never installs anything new. Both can be
+asked to move one package, and asking `upgrade` to do it leaves world's shape
+alone — which is precisely what you want when the package is already a
+dependency of something else and you do not want it promoted to explicit.
+
+**Without operands nothing moved.** `in.flags = SOLVE_UPGRADE` is the run-wide
+flag over everything world reaches, and that is still exactly what a bare `pkg
+upgrade` does. With operands it clears that and flags the named packages instead
+— apk's own upgrade branch, whose second half we had not built.
+
+**The flag inherits, where apk's `upgrade <pkg>` passes 0.**
+`SolveRequest{name, SOLVE_UPGRADE, SOLVE_UPGRADE}`, the same pair `install` now
+uses. apk confines it to the named name; we do not, for the reason the previous
+section gives — a package upgraded onto libraries older than anything it was
+built against is the state nobody wants and the one hardest to notice.
+`test/unit/solve.data`'s `upgrade3.test` still models apk's shape and still
+passes, because `apply_args` mirrors apk's applets, not ours — and the property
+that fixture proves, an operand moving that name and leaving world's other
+members alone, is the one we needed.
+
+**The unpin is part of the act rather than a flag.** The previous commit made a
+sideloaded archive pin itself in world as `name=version`, and left `pkg install
+<name>` as the only way off. That is a poor pair: to get the newest version of a
+package you have to type the command that adds roots. `pkg upgrade <name>` now
+drops the clause, so the two ways of saying "stop holding this here" are the two
+commands that could have meant it.
+
+**Any version clause, not only `=`.** `world_unpin` clears `hello=1.0-r0`,
+`hello>=1.0` and `hello~2.2` alike. One rule is easier to hold than two, and the
+distinction between a pin `pkg install` wrote and a constraint someone typed is
+not one the file records — both are the same sentence in §6's grammar. A `!name`
+conflict is skipped: it is not a hold, and rewriting it as `name` would silently
+invert it. That is the whole reason `world_unpin` tests `VER_CONFLICT`, and
+`test_db.cpp` pins it, since no smoke fixture plants a conflict into world.
+
+It needs no allocation. `dep_parse` sets `d.name` to a view of the spec's own
+first bytes, so taking the clause off is `had = d.name` — the same block, a
+shorter view. Every line naming the package, not the first, for the reason
+`world_drop`'s comment gives.
+
+**A name nothing installed answers to is refused**, `pkg: <name>: not installed`
+and 1, which is what `pkg files` and `pkg verify` already say. `pkg remove
+nonesuch` is silent about the same mistake, and that is right there — a removal
+that finds nothing to remove got what it asked for. An upgrade did not: it will
+never install the name, so a typo has no other way to surface. The check is over
+the installed stanzas rather than the generation's `packages` file, so
+`pkg upgrade cmd:hi` resolves through `p:` the way every other name in this
+program does; `survives` and it now share one `stanza_provides`.
+
+**The usage block got two columns wider.** `upgrade [<package>...]` is 22
+characters against `install <package>...`'s 20, and `usage()` computes the
+description column from the widest row — so every description moved right, and
+the `-v, --verbose` line in `HEAD`, which is aligned to that column *by hand*,
+moved with it. The note at the top of this file predicted this exact ripple when
+the table was built. The `-v` row is now 61 characters and no longer fits the
+smoke suite's 60-column grid, so `pkgcli` resizes around it as `pkg-update`
+already does for `pkg search`.
+
 ## Installing something installed is upgrading it
 
 `pkg install hello` used to print `generation 1, unchanged` when the index had

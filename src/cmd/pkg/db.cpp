@@ -238,6 +238,21 @@ bool world_drop(Vec<Str> &specs, Str name)
     return found;
 }
 
+bool world_unpin(Vec<Str> &specs, Str name)
+{
+    // Every line naming it, as world_drop does; d.name views the line's bytes.
+    bool found = false;
+    for (Str &had : specs) {
+        Dep d;
+        if (dep_parse(had, d) == DepParse::Malformed || (d.mask & VER_CONFLICT) || d.name != name ||
+            had == d.name)
+            continue;
+        had   = d.name;
+        found = true;
+    }
+    return found;
+}
+
 bool world_deps(Span<const Str> specs, Vec<Dep> &out)
 {
     for (Str spec : specs) {

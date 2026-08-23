@@ -99,7 +99,8 @@ Packages
   remove    <package>... — remove packages
   autoremove
             remove packages installed only as dependencies
-  upgrade   upgrade everything installed
+  upgrade   [<package>...] — upgrade everything installed, or only the packages
+            named, dropping the version world holds each of them at
   list      [-i] — list what the index offers; -i lists what is installed
   files     <package> — the files a package installed
   verify    [<package>] — check installed files against the digests saved at

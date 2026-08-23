@@ -79,6 +79,9 @@ bool world_push(Vec<Str> &specs, Str spec, bool &changed);
 // whether one went rather than whether it worked.
 bool world_drop(Vec<Str> &specs, Str name);
 
+// The version clause off every line naming `name`; a conflict is left alone.
+bool world_unpin(Vec<Str> &specs, Str name);
+
 // The lines as dependencies. One that does not parse is dropped.
 bool world_deps(Span<const Str> specs, Vec<Dep> &out);
 
