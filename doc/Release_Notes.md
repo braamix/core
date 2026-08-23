@@ -7,6 +7,73 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## Installing something installed is upgrading it
+
+`pkg install hello` used to print `generation 1, unchanged` when the index had
+moved on, and P20's note called that "the difference between the two commands
+stated as a test". It was the wrong difference to have. Nobody types `install`
+to be told nothing happened, and the command that would have done what they
+meant — `pkg upgrade` — moves *everything* world reaches, which is a much
+larger act than the one asked for. The distinction that is worth keeping is
+scope, not freshness: `install` moves what you name, `upgrade` moves the lot.
+
+**One line of the plumbing, because the solver already had the knob.**
+`pkg_install` pushes `SolveRequest{name, SOLVE_UPGRADE, SOLVE_UPGRADE}` instead
+of no flags at all. `compare_providers` has an `ipkg` rung above the version
+comparison that is skipped under `SOLVE_UPGRADE`
+([solve.cpp:769](../src/cmd/pkg/solve.cpp#L769)), which is the whole of why the
+installed copy used to win. Nothing in `src/cmd/pkg/solve.cpp` changed, and no
+new case was needed in `test/unit/solve.data`: apk's own `basic17` is
+`add --upgrade a`, which `test_solve.cpp` already turns into exactly this pair
+of flags.
+
+**Per-name, not the run-wide flag `pkg upgrade` sets.** apk's upgrade branch
+sets the run-wide flag and, given operands, clears it and flags the named
+packages instead; this is that second form, reached from `install`. So world's
+other members are untouched — `pkg install hello` cannot quietly bump something
+that merely happens to be installed beside it.
+
+**The third field is `SOLVE_UPGRADE` too, so it inherits.** A package's
+dependencies move with it. The alternative — flag the operand alone and let
+dependencies move only where a constraint forces them — leaves a package
+upgraded onto libraries older than anything it was ever built against, which is
+the state nobody wants and the one hardest to notice. apk's `add` inherits for
+the same reason.
+
+**A sideload now pins its version, and that is not a separate feature.** Once
+`install` prefers what is new, an archive joining `/pkg/world` under its bare
+name loses to a newer installed copy — `pkg install ./hello-0.9.zip` would have
+printed `unchanged` and thrown the bytes away. So an archive joins as
+`<name>=<version>`, apk's `apk_dep_from_pkg`, and installs what it named
+whichever way the versions compare. `world_push` replaces by name, so naming
+the package afterwards clears the pin; until then `pkg upgrade` leaves it
+alone, which is what a pin is for.
+
+`pin_spec` falls back to the bare name when `<name>=<version>` does not parse
+back to the same two halves. §3.2 holds `V` to a *path component*, not to §7's
+version grammar, so a sideload may legitimately carry a `V` that `dep_parse`
+calls broken — and a broken dependency satisfies nothing, so pinning one would
+have turned a package that installs today into one that cannot be resolved. A
+name carrying `<`, `>`, `=` or `~` fails the same check and takes the same
+route. `test/smoke/pkg-local.mjs` installs a `V:!!` to hold that open.
+
+**The `installed at a different digest` refusal is now reachable from a second
+command.** P20's analysis of `pkg upgrade` applies verbatim: skipping the early
+`ipkg` rung means a local record and an index that disagree about the metadata
+of one name-version can produce a `Replacing`, which `stem_state` refuses
+because §8 makes a store directory immutable and a rollback target may be
+executing out of it. The refusal is still the right answer; there is simply one
+more way to arrive at it.
+
+**`pkg upgrade` keeps its no-operand form.** `pkg upgrade hello` remains a usage
+error rather than a second spelling of the new `install`: one command per act.
+
+The smoke suite's `pkg-upgrade` case used to assert the old behaviour in one
+line. It now spends a generation on the new one instead — rolled back to 1.0-r0
+with nothing serving the archive, `pkg install hello` moves it to 1.1-r0 out of
+the store directory that is already there, which also shows `stem_state`
+skipping a fetch it does not need.
+
 ## `basename` and `dirname`, and the pair that was not already there
 
 `doc/TODO.md` A2 said the work was done — "`src/fs/path.cpp` already has both".

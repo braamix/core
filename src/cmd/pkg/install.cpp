@@ -50,6 +50,7 @@ struct Txn {
 
     String world_text; // /pkg/world as it was
     Vec<Str> specs;    // its lines, the operands merged in
+    Vec<String> pins;  // "<name>=<version>" a sideload joined world under
     Vec<Dep> world;
     Vec<SolveRequest> named;
     u32 flags          = 0; // the run's own, which is SOLVE_UPGRADE or none
@@ -309,6 +310,18 @@ Task<Result<void>> local_load(Txn &in, Str word, Operand kind, LocalStep &step)
     if (!in.locals.push(move(got)))
         co_return Err(Error::NoMemory);
     co_return Result<void>();
+}
+
+// The world spec an operand joins under: "<name>=<version>" for an archive.
+// A name or version §6 cannot spell back falls back to the bare name.
+bool pin_spec(const PackageStanza &p, String &out)
+{
+    Dep d;
+    if (!out.assign(p.name) || !out.push('=') || !out.append(p.version))
+        return false;
+    if (dep_parse(out.str(), d) == DepParse::Ok && d.name == p.name && d.version == p.version)
+        return true;
+    return out.assign(p.name);
 }
 
 // §7.1's line. Silent for an archive the index turns out to list.
@@ -1207,17 +1220,23 @@ Task<i32> pkg_install(Args args)
         }
     }
 
-    // apk's `add`: the operand joins world and names itself, and the run
-    // carries no flag of its own. An archive joins under the name its .PKGINFO
-    // gave, not the path, which may be gone by the next solve.
+    // apk's `add -u`: the operand joins world, names itself, and is told to
+    // prefer what is new, the flag inheriting down what it depends on. An
+    // archive joins under the name and version its .PKGINFO gave, not the
+    // path, which may be gone by the next solve.
     for (usize i = 1, at = 0; i < args.size(); i++) {
         Str spec     = args[i];
         bool changed = false;
-        if (operand_kind(spec) != Operand::Name)
-            spec = in.locals[at++].stanza.name;
+        if (operand_kind(spec) != Operand::Name) {
+            String pin;
+            if (!pin_spec(in.locals[at++].stanza, pin) || !in.pins.push(move(pin)))
+                co_return 1;
+            spec = in.pins.back().str();
+        }
         Dep d;
         dep_parse(spec, d);
-        if (!world_push(in.specs, spec, changed) || !in.named.push(SolveRequest{ d.name, 0, 0 }))
+        if (!world_push(in.specs, spec, changed) ||
+            !in.named.push(SolveRequest{ d.name, SOLVE_UPGRADE, SOLVE_UPGRADE }))
             co_return 1;
         in.world_changed = in.world_changed || changed;
     }

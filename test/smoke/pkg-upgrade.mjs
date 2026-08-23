@@ -28,10 +28,6 @@ export function check() {
                    { status: 200, headers: "content-type: text/plain\n", body: repo("index2") });
     prints("pkg update", `${RURL}|index 2, 2 packages`);
 
-    // Installing is not upgrading: without SOLVE_UPGRADE the solver keeps
-    // what is installed, whatever the index now offers.
-    prints("pkg install hello", "generation 1, unchanged");
-
     prints("pkg upgrade",
            ["Upgrading hello (1.0-r0 -> 1.1-r0)", "generation 2, 2 packages"].join("|"));
     if (text("/pkg/gen/2/packages") !== "hello 1.1-r0\nlibz 1.0-r0\n")
@@ -74,13 +70,25 @@ export function check() {
     if (store.dirs.has("/pkg/gen/3"))
         fail("an upgrade with nothing to do built a generation");
 
+    // Installing is upgrading what it names: rolled back to the version
+    // before, the same operand moves it again. Nothing serves the archive,
+    // so the store directory this already holds is what it reuses.
+    net.routes.delete(`${RURL}/hello-1.1-r0.zip`);
+    submit("rm /pkg/active", at());
+    submit("ln -s /pkg/gen/1 /pkg/active", at());
+    prints("pkg install hello",
+           ["Upgrading hello (1.0-r0 -> 1.1-r0)", "generation 3, 2 packages"].join("|"));
+    prints("hi", "hi from hello 1.1");
+    if (text("/pkg/world") !== "hello\n")
+        fail(`an install changed world: ${JSON.stringify(text("/pkg/world"))}`);
+
     // World is the only root an upgrade has, so an empty one purges
     // everything — `upgrade` is the command typed by habit, and this is
     // deliberate rather than incidental.
     plant("/pkg/world", "");
     prints("pkg upgrade",
            ["Purging hello (1.1-r0)", "Purging libz (1.0-r0)",
-            "generation 3, 0 packages"].join("|"));
+            "generation 4, 0 packages"].join("|"));
 
     // A contradiction refuses under the command's own name, not install's.
     plant("/pkg/world", "ghost\n");
@@ -89,5 +97,4 @@ export function check() {
     plant("/pkg/world", "");
 
     prints("pkg upgrade please", "Usage: pkg upgrade", 2);
-    net.routes.delete(`${RURL}/hello-1.1-r0.zip`);
 }

@@ -17,7 +17,7 @@ constexpr PkgCommand TABLE[] = {
     { "update", "", "fetch the repository index", pkg_update },
     { "search", "<pattern>", "search names and descriptions", pkg_search },
     { "info", "<package>", "what the index says about one", pkg_info },
-    { "install", "<package>...", "install packages and dependencies", pkg_install },
+    { "install", "<package>...", "install or upgrade packages", pkg_install },
     { "remove", "<package>...", "remove packages", pkg_remove },
     { "autoremove", "", "remove dependencies nothing needs", pkg_autoremove },
     { "upgrade", "", "upgrade everything installed", pkg_upgrade },

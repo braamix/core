@@ -277,9 +277,21 @@ index turns out to list them.
   its `vouched` row reads `no`.
 
 Everything else is a package like any other: it joins `/pkg/world` under the
-name its `.PKGINFO` gave — not the path, which may be gone by the next solve —
-takes part in dependency resolution, is removed by `pkg remove`, and its
-scripts run (§11).
+name **and version** its `.PKGINFO` gave — `<name>=<version>`, not the path,
+which may be gone by the next solve — takes part in dependency resolution, is
+removed by `pkg remove`, and its scripts run (§11).
+
+That version is a **pin**, which is what makes an archive install the bytes it
+named whichever way the versions compare, a downgrade included. Two
+consequences follow, and neither is incidental:
+
+- `pkg upgrade` leaves a pinned package where it is, even once an index starts
+  listing the name. That is what a pin means.
+- `pkg install <name>` replaces the pin with the bare name, so a package that
+  arrived by hand goes back to being upgraded like any other by naming it.
+
+A `V` the §6 grammar cannot spell back — §3.2 holds it to a path component and
+not to §7's versions — joins under the bare name instead.
 
 ---
 

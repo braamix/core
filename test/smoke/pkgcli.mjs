@@ -38,7 +38,7 @@ export function check() {
     // with the operands its own usage line spells and one line of what it is
     // for.
     piped("pkg | grep \"install <package>\"", 1184.72,
-        "    install <package>...  install packages and dependencies");
+        "    install <package>...  install or upgrade packages");
 
     piped("pkg nonesuch 2>&1 | head -n 1", 1184.73, "pkg: unknown command: nonesuch");
     status("pkg nonesuch", 1184.74, 2);

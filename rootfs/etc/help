@@ -93,8 +93,9 @@ Packages
   update    download the repository index, and check it
   search    <pattern> — find packages by name or description
   info      <package> — what the index says about one package
-  install   <package>... — install packages and what they need. A .zip path or
-            a URL is installed without checking
+  install   <package>... — install packages and what they need, upgrading one
+            already installed. A .zip path or a URL is installed without
+            checking, and pins the version it named
   remove    <package>... — remove packages
   autoremove
             remove packages installed only as dependencies

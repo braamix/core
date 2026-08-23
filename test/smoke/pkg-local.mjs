@@ -52,9 +52,9 @@ export function check() {
         if (!record.includes(want))
             fail(`/pkg/db/mine-1.0-r0 carries no ${JSON.stringify(want)}`);
 
-    // World names the package, not the path it came from: a later solve asks
-    // for `mine` and not for a file that may be gone.
-    if (text("/pkg/world") !== "mine\n")
+    // World names the package and the version, not the path it came from: a
+    // later solve asks for these bytes and not for a file that may be gone.
+    if (text("/pkg/world") !== "mine=1.0-r0\n")
         fail(`/pkg/world holds ${JSON.stringify(text("/pkg/world"))}`);
     if (linkTarget(bytes("/pkg/gen/1/bin/mine")) !== "/pkg/store/mine-1.0-r0/bin/mine")
         fail(`the farm names ${linkTarget(bytes("/pkg/gen/1/bin/mine"))}`);
@@ -114,12 +114,22 @@ export function check() {
         fail("an indexed archive carried by hand lost its G");
     serve("hello-1.0-r0", archive("hello-1.0-r0"));
 
+    // V is held to a path component and not to §7, so a version §6 cannot
+    // spell back joins world under the bare name rather than a spec no solve
+    // can satisfy.
+    put("/home/oddver.zip", pkg("P:odd\nV:!!\n", [["bin/odd", "#!/bin/sh\necho odd\n"]]));
+    prints("pkg install /home/oddver.zip",
+           ["pkg: odd-!!: unverified: no index vouches for it",
+            "Installing odd (!!)", "generation 4, 5 packages"].join("|"));
+    if (!text("/pkg/world").includes("odd\n"))
+        fail(`/pkg/world holds ${JSON.stringify(text("/pkg/world"))}`);
+
     // ------------------------------------------------------- the refusals
 
     // The store path is built out of P and V, so neither may climb out of it.
     put("/home/bad.zip", pkg("P:../escape\nV:1\n"));
     prints("pkg install /home/bad.zip", "pkg: /home/bad.zip: pkginfo: invalid", 1);
-    if (store.dirs.has("/pkg/gen/4"))
+    if (store.dirs.has("/pkg/gen/5"))
         fail("a refused sideload built a generation");
 
     // §5.1: .PKGINFO is required, and an unknown top-level dot-entry makes the
@@ -153,7 +163,8 @@ export function check() {
 
     net.routes.delete("https://x.example/other-2.0-r0.zip");
     submit("rm /home/mine-1.0-r0.zip /home/hello.zip /home/bad.zip /home/nometa.zip", at());
-    submit("rm /home/odd.zip /home/forged.zip /home/junk.zip", at());
+    submit("rm /home/odd.zip /home/oddver.zip /home/forged.zip", at());
+    submit("rm /home/junk.zip", at());
     net.routes.set(RURL + "/index",
                    { status: 200, headers: "content-type: text/plain\n", body: repo("index") });
 }
