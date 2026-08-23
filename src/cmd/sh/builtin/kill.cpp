@@ -12,16 +12,60 @@
 #include "kernel/string.h"
 #include "kernel/text.h"
 
+namespace {
+
+// `-9` and `-INT` alike. False for a word that is not a signal at all.
+bool signal_arg(Str w, u32 &sig)
+{
+    if (!w.starts_with("-") || w.size() < 2)
+        return false;
+    w = w.substr(1);
+
+    struct Named {
+        Str name;
+        u32 sig;
+    };
+    constexpr Named NAMES[] = {
+        { "INT", SIG_INT },
+        { "KILL", SIG_KILL },
+        { "TERM", SIG_TERM },
+        { "WINCH", SIG_WINCH },
+    };
+
+    Option<u32> n = parse_u32(w);
+    for (const Named &e : NAMES)
+        if (w == e.name || (n.has_value() && n.value() == e.sig)) {
+            sig = e.sig;
+            return true;
+        }
+    return false;
+}
+
+} // namespace
+
 Task<i32> builtin_kill(Args args, ShIo io)
 {
-    if (args.size() < 2) {
-        co_await write_all(io.err, "usage: kill %n...\n");
+    usize first = 1;
+    u32 sig     = SIG_KILL;
+
+    // One signal, before the jobs, which is where every shell puts it.
+    if (args.size() > 1 && args[1].starts_with("-")) {
+        if (!signal_arg(args[1], sig)) {
+            if (Task<void> e = errln("kill", args[1].substr(1), Error::Unsupported))
+                co_await e;
+            co_return 1;
+        }
+        first = 2;
+    }
+
+    if (first >= args.size()) {
+        co_await write_all(io.err, "usage: kill [-<signal>] %n...\n");
         co_return 2;
     }
 
     i32 status = 0;
     String bad;
-    for (usize i = 1; i < args.size(); i++) {
+    for (usize i = first; i < args.size(); i++) {
         Str a = args[i];
         if (a.starts_with("%"))
             a = a.substr(1);
@@ -29,7 +73,7 @@ Task<i32> builtin_kill(Args args, ShIo io)
         Option<u32> n = parse_u32(a);
         bool ok       = false;
         if (n && n.value())
-            if (Task<Result<void>> t = jobs_kill(n.value()))
+            if (Task<Result<void>> t = jobs_kill(n.value(), sig))
                 ok = (co_await t).is_ok();
         if (!ok) {
             bad.append("kill: no such job\n");

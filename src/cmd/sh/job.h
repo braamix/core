@@ -16,10 +16,10 @@
 // status — its own last stage's, or 130 if ^C interrupted it. A pipeline
 // followed by `&` is started, filed in the table below and reported as 0.
 //
-// **130 is this shell's SIGINT.** There is no signal, and a status is the only
+// **130 is this shell's SIGINT**, which is 128 + SIG_INT. A status is the only
 // thing that crosses a process boundary, so a stage reporting 130 stops the
 // rest of the text. A program that exits 130 of its own accord does the same,
-// which is the price of having no other channel.
+// which is the price of the status being the channel.
 //
 // `interactive` says whether the console is this shell's to hand out: the
 // keyboard is given back around a foreground pipeline and taken again after,
@@ -42,8 +42,13 @@ void sh_set_flags(u32 f);
 // One option letter, or 0. The one table, shared by `set` and by sh's argv.
 u32 sh_flag_of(char c);
 
-// `trap`. Two signals exist here: 0 is EXIT and anything else is INT, since
-// there are no signals and the builtin refuses every other number.
+// `trap`. What can be trapped: 0 is EXIT, and the rest are the signals a
+// process may ask for (SIG_CATCHABLE in sysabi.h). Every other number is
+// refused rather than silently kept.
+constexpr usize TRAP_MAX             = 4;
+constexpr u32 TRAP_SIGNALS[TRAP_MAX] = { 0, SIG_INT, SIG_TERM, SIG_WINCH };
+
+// False for a number that is not one of those, as well as for out of memory.
 bool trap_set(u32 sig, Str action);
 bool trap_get(u32 sig, Str &action);
 void trap_clear(u32 sig);
@@ -98,8 +103,9 @@ bool jobs_find(u32 id, JobInfo &out);
 // The most recent job — what a bare `fg` means.
 u32 jobs_current();
 
-// Cancels every stage. Err(Invalid) when there is no such job.
-Task<Result<void>> jobs_kill(u32 id);
+// Signals every stage. Err(Invalid) when there is no such job. SIG_KILL is
+// cancellation, which is what this was before there were signals to choose.
+Task<Result<void>> jobs_kill(u32 id, u32 sig = SIG_KILL);
 
 // Puts the job in front and parks until it stops, reporting its status.
 // Err(Invalid) for an unknown id; a job that has already stopped returns at

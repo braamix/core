@@ -31,6 +31,8 @@ Str error_name(Error e)
         return "directory not empty";
     case Error::Loop:
         return "too many symbolic links";
+    case Error::Intr:
+        return "interrupted";
     }
     return "unknown error";
 }

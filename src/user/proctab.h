@@ -184,10 +184,11 @@ struct Call {
     u32 server = 0; // the scheduler job performing it
 };
 
-// What a finished call hands back to the stepper: which one it was, and the
-// reply the process is to be resumed with.
+// What reaches the stepper through `done`: a finished call, or a signal to hand
+// over. `sig` non-zero is the second — no signal is 0, and a token never is.
 struct Reply {
     u32 token = 0;
+    u32 sig   = 0;
     String payload;
 };
 
@@ -263,6 +264,7 @@ struct Proc {
     // not unwound yet.
     Vec<Child> children;
     u32 wait_any  = 0; // the token a Wait(SYS_WAIT_ANY) is parked on
+    u32 caught    = 0; // Sys::SigAct's mask: told about rather than acted on
     u32 depth     = 0; // how many spawns deep this one is
     u32 max_pages = 0; // the memory cap this instance was given, for /proc
     u32 pages     = 0; // and what it has committed, as of its last step
@@ -271,6 +273,12 @@ struct Proc {
     i32 exit = 1;
     Vec<Handle *> fds;
 };
+
+// Abandons the calls a signal may take away, each answering Err(Intr). Closed,
+// because Err(Intr) has to mean nothing happened: an interrupted Write has lost
+// how many bytes went. Everything else runs to completion and the process reads
+// its mask at the next suspension.
+void proc_interrupt(Proc &p);
 
 Proc *proc_find(u32 pid);
 bool proc_add(Proc *p);

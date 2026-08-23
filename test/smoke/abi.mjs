@@ -33,7 +33,7 @@ export function check(binaries) {
     for (const binary of binaries) {
         const bin = new WebAssembly.Module(readFileSync(binary));
         const want_bin_imports = ["env.memory", "kernel.sys", "kernel.sys_async"];
-        const want_bin_exports = ["_alloc", "_free", "_resume", "_start"];
+        const want_bin_exports = ["_alloc", "_free", "_resume", "_sig", "_start"];
         const got_bin_imports = names(WebAssembly.Module.imports(bin));
         const got_bin_exports = names(WebAssembly.Module.exports(bin));
 
@@ -56,7 +56,7 @@ export function check(binaries) {
         if (meta.length !== 1)
             fail(`${basename(binary)} carries ${meta.length} braam sections, expected 1`);
         const m = new Uint32Array(meta[0]);
-        if (m[0] !== 0x6d617262 || m[1] !== 16)
+        if (m[0] !== 0x6d617262 || m[1] !== 17)
             fail(`${basename(binary)}'s metadata is ${m[0].toString(16)}/${m[1]}`);
         if (m[4] !== 256)
             fail(`${basename(binary)} asks for ${m[4]} pages, expected 256`);

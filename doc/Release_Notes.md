@@ -7,6 +7,100 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## Signals, and the two facts cancellation was conflating
+
+`sched_cancel` is one sticky `bool` on a `CancelState`, checked at every await
+point, and until now it was the only thing `^C` could do. That works, but it
+says two things at once that Unix keeps apart: *something happened to you* and
+*you are dead*. Three consequences, each of which had been written down as a
+deliberate absence and each of which was really the same absence:
+
+- `trap '' 2` was refused outright, because once the flag is set nothing can
+  decline it, and `trap … 2` in a **script** could never run at all — the
+  script's own process was the thing cancelled.
+- A resize reached a program only on its next keystroke. Geometry rides on
+  every terminal reply, so `less` handled a resize *perfectly* once a key
+  arrived; between the resize and that key the screen was visibly wrong, and a
+  shrink could fail the next `ScreenBlit` and exit the pager with status 1.
+  `vmstat` had a comment saying it needed a signal to notice, which it did.
+- `Error::Cancelled` was unrepresentable on the wire on purpose, so "your
+  syscall was interrupted" could not be said.
+
+**The delivery mechanism is a third export, and its whole safety argument is
+that it is a leaf call.** `_sig(n)` records the number in a word and returns:
+no allocation, no syscall, no coroutine resumed. The alternative considered
+first was a parked `Sys::SigWait` that a dedicated task blocks on, which needs
+no host change at all — but it burns one of eight task slots, and worse, it
+only reaches a process that has *already asked*, so a default disposition
+delivered to a process that is merely running has nowhere to land. A third
+entry point is more machinery and the right machinery.
+
+What makes a new entry point safe is the contract, not the export. A worker is
+single-threaded, so the message carrying a signal is handled between two steps
+and never inside one. If `_sig` could allocate, syscall, or resume a coroutine,
+it would be doing those things beside a kernel that believes this process is
+parked. So it may not, and the rule is written where the export is. Nothing is
+lost: a process spinning inside a step was reachable only by `terminate()`
+before signals and still is.
+
+**Waking is deliberately not the same act as telling.** `_sig` sets a bit and
+starts nothing; the kernel separately abandons the calls the process is parked
+on, and each answers the new `Error::Intr`. Both a dying process and an
+interrupted one arrive at `serve()` as a cancelled server task, and the two are
+told apart by `Proc::dead`, which `~End` sets before it cancels anything. That
+one test is the entire difference between "interrupted" and "dead".
+
+**Only five calls may be abandoned** — `Read`, `KeyRead`, `Sleep`, `Wait`,
+`ClipRead`. This is `SA_RESTART`'s question, and the answer is a list rather
+than a flag because `Err(Intr)` has to mean *nothing happened*: an interrupted
+`Write` has lost how many bytes went, which is a worse thing to hand a program
+than a wait it did not want. Everything else runs to completion and the process
+reads its mask at the next suspension. Interrupting `KeyRead` is not optional:
+the kernel-side server parks on `p.keys->next()`, and leaving it there while the
+process issued another read would put two receivers on one `Channel`, which is a
+kernel invariant a user program must not be able to reach.
+
+**Two dispositions, not three.** Unix has Default / Ignore / Handler; here a bit
+set in `Proc::caught` means delivered and a bit clear means the default action
+runs. A program that catches a signal and does nothing has ignored it — which
+is exactly what `trap '' 2` wanted to say and had no way to. That removes a
+whole table and a whole syscall's worth of API surface.
+
+**The mask starts empty**, and that is the property that made this landable.
+Every binary in the tree behaves exactly as it did until it opts in: `^C` still
+cancels, `WINCH` still does nothing. The three suites passed with the entire
+mechanism in place and nothing using it, which is a much stronger check than any
+individual assertion.
+
+**A signal travels the channel a reply travels.** `CancelState::waiting` is a
+single slot, so the stepper, parked on `p->done.recv()`, cannot also park on a
+signal. Rather than give `Waiter` the intrusive queue links a second wait would
+need, a signal is pushed into `done` as a record with `sig` set, and the stepper
+pops it and posts rather than steps. A full box means the signal is dropped and
+the default action stands, which for `SIG_INT` is the old behaviour and the safe
+way to fail.
+
+**The mask is a payload because `SIG_WINCH` is bit 28** and the op word's
+argument is 24 bits. That was caught by writing the numbers down, not by a test:
+Unix's numbering is worth keeping — `128 + n` is already a status here, and
+people type `kill -9` — and it does not fit where masks usually go.
+
+**`SIG_WINCH` goes to the foreground**, not only to whoever holds a terminal
+route. The first version signalled the two claim holders, which is wrong for
+`vmstat`: it writes to stdout and claims nothing, so it would never have been
+told. The foreground set is already the answer to "who is the terminal for", and
+it is what `^C` uses.
+
+`Sys::Kill` grew a payload rather than an 86th operation, since sending a signal
+is what killing already was; an empty payload still means `SIG_KILL`, so nothing
+that predates signals changed. `SIG_TSTP` and `SIG_CONT` have numbers and no
+sender, and are deliberately **not** in `SIG_CATCHABLE`: a number nothing
+delivers is an ABI nothing tests. `^Z` remains a milestone rather than a
+command — but the shape it needs is now visible, and it is not the resume-side
+twin of `CancelToken` that Shell.md promised it would be. Stopping is the
+*stepper* holding off the next step, which suspends no coroutine at an arbitrary
+point and needs nothing of every awaitable.
+
 ## A libm, and it is not ours
 
 Nothing in Braam could compute a square root. `f64` existed in `kernel/types.h`

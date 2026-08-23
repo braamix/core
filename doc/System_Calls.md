@@ -693,6 +693,53 @@ instantiate reads as 132 rather than 126. The module is still compiled in the
 kernel worker, so a malformed one is still refused before anything runs; only
 the distinction is lost, and it was not worth an ABI change to keep.
 
+### 7.7 A signal, end to end
+
+A window is resized while `less` is parked on a key. `less` asked for
+`SIG_WINCH` when it claimed the keyboard, so this is delivery rather than the
+default action, which for `SIG_WINCH` is nothing:
+
+```
+ resize(cols, rows) → screen_resize → tty_resized()
+        │
+        └─ sig_raise(pid, SIG_WINCH)
+             │
+             └─ exec_signal: p->caught has the bit, so the process is told
+                  │
+                  └─ p->done.try_send(Reply{sig})   ── the channel a *reply*
+                        travels, because CancelState::waiting is one slot and
+                        the stepper cannot park on a second thing
+
+ ...the tick unwinds, the scheduler resumes the stepper...
+
+ exec_process pops a Reply with `sig` set, and does not step:
+        │
+        ├─ proc_signal(pid, SIG_WINCH) ─ host_svc ─► postMessage {k:"sig"}
+        │                                              │
+        │     worker: instance.exports._sig(28)  ──────┘
+        │             rt().pending |= 1<<28, and returns. No allocation,
+        │             no syscall, no coroutine resumed.
+        │
+        └─ proc_interrupt(p): the parked KeyRead is interruptible, so
+             sched_cancel(c->server)
+                  │
+                  └─ serve() wakes with Err(Cancelled), sees !p->dead,
+                       and replies Err(Intr) — where a dying process gets
+                       no reply at all (§7.5)
+
+ the stepper pops that reply and steps ─► _resume(token, -Intr)
+        │
+        └─ ProcScreen::next_key sees Err(Intr), sig_take(SIG_WINCH) is true,
+             asks Sys::Cursor for the new cols/rows, resizes its grid, marks
+             it whole, and reports Err(Intr) to less, which repaints.
+```
+
+Two things are worth naming. The signal is posted **before** the `Err(Intr)`
+replies, and a worker's message queue is ordered, so `sig_take` can already
+answer by the time the syscall reports why it stopped. And nothing here
+interrupts running wasm: every step of it happens between two steps, which is
+the only place anything can.
+
 ---
 
 ## 8. The syscall reference
@@ -755,11 +802,29 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 80 | `Pipe` | — | — | 0 | `u32 read fd`, `u32 write fd` |
 | 81 | `Spawn` | `SYS_SPAWN_ENV` | `u32 fd0, fd1, fd2`, the argv blob, then the env blob | the child's pid | — |
 | 82 | `Wait` | a pid, or `SYS_WAIT_ANY` | — | the child's status, 0–255 | `u32 pid` |
-| 83 | `Kill` | the pid | — | 0 | — |
+| 83 | `Kill` | the pid | `u32 signal`, or empty for `SIG_KILL` | 0 | — |
 | 84 | `Fg` | a child's pid, or 0 to take the console back | — | 0 | — |
+| 85 | `SigAct` | — | `u32 mask`, or empty to ask | 0 | `u32`, the mask before |
 
 Every multi-byte field is little-endian, and a `u64` is a low word then a high
 word.
+
+**`SigAct` carries its mask as a payload, which nothing else this small does.**
+The op word's argument is 24 bits and `SIG_WINCH` is bit 28, so the mask does
+not fit; it is a whole `u32` or it is wrong. It is one operation for the entire
+disposition table, get and set together — `KeyClaim`, `Chdir` and `Cursor`
+already work that way — because there are two dispositions and not three: a
+bit set means the signal is delivered, a bit clear means the default action
+runs, and a program that catches one and does nothing has ignored it. An empty
+payload asks without setting. A bit outside `SIG_CATCHABLE` is `Err(Invalid)`,
+which is how `SIG_KILL` stays undeclinable.
+
+**`Kill` grew a payload rather than an 86th operation**, since sending a signal
+is what killing already was: an empty payload still means `SIG_KILL`, so every
+caller that predates signals says the same thing it always did. The
+authorisation is unchanged — the target must be a child of the caller — which
+is what keeps `kill %n` job-ids-only. `/bin/sh`'s `kill` and `trap` are the
+callers, and `less`, `edit` and `vmstat` call `SigAct` for `SIG_WINCH`.
 
 **57 and 58 have no caller in `src/cmd/`, and landed anyway.** §8's opening rule
 bars *growing* the table on speculation, and these are not that: both rows were
@@ -1113,11 +1178,19 @@ is the top size class on both sides of the wire, and one byte more costs a whole
 The wire carries `src/kernel/result.h`'s `Error`, negated: `Invalid` 1,
 `NoMemory` 2, `NotFound` 3, `Exists` 4, `NotDir` 5, `IsDir` 6, `Perm` 7, `Io` 8,
 `Cancelled` 9, `Again` 10, `Unsupported` 11, `Closed` 12, `NotEmpty` 13, `Loop`
-14. `web/abi.js:9-13` mirrors the list.
+14, `Intr` 15. `web/abi.js:9-13` mirrors the list.
 
 Two never reach a process. `Again` is retried inside `proc_syscall` rather than
 reported, and `Cancelled` means the process is being destroyed, so `serve()`
 returns without building a reply at all.
+
+**`Intr` is the one that exists because `Cancelled` does not reach a process.**
+Both start as a cancelled server task, and `serve()` tells them apart by
+`Proc::dead`: the process is going, or a signal abandoned the call and the
+process is still there to hear about it (Concept.md §3.5). Only the five calls
+a program parks on indefinitely can answer it — `Read`, `KeyRead`, `Sleep`,
+`Wait`, `ClipRead` — because `Intr` has to mean nothing happened, and an
+interrupted `Write` has lost how many bytes went.
 
 ---
 
@@ -1322,9 +1395,11 @@ documentation rather than as a test:
   A host import in a binary would mean the process ABI had been gone around.
   `sys_async` is not required, because `--gc-sections` removes it from a binary
   that never awaits — `true` is the case.
-- **Exports are an exact list**: `_alloc`, `_free`, `_resume`, `_start`. Note
-  that `memory` is not exported; it is imported, which is what makes the cap the
-  kernel's.
+- **Exports are an exact list**: `_alloc`, `_free`, `_resume`, `_sig`, `_start`.
+  Note that `memory` is not exported; it is imported, which is what makes the
+  cap the kernel's. `_sig` is in every binary, `true` included, because the
+  runtime defines it and a signal must have somewhere to land whether or not
+  the program ever asks for one.
 - **Exactly one `braam` section**, with the right magic and `abi`, and
   `max_pages` of 256.
 - **The same lists for every binary.** They are identical because there is one

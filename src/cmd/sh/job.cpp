@@ -113,14 +113,19 @@ i32 g_return_status;
 // `set -e -x -u`. A word, so the checkpoint a `( … )` takes is one field.
 u32 g_flags;
 
-// The two traps: [0] is EXIT and [1] is INT. Pointers, so the globals stay
-// trivially destructible (CLAUDE.md) — a namespace-scope String would want
-// __cxa_atexit, which nothing provides.
-String *g_trap[2];
+// The traps, in TRAP_SIGNALS' order. Pointers, so the globals stay trivially
+// destructible (CLAUDE.md) — a namespace-scope String would want __cxa_atexit,
+// which nothing provides.
+String *g_trap[TRAP_MAX];
 
+// Out of range for a number that is not one of them, which trap_set and
+// trap_get answer false for; the builtin refuses it before ever asking.
 usize trap_slot(u32 sig)
 {
-    return sig ? 1 : 0;
+    for (usize i = 0; i < TRAP_MAX; i++)
+        if (TRAP_SIGNALS[i] == sig)
+            return i;
+    return TRAP_MAX;
 }
 
 // One function, and the tree its body is a node of.
@@ -609,14 +614,14 @@ u32 jobs_current()
     return g_current;
 }
 
-Task<Result<void>> jobs_kill(u32 id)
+Task<Result<void>> jobs_kill(u32 id, u32 sig)
 {
     JobEntry *e = find_entry(id);
     if (!e)
         co_return Err(Error::Invalid);
     if (e->running)
         for (u32 pid : e->pids)
-            if (Task<Result<void>> t = kill_child(pid))
+            if (Task<Result<void>> t = kill_child(pid, sig))
                 co_await t;
     co_return {};
 }
@@ -1016,13 +1021,21 @@ Task<i32> exec_pipeline(Ctx &cx, const Tree &tree, u32 node)
 
     // Collecting every child. A cancelled one answers 130 of its own accord,
     // so ^C needs nothing here: it went to the stages, not to us.
+    //
+    // Err(Intr) is the exception, and only with a `trap … 2` set: this shell
+    // asked for SIG_INT, so the ^C that cancelled the stages abandoned this
+    // wait as well. The stage is dying either way and 130 is what it would
+    // have reported.
     for (usize i = 0; i < n && !bg; i++) {
         Stage &s = r->stages[i];
         if (!s.pid)
             continue;
         Task<Result<Exited>> t = wait_child(s.pid);
         Result<Exited> e       = t ? co_await t : Err(Error::NoMemory);
-        s.status               = e.is_ok() ? e.value().status : 1;
+        if (e.is_ok())
+            s.status = e.value().status;
+        else
+            s.status = e.error() == Error::Intr ? 130 : 1;
         if (i + 1 == n)
             status = s.status;
     }
@@ -1089,14 +1102,14 @@ Task<i32> exec_pipeline(Ctx &cx, const Tree &tree, u32 node)
         }
         g_break = 0;
     } else if (!bg && status == 130) {
-        // `trap … 2`, and the only place it can fire. An interactive ^C went
-        // to the stages rather than to us, so this shell was never cancelled
-        // and the action can still spawn and write. In a script the process
-        // itself is cancelled and every await from here on answers
-        // Err(Cancelled), which is why a trap on INT there never runs.
+        // `trap … 2`, and the only place it can fire. The ^C went to the
+        // stages rather than to us, so this shell can still spawn and write:
+        // interactively because it was never in its own foreground set, and in
+        // a script because setting the trap asked for SIG_INT (builtin/trap.cpp)
+        // and a delivered signal is not a cancellation.
         Str action;
-        if (cx.interactive && trap_get(2, action))
-            if (Task<i32> t = trap_run(2, true))
+        if (trap_get(SIG_INT, action))
+            if (Task<i32> t = trap_run(SIG_INT, cx.interactive))
                 co_await t;
         cx.flow = Flow::Interrupt;
     }
@@ -1865,6 +1878,8 @@ u32 sh_flag_of(char c)
 bool trap_set(u32 sig, Str action)
 {
     usize k = trap_slot(sig);
+    if (k == TRAP_MAX)
+        return false;
     if (!g_trap[k]) {
         g_trap[k] = heap_new<String>();
         if (!g_trap[k])
@@ -1876,7 +1891,7 @@ bool trap_set(u32 sig, Str action)
 bool trap_get(u32 sig, Str &action)
 {
     usize k = trap_slot(sig);
-    if (!g_trap[k])
+    if (k == TRAP_MAX || !g_trap[k])
         return false;
     action = g_trap[k]->str();
     return true;
@@ -1885,6 +1900,8 @@ bool trap_get(u32 sig, Str &action)
 void trap_clear(u32 sig)
 {
     usize k = trap_slot(sig);
+    if (k == TRAP_MAX)
+        return;
     heap_delete(g_trap[k]);
     g_trap[k] = nullptr;
 }
@@ -1892,7 +1909,7 @@ void trap_clear(u32 sig)
 Task<i32> trap_run(u32 sig, bool interactive)
 {
     usize k = trap_slot(sig);
-    if (!g_trap[k])
+    if (k == TRAP_MAX || !g_trap[k])
         co_return 0;
 
     // Taken rather than read: the action runs with no trap set, so one that

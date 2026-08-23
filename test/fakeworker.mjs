@@ -115,6 +115,11 @@ export function makeFakeLinks(net) {
                 }
                 return;
             }
+            if (m.k === "sig") {
+                if (server)
+                    server.signal(m.sig);
+                return;
+            }
             if (m.k !== "step")
                 return;
             if (!server) {

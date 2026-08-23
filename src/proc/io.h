@@ -131,7 +131,18 @@ struct Exited {
 
 Task<Result<Exited>> wait_child(u32 pid = SYS_WAIT_ANY);
 
-Task<Result<void>> kill_child(u32 pid);
+// A signal to a child, which is all `kill` can name: the kernel refuses a pid
+// that is not one. SIG_KILL is the default and the only one nothing declines.
+Task<Result<void>> kill_child(u32 pid, u32 sig = SIG_KILL);
+
+// Asks to be told about `sig` rather than acted on, or stops asking. Only what
+// SIG_CATCHABLE names; anything else is Err(Invalid).
+//
+// A caught signal abandons the syscall this process is parked on with
+// Err(Intr), and sig_take (proc/rt.h) then says which one it was. The mask
+// itself is the kernel's; this keeps a copy so one signal can be added without
+// naming the rest.
+Task<Result<void>> sig_catch(u32 sig, bool on = true);
 
 // Puts a child of this process in front of the console, so that ^C reaches it
 // rather than this process — which is what a shell does before it waits. Zero

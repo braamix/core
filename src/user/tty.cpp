@@ -1,6 +1,7 @@
 #include "tty.h"
 
 #include "console.h"
+#include "exec.h"
 #include "io.h"
 #include "kernel/alloc.h"
 #include "kernel/screen.h"
@@ -86,6 +87,30 @@ u32 tty_keys_owner()
 u32 tty_screen_owner()
 {
     return g_alt_pid;
+}
+
+void tty_resized()
+{
+    // Whoever is in front, which is ^C's audience and for ^C's reason, plus
+    // whoever holds a route — a full-screen program has the keys and the
+    // screen and may be in front as well, so each pid is told once.
+    u32 told[CONSOLE_FG_MAX + 2];
+    usize n = 0;
+
+    auto tell = [&](u32 pid) {
+        if (!pid)
+            return;
+        for (usize i = 0; i < n; i++)
+            if (told[i] == pid)
+                return;
+        told[n++] = pid;
+        sig_raise(pid, SIG_WINCH);
+    };
+
+    for (usize i = 0; i < console_fg_count(); i++)
+        tell(console_fg_at(i));
+    tell(g_alt_pid);
+    tell(g_raw_pid);
 }
 
 // ------------------------------------------------------------ the alternate

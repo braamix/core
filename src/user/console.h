@@ -37,6 +37,11 @@ void console_fg_clear();
 
 usize console_fg_count();
 
+// The i'th pid in front, for a caller that must reach all of them: tty_resized
+// tells the foreground about a grid that changed shape, as the pump tells it
+// about a ^C. 0 past the end.
+u32 console_fg_at(usize i);
+
 bool console_fg_has(u32 pid);
 
 // Who put what is in front there. The foreground belongs to whoever armed it:

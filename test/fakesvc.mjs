@@ -302,6 +302,11 @@ export function makeFakeSvc(mem, net, kernel) {
             return;
         }
 
+        if (op === OP.PROC_SIGNAL) {
+            proc.signal(req >>> 0, token >>> 0);
+            return;
+        }
+
         if (op === OP.DROP) {
             if (ref && ref.queue) {
                 ref.closed = true;

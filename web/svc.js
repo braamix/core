@@ -31,6 +31,7 @@ export const OP = {
     PROC_KILL: 18,
     VERIFY: 19,
     INFLATE: 20,
+    PROC_SIGNAL: 21,
 };
 
 const utf8 = new TextEncoder();
@@ -469,6 +470,13 @@ export function makeSvcImport(mem, deposit, relay, reply, proc) {
         // than a record: there is nothing to reply to and nothing to free.
         if (op === OP.PROC_KILL) {
             proc.kill(req >>> 0);
+            return;
+        }
+
+        // Told too, and for the same reason. The pid is `req` and the signal
+        // rides in `token`, which no record-less op uses.
+        if (op === OP.PROC_SIGNAL) {
+            proc.signal(req >>> 0, token >>> 0);
             return;
         }
 

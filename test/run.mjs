@@ -43,6 +43,7 @@ import * as rename from "./smoke/rename.mjs";
 import * as respawn from "./smoke/respawn.mjs";
 import * as script from "./smoke/script.mjs";
 import * as sh from "./smoke/sh.mjs";
+import * as signal from "./smoke/signal.mjs";
 import * as spawn from "./smoke/spawn.mjs";
 import * as subst from "./smoke/subst.mjs";
 import * as sysinfo from "./smoke/sysinfo.mjs";
@@ -85,6 +86,7 @@ const CASES = [
     ["net",        net.check],        // after persist: a working store again
     ["fullscreen", fullscreen.check],
     ["jobs",       jobs.check],
+    ["signal",     signal.check],   // after jobs: it takes a job id of its own
     ["process",    process_.check],
     ["worker",     worker.check],     // after process: the worker under one
     ["spawn",      spawn.check],

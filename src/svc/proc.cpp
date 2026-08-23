@@ -35,3 +35,8 @@ void proc_kill(u32 pid)
 {
     host_svc(u32(SvcOp::ProcKill), 0, pid, jsref_get(0));
 }
+
+void proc_signal(u32 pid, u32 sig)
+{
+    host_svc(u32(SvcOp::ProcSignal), sig, pid, jsref_get(0));
+}

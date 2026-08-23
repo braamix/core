@@ -134,7 +134,10 @@ keystrokes is the thing under test — and it is what the rules are about.
    and update; `pkg-install`, `pkg-local` and `pkg-crash` each do.
 6. **Counters are absolute running totals.** `store.unpacks`, `logged.length`
    and `ticks()` are asserted as exact numbers, so `logged` and `presented` are
-   single instances in the harness rather than per-case.
+   single instances in the harness rather than per-case. **Job ids are one of
+   them**: the shell's `[n]` counts up across the whole session, so a case that
+   backgrounds anything shifts every id after it — `signal` reads its own out
+   of what `&` printed rather than naming a number.
 7. **Geometry is restored.** A case that resizes away from 60×16 puts it back.
 8. **The archive is optional in form only.** Cases marked `ARCHIVE` in the table
    are skipped without `rootfs.zip`, but a kernel with no archive does not reach

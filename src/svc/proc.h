@@ -28,3 +28,8 @@ Task<Result<ProcStep>> proc_step(u32 pid, u32 token, Str payload, u32 *pages = n
 // Drops the instance. Told, not asked: it has no reply, and it is issued from
 // a destructor, where there is nothing left to await with.
 void proc_kill(u32 pid);
+
+// Calls the instance's `_sig` export. Told, not asked: it is a leaf call with
+// no outcome to report. Lands between two steps, never inside one — a process
+// spinning in one is reachable by proc_kill alone.
+void proc_signal(u32 pid, u32 sig);

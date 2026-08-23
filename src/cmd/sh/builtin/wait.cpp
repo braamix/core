@@ -5,8 +5,8 @@
 
 // A builtin because the job table is the shell's own memory, as `jobs` and
 // `kill` are. It puts the job in front while it waits, which v7's `wait` does
-// not: there are no signals, so being in front is the only way a ^C can reach
-// anything (../../user/console.h). `fg` is then this plus the echo.
+// not: there is no process group to signal, so being in front is the only way a
+// ^C can reach anything (../../user/console.h). `fg` is this plus the echo.
 Task<i32> builtin_wait(Args args, ShIo io)
 {
     // The ids first: jobs_wait drops the entry it collected, so the table

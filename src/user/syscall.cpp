@@ -1075,8 +1075,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 break;
             }
             Result<void> r = Err(Error::NoMemory);
-            CO_CALL(r, svc_verify(payload.substr(8, key_len),
-                                  payload.substr(8 + key_len, sig_len),
+            CO_CALL(r, svc_verify(payload.substr(8, key_len), payload.substr(8 + key_len, sig_len),
                                   payload.substr(8 + key_len + sig_len)));
             status = 0;
             if (r.is_err())
@@ -1468,14 +1467,41 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
 
         // Told, not asked, and only about one's own: the child's stepper is a
         // scheduler job, so cancelling it is what `kill %n` and ^C already do.
+        // An empty payload is SIG_KILL, which is what this was before signals.
         case Sys::Kill: {
+            u32 sig = SIG_KILL;
+            if (payload.size() >= 4)
+                sig = sys_get_u32(reinterpret_cast<const u8 *>(payload.data()));
+            if (sig >= SIG_MAX) {
+                status = -i32(Error::Invalid);
+                break;
+            }
             usize at = 0;
             if (!find_child(p, sys_op_arg(c.op), at) || sys_op_arg(c.op) == SYS_WAIT_ANY) {
                 status = -i32(Error::Perm);
                 break;
             }
             if (p.children[at].running)
-                sched_cancel(p.children[at].pid);
+                sig_raise(p.children[at].pid, sig);
+            status = 0;
+            break;
+        }
+
+        // Two dispositions, so one mask says all of it. SIG_KILL is not among
+        // them: a process that could decline it would have no kill switch left.
+        case Sys::SigAct: {
+            bool set = payload.size() >= 4;
+            u32 want = set ? sys_get_u32(reinterpret_cast<const u8 *>(payload.data())) : 0;
+            if (set && (want & ~SIG_CATCHABLE)) {
+                status = -i32(Error::Invalid);
+                break;
+            }
+            if (!reply_u32(reply, p.caught)) {
+                status = -i32(Error::NoMemory);
+                break;
+            }
+            if (set)
+                p.caught = want;
             status = 0;
             break;
         }

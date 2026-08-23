@@ -38,7 +38,8 @@ constexpr usize KEY_RING = 32;
 using KeyRing = Channel<Key, KEY_RING>;
 
 // Raw keys to a full-screen program: no echo and no line discipline. ^C is not
-// delivered — it still cancels the pipeline, so a wedged editor stays killable.
+// delivered here — it raises SIG_INT on the foreground instead, so a wedged
+// editor stays killable.
 //
 // The ring is a heap block because a KeyRing inside a coroutine frame would
 // push it past the allocator's top size class and cost a whole 64 KiB span.
@@ -109,3 +110,9 @@ KeyRing *tty_raw();
 // Who holds each of the two claims a process makes, or 0 when it is free.
 u32 tty_keys_owner();
 u32 tty_screen_owner();
+
+// SIG_WINCH to the foreground and to whoever holds a route, once the grid has
+// changed shape. Geometry rides on every terminal reply, so this is for the
+// program parked on a key rather than asking — the reply it would learn from
+// is the one that never comes.
+void tty_resized();

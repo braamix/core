@@ -1,5 +1,6 @@
 #include "console.h"
 
+#include "exec.h"
 #include "kernel/alloc.h"
 #include "kernel/key.h"
 #include "kernel/screen.h"
@@ -73,6 +74,11 @@ usize console_fg_count()
     return g_fg_n;
 }
 
+u32 console_fg_at(usize i)
+{
+    return i < g_fg_n ? g_fg[i] : 0;
+}
+
 bool console_fg_has(u32 pid)
 {
     for (usize i = 0; i < g_fg_n; i++)
@@ -139,8 +145,9 @@ Task<i32> console_pump()
         if ((k.mods & MOD_CTRL) && k.code == 'c' && g_fg_n) {
             screen_write("^C");
             screen_newline();
+            // Delivered to a stage that asked for it, cancelling the rest.
             for (usize i = 0; i < g_fg_n; i++)
-                sched_cancel(g_fg[i]);
+                sig_raise(g_fg[i], SIG_INT);
             g_interrupts++;
             line.clear();
             continue;

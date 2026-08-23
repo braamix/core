@@ -30,6 +30,14 @@ BRAAM_SYS_IMPORT("sys_async") void sys_async(u32 op, u32 token, u32 ptr, u32 len
 // What a program defines. The runtime's _start builds argv and enters it.
 Task<i32> proc_main(Args args);
 
+// The signals delivered and not yet collected, as sig_bit()s (Concept.md §3.5).
+// A word `_sig` wrote: no syscall, so the synchronous half stays closed at four.
+// Only what sig_catch asked for arrives here; the rest is acted on.
+u32 sig_pending();
+
+// Collects one, reporting whether it was there.
+bool sig_take(u32 sig);
+
 // A wasm32 pointer as the integer the syscall wire carries.
 inline u32 proc_addr(const void *p)
 {

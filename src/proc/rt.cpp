@@ -32,6 +32,7 @@ struct Rt {
     // programs never ask, and a Vec here is a block every process would pay.
     const u8 *env = nullptr;
     usize env_len = 0;
+    u32 pending   = 0; // what _sig recorded and sig_take has not collected
     bool started  = false;
     bool exited   = false;
 };
@@ -144,6 +145,21 @@ Str proc_env(Str name)
     return v;
 }
 
+u32 sig_pending()
+{
+    return rt().pending;
+}
+
+bool sig_take(u32 sig)
+{
+    Rt &r  = rt();
+    u32 at = sig_bit(sig);
+    if (!(r.pending & at))
+        return false;
+    r.pending &= ~at;
+    return true;
+}
+
 u32 proc_spawn(Task<i32> t)
 {
     Rt &r = rt();
@@ -168,6 +184,14 @@ BRAAM_EXPORT("_alloc") u32 _alloc(u32 n)
 BRAAM_EXPORT("_free") void _free(u32 ptr, u32)
 {
     heap_free(reinterpret_cast<void *>(usize(ptr)));
+}
+
+// A signal (Concept.md §3.5). **A leaf call**: records the number and returns —
+// no allocation, no syscall, no coroutine resumed. Waking is the kernel's: it
+// abandons the calls this process is parked on and they answer Err(Intr).
+BRAAM_EXPORT("_sig") void _sig(u32 sig)
+{
+    rt().pending |= sig_bit(sig);
 }
 
 // The host has already written the argv blob and the environment after it at

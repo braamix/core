@@ -45,6 +45,10 @@ struct ProcScreen {
 
     // The next key. A resize arrives with it: the geometry rides on every
     // reply, and the grid is resized and marked whole when it changes.
+    //
+    // Err(Intr) is a resize that arrived with no key behind it — SIG_WINCH,
+    // which take_keys() asks for. The grid is already the new shape; the caller
+    // repaints and asks again.
     Task<Result<Key>> next_key();
 
 private:

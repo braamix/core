@@ -155,7 +155,8 @@ Version 0.4. Everything above works and the tests pass. A tablet works too: tap
 to type, drag to select, with a row of buttons for the keys a touch keyboard
 does not have.
 
-Some things are missing on purpose. There is no `bg` and no `^Z`. Lines are not
+Some things are missing on purpose. There is no `bg` and no `^Z` yet. Lines are
+not
 re-wrapped when the window is resized. One program has the screen at a time.
 There are no file permissions and no CPU limits — a program can be killed, but
 not slowed down.

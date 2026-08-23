@@ -24,7 +24,7 @@ struct ProcMeta {
 
 constexpr Str PROC_SECTION   = "braam";
 constexpr u32 PROC_MAGIC     = 0x6d617262; // "bram"
-constexpr u32 PROC_ABI       = 16;
+constexpr u32 PROC_ABI       = 17;
 constexpr u32 PROC_PAGE      = 65536;
 constexpr u32 PROC_MAX_PAGES = 256; // 16 MB, the ceiling the kernel imposes
 
@@ -233,6 +233,7 @@ enum class Sys : u32 {
                //   an fd below SYS_FD_MIN shares the stream this process was given
     Wait,      // arg = a pid, or SYS_WAIT_ANY;  status = the child's status; data = u32 pid
     Kill,      // arg = the pid, which must be a child of the caller
+               //   payload = u32 signal, or empty for SIG_KILL
 
     // Which process is in front of the console, and therefore what ^C reaches.
     // With nobody in front, ^C is delivered to whoever holds the raw keys as an
@@ -243,7 +244,42 @@ enum class Sys : u32 {
     // it is itself what is in front. That is what stops a background program
     // taking ^C away from the shell.
     Fg, // arg = a child's pid, or 0 to take the console back
+
+    // Which signals this process is told about rather than acted on. Two
+    // dispositions and not three, so one mask says all of it: a bit set is
+    // delivered, a bit clear runs the default action. Get and set together, as
+    // KeyClaim and Chdir are. A bit outside SIG_CATCHABLE is Err(Invalid).
+    //
+    // The mask is a payload and not the op word's argument: SIG_WINCH is bit
+    // 28 and that field is 24 wide.
+    SigAct = 85, // payload = u32 mask, or empty to ask;  data = u32, the mask before
 };
+
+// Signals (Concept.md §3.5). Unix's numbers: 128 + n is already a status here.
+// A mask is 1u << n, so a number stays below 32.
+constexpr u32 SIG_INT   = 2;  // ^C
+constexpr u32 SIG_KILL  = 9;  // never delivered, never declined
+constexpr u32 SIG_TERM  = 15; // what `kill` with no number sends
+constexpr u32 SIG_CONT  = 18; // resumes a stopped process
+constexpr u32 SIG_TSTP  = 20; // ^Z
+constexpr u32 SIG_WINCH = 28; // the grid changed shape
+
+constexpr u32 SIG_MAX = 32;
+
+inline u32 sig_bit(u32 sig)
+{
+    return sig < SIG_MAX ? 1u << sig : 0;
+}
+
+// What Sys::SigAct accepts. SIG_KILL and SIG_CONT are never declinable;
+// SIG_TSTP joins the day something sends one.
+constexpr u32 SIG_CATCHABLE = (1u << SIG_INT) | (1u << SIG_TERM) | (1u << SIG_WINCH);
+
+// The status of a process a signal it did not catch killed.
+inline i32 sig_status(u32 sig)
+{
+    return i32(128 + sig);
+}
 
 // The header ScreenBlit's payload begins with, in u32s.
 constexpr usize SYS_BLIT_HEAD = 7;

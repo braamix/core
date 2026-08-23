@@ -239,8 +239,8 @@ Task<Result<void>> make_link(Str target, Str path)
     String payload;
     u8 head[4];
     sys_put_u32(head, u32(target.size()));
-    if (!payload.append(Str(reinterpret_cast<const char *>(head), 4)) ||
-        !payload.append(target) || !payload.append(path))
+    if (!payload.append(Str(reinterpret_cast<const char *>(head), 4)) || !payload.append(target) ||
+        !payload.append(path))
         co_return Err(Error::NoMemory);
 
     Result<SysReply> r = co_await sys_call(Sys::Symlink, 0, payload.str());
@@ -354,11 +354,31 @@ Task<Result<Exited>> wait_child(u32 pid)
                       r.value().status };
 }
 
-Task<Result<void>> kill_child(u32 pid)
+Task<Result<void>> kill_child(u32 pid, u32 sig)
 {
-    Result<SysReply> r = co_await sys_call(Sys::Kill, pid);
+    u8 n[4];
+    sys_put_u32(n, sig);
+    Result<SysReply> r =
+        co_await sys_call(Sys::Kill, pid, Str(reinterpret_cast<const char *>(n), sizeof(n)));
     if (r.is_err())
         co_return Err(r.error());
+    co_return {};
+}
+
+Task<Result<void>> sig_catch(u32 sig, bool on)
+{
+    // The kernel's mask, shadowed here so one bit can move on its own. Only
+    // Sys::SigAct writes the kernel's, so the two cannot drift.
+    static u32 caught = 0;
+
+    u32 want = on ? caught | sig_bit(sig) : caught & ~sig_bit(sig);
+    u8 n[4];
+    sys_put_u32(n, want);
+    Result<SysReply> r =
+        co_await sys_call(Sys::SigAct, 0, Str(reinterpret_cast<const char *>(n), sizeof(n)));
+    if (r.is_err())
+        co_return Err(r.error());
+    caught = want;
     co_return {};
 }
 

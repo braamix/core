@@ -102,9 +102,13 @@ export function check() {
     // one's exit would end the session.
     t.is("echo \"trap 'echo bye' 0\" | sh -s", "bye");
     t.is("trap 'echo x' 0; trap; trap - 0", "trap -- 'echo x' 0");
-    // The one it cannot honour, and the ones that do not exist.
-    t.is("trap '' 2", "trap: cannot ignore an interrupt");
+    // Ignoring is a trap whose action is empty: asking for the signal is what
+    // declines the default, so `trap '' 2` no longer has to be refused.
+    t.is("trap '' 2; trap; trap - 2", "trap -- '' 2");
+    // By name as well as by number, and the numbers that cannot be caught.
+    t.is("trap 'echo x' WINCH; trap; trap - WINCH", "trap -- 'echo x' 28");
     t.is("trap 'echo x' 9", "trap: 9: unsupported");
+    t.is("trap 'echo x' TSTP", "trap: TSTP: unsupported");
 
     // `wait` collects a background job without putting a prompt in between.
     s = submit("clear", t.at(0.01));

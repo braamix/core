@@ -85,6 +85,16 @@ struct ProcState {
 // for itself — init's own, or the console pump.
 bool exec_proc_state(u32 pid, ProcState &out);
 
+// Delivers `sig` to `pid` if it asked to be told (Sys::SigAct), reporting
+// whether it did. False for a pid that is no process, a signal it did not ask
+// for, or a queue with no room — in each of which the default action stands.
+bool exec_signal(u32 pid, u32 sig);
+
+// A signal, delivered or acted on (Concept.md §3.5). The default action is
+// sched_cancel for SIG_INT, SIG_TERM and SIG_KILL, and nothing for SIG_WINCH.
+// SIG_KILL is never delivered, whatever the mask says.
+void sig_raise(u32 pid, u32 sig);
+
 // What running processes has cost since boot, for /proc/stat. System-wide, and
 // never reset: a process's own share goes with its record.
 struct ExecStats {

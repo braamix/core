@@ -349,14 +349,24 @@ Task<i32> proc_main(Args args)
         co_return 0;
     }
 
-    // The rows the window holds, asked once. A resize mid-run leaves the count
-    // stale, which is BSD's behaviour too: it needs a signal to notice.
+    // The rows the window holds. SIG_WINCH is what BSD's vmstat needs a signal
+    // for and did not have here: the sleep between rows answers Err(Intr) and
+    // the count is asked for again.
+    auto window = []() -> Task<usize> {
+        usize n = FALLBACK_ROWS;
+        if (Task<Result<String>> t = read_file("/proc/host")) {
+            Result<String> host = co_await t;
+            if (host.is_ok())
+                n = screen_rows(host.value().str());
+        }
+        co_return n;
+    };
+
     usize rows = FALLBACK_ROWS;
-    if (Task<Result<String>> t = read_file("/proc/host")) {
-        Result<String> host = co_await t;
-        if (host.is_ok())
-            rows = screen_rows(host.value().str());
-    }
+    if (Task<usize> t = window())
+        rows = co_await t;
+    if (Task<Result<void>> t = sig_catch(SIG_WINCH))
+        co_await t;
 
     Sample now, was;
     fill(now, first.value().str());
@@ -387,9 +397,23 @@ Task<i32> proc_main(Args args)
         if (!interval)
             co_return 0;
 
+        // A resize abandons the sleep. What is left of the interval is slept
+        // out rather than restarted, so a window being dragged does not starve
+        // the output; `left` forces the heading at the new width next turn.
         Result<void> slept = Err(Error::NoMemory);
-        if (Task<Result<void>> t = sleep_for(wait_ms))
+        for (u32 until = proc_now() + wait_ms;;) {
+            u32 now_ms           = proc_now();
+            u32 left_ms          = until > now_ms ? until - now_ms : 0;
+            Task<Result<void>> t = sleep_for(left_ms);
+            if (!t)
+                break;
             slept = co_await t;
+            if (slept.is_ok() || slept.error() != Error::Intr || !sig_take(SIG_WINCH))
+                break;
+            if (Task<usize> w = window())
+                rows = co_await w;
+            left = 0;
+        }
         if (slept.is_err())
             co_return 130; // ^C, which is the only way out of an endless run
 

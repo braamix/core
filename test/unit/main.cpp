@@ -53,6 +53,7 @@ void test_hostfs();
 void test_jsref();
 void test_svc();
 void test_sysabi();
+void test_signal();
 void test_vfs();
 void test_trigger();
 void test_zip();
@@ -107,6 +108,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_hostfs();
     test_svc();
     test_sysabi();
+    test_signal();
     test_vfs();
     test_tokenize();
     test_parse();
@@ -121,14 +123,14 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_version();
     test_dep(); // after version: a dependency is a mask over a comparison
     test_stanza();
-    test_trust(); // after stanza and svc: the anchor over both
-    test_index(); // after trust: the pipeline stands on it
-    test_local(); // after index and sha256: a stanza with nothing vouching
-    test_solve(); // after dep and version, which it decides with
-    test_db();    // after dep: world is a list of dependency tokens
-    test_plan();  // after solve and db: a changeset as texts and steps
+    test_trust();   // after stanza and svc: the anchor over both
+    test_index();   // after trust: the pipeline stands on it
+    test_local();   // after index and sha256: a stanza with nothing vouching
+    test_solve();   // after dep and version, which it decides with
+    test_db();      // after dep: world is a list of dependency tokens
+    test_plan();    // after solve and db: a changeset as texts and steps
     test_trigger(); // after db and dep: a changeset says which triggers fire
-    test_zip(); // after sha256 and svc: rootfs.zip is compared by digest
+    test_zip();     // after sha256 and svc: rootfs.zip is compared by digest
     test_procfs();
 
     u32 failures = test_failures();

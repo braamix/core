@@ -31,7 +31,7 @@ Shell builtins
   false     do nothing, and fail
   fg        [%n] — bring a background job to the front and wait for it
   jobs      list the jobs started with &
-  kill      %n — stop a job
+  kill      [-<signal>] %n... — signal a job; the default is KILL
   read      <name>... — read one line and split it across the names
   readonly  [<name>[=<value>]...] — stop a variable being changed
   return    [<status>] — leave a function or a sourced file
@@ -39,8 +39,8 @@ Shell builtins
             variables
   shift     [<n>] — drop the first n positional parameters
   test      <expr> — test a condition; the result is the exit status
-  trap      [<action>|-] 0|2 — run an action when the shell ends (0) or on ^C
-            (2)
+  trap      [<action>|-] <signal>... — run an action when the shell ends
+            (0 or EXIT) or on INT, TERM or WINCH
   true      do nothing, and succeed
   unset     [-f] <name>... — remove a variable, or a function with -f
   wait      [%n...] — wait for one background job, or for all of them

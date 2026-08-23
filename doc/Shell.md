@@ -674,14 +674,16 @@ waiting is 130.
 Lists the background jobs, `[<id>]` then `+` for the current one or a space,
 then `running` or `done`, then the text the pipeline was typed as. §11.
 
-### `kill %n...`
+### `kill [-<signal>] %n...`
 
-Cancels every stage of a job — cancellation, which is all a kill can be for
-something cooperative, backed by terminating the worker of a process that will
-not stop. **Job ids only**: the `%` is optional, but there is no signal argument
-and no bare pid, because `Sys::Kill` refuses anything that is not a child of the
-caller. An unknown id is `kill: no such job` and status 1, and the remaining ids
-are still tried.
+Signals every stage of a job. Without a signal it is `KILL` — cancellation,
+which is all a kill can be for something cooperative, backed by terminating the
+worker of a process that will not stop. `-INT`, `-TERM` and `-WINCH` are the
+others, by name or by number, and a signal nothing sends is
+`kill: <name>: unsupported` and status 1. **Job ids only**: the `%` is optional,
+but there is no bare pid, because `Sys::Kill` refuses anything that is not a
+child of the caller. An unknown id is `kill: no such job` and status 1, and the
+remaining ids are still tried.
 
 ### `read <name>...`
 
@@ -719,7 +721,7 @@ status 1, silently.
 
 §9.
 
-### `trap [<action>|-] 0|2`
+### `trap [<action>|-] <signal>...`
 
 §12.
 
@@ -732,8 +734,9 @@ and the rest are still tried.
 ### `wait [%n...]`
 
 Waits for the named jobs, or for all of them. Unlike v7's, it puts each job **in
-the foreground** while it waits, because there are no signals here and being in
-front is the only way a `^C` can reach anything. An unknown id is
+the foreground** while it waits, because the foreground set is what a `^C`
+reaches: there is no process group to signal, so being in front is how a job is
+reachable at all. An unknown id is
 `wait: no such job` on standard error and status 127, and the rest are still
 waited for; a `^C` is 130.
 
@@ -751,7 +754,8 @@ Ids count up from 1 and are never reused in a session. A background job's
 standard input is at end of input from the start.
 
 **A job has two states, running and done.** There is no stopped state, because
-there is no `^Z` and no `bg`. The job table is the shell process's own memory,
+there is no `^Z` and no `bg` yet (§15). The job table is the shell process's own
+memory,
 so no syscall shows it to anybody and there is no `/proc/jobs`; the stages are
 still ordinary tasks, so `/proc/<pid>` lists them, which is how the shell
 notices a background job has finished.
@@ -797,22 +801,24 @@ Three options, and `sh` takes the same three letters on its command line:
 The letters are the shell process's own state, so they are saved and put back
 around `( … )`. `$-` reports them.
 
-**`trap` has two signals**, because the system has none: `0` (or `EXIT`) and `2`
-(or `INT`).
+**`trap` takes `0` (or `EXIT`) and the signals a process may ask for**: `2`
+(`INT`), `15` (`TERM`) and `28` (`WINCH`), by number or by name.
 
 - `trap <action> <signal>...` sets one; `trap - <signal>...` removes one;
   `trap 0` and `trap 2` with no action are v7's reset form and remove it too.
 - `trap` alone prints what is set, as `trap -- 'action' 0`.
-- Any other number is `trap: <n>: unsupported`, status 1.
-- **`trap '' 2` is refused** — `trap: cannot ignore an interrupt` — rather than
-  accepted and quietly dropped, because the cancellation flag is sticky and once
-  a `^C` has been delivered nothing can decline it.
+- Any other number is `trap: <n>: unsupported`, status 1 — `9` and `20` among
+  them, since `KILL` cannot be declined and nothing sends `TSTP` yet.
+- **`trap '' 2` is accepted**, and is v7's "ignore": a trap whose action is
+  empty runs nothing, and asking for the signal is what declines the default.
 
-The EXIT trap runs however the shell ends, and its own status is not the
-shell's. The INT trap fires only in an **interactive** shell: in a script the
-process itself is cancelled and every await after that answers `Err(Cancelled)`,
-so a `trap … 2` there can never run. A trap's action is taken before it is run,
-so it cannot fire itself.
+Setting a trap is what asks the kernel for the signal, and removing it stops
+asking — so with no trap set the default action stands, which is the behaviour
+every version before signals had. The EXIT trap runs however the shell ends, and
+its own status is not the shell's. **The INT trap fires in a script too**: the
+shell asked for `SIG_INT`, so the `^C` that cancels the stages abandons the wait
+this shell was parked on with `Err(Intr)` rather than cancelling the shell. A
+trap's action is taken before it is run, so it cannot fire itself.
 
 The trace is written when every stage's words are known and before anything is
 opened, which is after the `set` that turns it on has been decided but before it
@@ -843,10 +849,11 @@ trap -- 'echo bye' 0
 | 127 | not found — a command, a sourced file, or a script named to `sh` |
 | 130 | interrupted |
 
-**130 is this shell's SIGINT.** There are no signals and a status is the only
-thing that crosses a process boundary, so a stage reporting 130 stops the rest
-of the text — and a program that exits 130 of its own accord does the same,
-which is the price of having no other channel.
+**130 is this shell's SIGINT**, which is `128 + SIG_INT` and always was. A
+status is the only thing that crosses a process boundary, so a stage reporting
+130 stops the rest of the text — and a program that exits 130 of its own
+accord does the same, which is the price of the status being the channel.
+`TERM` is 143 by the same arithmetic.
 
 The runtime's own diagnostics are `<what>` and `<what>: <why>`; a builtin's are
 `<name>: <what>: <why>`. Nothing is prefixed with the system's name: everything
@@ -963,8 +970,10 @@ change to argue in Concept.md first.
 
 **The session:**
 
-- **No `bg` and no `^Z`.** Stopping a running coroutine at an arbitrary point is
-  the resume-side twin of cancellation and would have to reach every awaitable.
+- **No `bg` and no `^Z`** *yet*. Signals arrived without them: `SIG_TSTP` and
+  `SIG_CONT` have numbers and no sender, because stopping is the kernel holding
+  off the next *step* rather than suspending a coroutine — which is why the
+  mechanism can carry it, and why it is still a milestone and not a command.
 - **No Tab completion**, and history does not persist.
 - **`kill <pid>` is gone; `kill %n` is not.** `Sys::Kill` refuses anything that
   is not a child of the caller.

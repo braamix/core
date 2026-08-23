@@ -368,14 +368,54 @@ restoring a predecessor that may already be gone. Painting is held to the same
 rule: a `ScreenBlit` from a process that does not hold the screen is refused
 (§4.3).
 
-**`^C` cancels the foreground if there is one, and is delivered to the claimant
+**`^C` reaches the foreground if there is one, and is delivered to the claimant
 if there is not.** The foreground is a set of pids a process arms with
 `Sys::Fg`, which is what a shell does for each stage of a pipeline before it
-waits; the pump cancels them, so a program that has taken the screen and stopped
-answering stays killable. With nobody in front the interrupt is an ordinary key
-going to whoever holds the raw route — which is what lets a line editor abandon
-the line being typed instead of being cancelled by it. Without that split, a
-shell that is a process would be killed by its own `^C`.
+waits; the pump raises `SIG_INT` on them, so a program that has taken the screen
+and stopped answering stays killable. With nobody in front the interrupt is an
+ordinary key going to whoever holds the raw route — which is what lets a line
+editor abandon the line being typed instead of being cancelled by it. Without
+that split, a shell that is a process would be killed by its own `^C`.
+
+**A signal is delivered between two steps, or it is acted on.** Nothing can
+interrupt running wasm: the kernel only ever *steps* a process, so there is no
+moment inside one at which a handler could run. What there is instead is a
+third export beside `_start` and `_resume` — `_sig(n)`, **a leaf call**, which
+records the number in a word and returns. It allocates nothing, issues no
+syscall and resumes no coroutine, which is what makes a new entry point safe: a
+worker is single-threaded, so the message carrying it is handled between two
+steps and never inside one. A process spinning in a step is reachable by
+`terminate()` and nothing else, exactly as it was before signals existed.
+
+**Waking is separate from telling.** `_sig` sets a bit; it starts nothing. When
+the kernel delivers a caught signal it also **abandons the calls the process is
+parked on**, and each answers `Err(Intr)` — which is `EINTR`, and the reason
+`Error::Intr` exists where `Error::Cancelled` is deliberately swallowed on the
+wire (§4.3). Ordering is the message queue's: the signal is posted before the
+replies, so by the time a `co_await` reports `Err(Intr)` the program can already
+ask which signal did it.
+
+**Only a closed set of calls may be abandoned** — `Read`, `KeyRead`, `Sleep`,
+`Wait` and `ClipRead`. `Err(Intr)` has to mean *nothing happened*, and an
+interrupted `Write` has lost how many bytes went. Everything else runs to
+completion and the process reads its mask at the next suspension. That is
+`SA_RESTART`'s question answered once, in a list, rather than per call.
+
+**There are two dispositions and not three.** A bit set in the process's mask
+(`Sys::SigAct`) means the signal is delivered; a program that does nothing with
+one has *ignored* it, which is what `trap '' 2` had no way to say before. A bit
+clear means the default action runs: cancellation for `SIG_INT`, `SIG_TERM` and
+`SIG_KILL`, and nothing at all for `SIG_WINCH`. `SIG_KILL` is never in the mask,
+because a process that could decline it would have no kill switch left.
+
+**The mask starts empty**, so every binary that never asks behaves exactly as
+every binary did before this existed.
+
+**`SIG_WINCH` goes to the foreground and to whoever holds a route.** Geometry
+rides on every terminal reply (§4.3), so a program that asks learns the new
+shape without an event; what it could not do is learn it while *parked on a
+key*, which is the gap the signal closes. The numbers are Unix's, because
+`128 + n` is already a status here.
 
 Everything the pump does not route to a claimant it **cooks**: echo, a line at a
 time, `^D` for end of input, into one console channel that is the stdin of
@@ -720,6 +760,7 @@ process imports:  env.memory                        // the kernel's, so the cap 
 
 process exports:  _start(ptr, len) -> i32          // argv then env; 0 = exited, 1 = suspended
                   _resume(token, ptr, len)   -> i32 // the same
+                  _sig(n)                           // a leaf call: records it, returns
                   _alloc(n) -> ptr, _free(ptr, n)
 
 custom section "braam":  magic, abi, flags, initial_pages, max_pages
@@ -876,6 +917,11 @@ wake token, the host steps the instance once the tick has unwound, and the token
 is woken with the outcome. Synchronous syscalls run the other way and re-enter
 the kernel at top level, exactly as `key()` does.
 
+`_sig` is the third entry point and obeys the same rule: it is posted, not
+called, so it lands between two steps. It answers nothing, which is why it needs
+no token and no reply — a signal is told, like `proc_kill`, and the waking is
+done by abandoning the calls the process is parked on (§3.5).
+
 **What crosses is bytes, not addresses** (Appendix B). The host asks the kernel
 for room with `Sys::Stage`, copies the payload in, and only then reports the
 request; the reply travels back through a block the host takes from the
@@ -989,19 +1035,19 @@ goes through it, so `IFS=:` leaves a typed `a:b` alone and cuts `$path` in two.
 A redirection target and an assignment value expand as exactly one field however
 they expand, so `> *.txt` writes to the pattern.
 
-**Four things in v7 cannot exist here, and each has a decided substitute rather
-than a gap.** `export` was a fifth until the environment crossed a spawn (§4.3),
-and `#!` a sixth until `exec` learned to read a first line (§4.3) —
-`./script.sh` works, and the row that said it never would is gone. What is left
-of `export` is that an exported variable is a copy taken at spawn and there is
-no `setenv` to change one after.
+**Three things in v7 cannot exist here, and each has a decided substitute rather
+than a gap.** `export` was a fourth until the environment crossed a spawn
+(§4.3), `#!` a fifth until `exec` learned to read a first line (§4.3) —
+`./script.sh` works, and the row that said it never would is gone — and
+`trap … <signal>` a sixth until signals arrived (§3.5). What is left of
+`export` is that an exported variable is a copy taken at spawn and there is no
+`setenv` to change one after.
 
 | v7 | Why not | What happens instead |
 |---|---|---|
 | `( list )` as a real subshell | There is no `fork`, and spawning a second `/bin/sh` would lose everything a spawn does not carry — the unexported variables, the functions, the options and the traps — and cost a worker against the depth cap. | It runs in this process with the shell's own mutable state saved and put back: cwd, variables, positional parameters, functions, options, traps and the `exec` base. `(cd /x; ls)` and `(set -e; …)` are exact; only memory isolation is lost. |
 | A compound command in the background | Backgrounding means the shell runs on while the group does, and nothing inside a process can wait for a sibling task (§3.6). | Refused. `cmd &` on a simple pipeline is unaffected. |
 | `exec cmd` replacing the image | A process is an instance in a worker; there is no re-instantiate-in-place and a spawn makes a new pid. | `exec` with no command makes its redirections permanent, which is exact. `exec cmd` spawns, waits, and leaves with the child's status. |
-| `trap … <signal>` | There are no signals, and the cancellation flag is sticky: once `^C` sets it every later await answers at once. | `trap … 0` on any normal exit, and `trap … 2` in an interactive shell, where the interrupt went to the stages and this process was never cancelled. `trap '' 2` is refused rather than accepted and dropped. |
 
 **What runs a command word is §4's rule**: a function, then a builtin, then a
 binary on `PATH` — and only the third costs an instantiation and a worker.

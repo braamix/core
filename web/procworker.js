@@ -21,6 +21,13 @@ self.onmessage = ({ data }) => {
         return;
     }
 
+    // Not a step: no begin/end window and nothing to post back.
+    if (data.k === "sig") {
+        if (server)
+            server.signal(data.sig);
+        return;
+    }
+
     if (data.k !== "step")
         return;
 

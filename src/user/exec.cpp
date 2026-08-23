@@ -104,12 +104,17 @@ Task<i32> serve(ProcRef p, Call *c)
     if (r.is_ok()) {
         rep.payload = move(r.value());
     } else {
-        // Cancelled means the process is going anyway, and nobody is left to
-        // hear; any other error is the answer.
-        if (r.error() == Error::Cancelled)
-            co_return 1;
+        // ~End cancels a server when the process dies, proc_interrupt when a
+        // signal abandons the call; `dead` is set before the first and never
+        // for the second. Dying means nobody is left to hear.
+        Error e = r.error();
+        if (e == Error::Cancelled) {
+            if (p->dead)
+                co_return 1;
+            e = Error::Intr;
+        }
         u8 head[4];
-        sys_put_u32(head, u32(-i32(r.error())));
+        sys_put_u32(head, u32(-i32(e)));
         if (!rep.payload.append(Str(reinterpret_cast<const char *>(head), sizeof(head)))) {
             // The Call outlives this frame here, so it must stop naming a job
             // that is about to go: Call::server is a live job or it is 0.
@@ -416,10 +421,18 @@ Task<i32> exec_process(Executable &exe, Args args, Stdio io, Str cwd, Str env, b
             co_return 1;
         }
 
+        // A signal is not an answer: the process is told and the wait goes on,
+        // since the calls proc_interrupt abandons report back through here.
         Result<Reply> r = Err(Error::Again);
-        CO_RETRY(r, p->done.recv());
-        if (r.is_err())
-            co_return r.error() == Error::Cancelled ? 130 : 1;
+        for (;;) {
+            CO_RETRY(r, p->done.recv());
+            if (r.is_err())
+                co_return r.error() == Error::Cancelled ? 130 : 1;
+            if (!r.value().sig)
+                break;
+            proc_signal(p->pid, r.value().sig);
+            proc_interrupt(*p);
+        }
         alive--;
         token   = r.value().token;
         payload = move(r.value().payload);

@@ -365,3 +365,39 @@ void test_sysabi()
     CHECK_EQ(edge.size(), PROC_SHEBANG_MAX);
     CHECK(exec_shebang(edge.str(), in, ar) && in == "/bin/sh" && ar.empty());
 }
+
+// Signals (Concept.md §3.5). The numbers are on the wire and the mask is a
+// word, so both are checked here rather than trusted to the one caller each.
+void test_signal()
+{
+    // Unix's numbers, because 128 + n is a status and people type them.
+    CHECK_EQ(SIG_INT, 2u);
+    CHECK_EQ(SIG_KILL, 9u);
+    CHECK_EQ(SIG_TERM, 15u);
+    CHECK_EQ(SIG_WINCH, 28u);
+
+    // A mask is 1u << n, so every number must stay inside a word — SIG_WINCH
+    // is bit 28, which is why the mask is a payload and not the op word's arg.
+    CHECK(SIG_WINCH < SIG_MAX);
+    CHECK_EQ(sig_bit(SIG_WINCH), 1u << 28);
+    CHECK_EQ(sig_bit(SIG_MAX), 0u);
+    CHECK_EQ(sig_bit(SIG_MAX + 1), 0u);
+
+    // What Sys::SigAct takes, and what it refuses. A process that could
+    // decline SIG_KILL would have no kill switch left.
+    CHECK(SIG_CATCHABLE & sig_bit(SIG_INT));
+    CHECK(SIG_CATCHABLE & sig_bit(SIG_TERM));
+    CHECK(SIG_CATCHABLE & sig_bit(SIG_WINCH));
+    CHECK(!(SIG_CATCHABLE & sig_bit(SIG_KILL)));
+    CHECK(!(SIG_CATCHABLE & sig_bit(SIG_CONT)));
+    CHECK(!(SIG_CATCHABLE & sig_bit(SIG_TSTP))); // until something sends one
+
+    // 130 is the shell's SIGINT, and was before signals existed.
+    CHECK_EQ(sig_status(SIG_INT), 130);
+    CHECK_EQ(sig_status(SIG_TERM), 143);
+
+    // Err(Intr) has to be a status the wire can carry, which Err(Cancelled)
+    // deliberately is not: it is how "interrupted" is told from "dead".
+    CHECK(Error::Intr != Error::Cancelled);
+    CHECK(error_name(Error::Intr) == "interrupted");
+}

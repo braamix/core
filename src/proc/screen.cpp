@@ -39,6 +39,12 @@ Task<Result<void>> ProcScreen::take_keys()
     if (r.is_err())
         co_return Err(r.error());
     keys_ = true;
+
+    // Whoever holds a route is who tty_resized() tells. Asked for here rather
+    // than by each program: a grid that has changed shape under one is not a
+    // thing any of them wants to miss.
+    if (Task<Result<void>> s = sig_catch(SIG_WINCH))
+        co_await s;
     co_return resize(r.value().cols, r.value().rows);
 }
 
@@ -51,6 +57,8 @@ Task<Result<void>> ProcScreen::take_screen()
     if (r.is_err())
         co_return Err(r.error());
     screen_ = true;
+    if (Task<Result<void>> s = sig_catch(SIG_WINCH))
+        co_await s;
     co_return resize(r.value().cols, r.value().rows);
 }
 
@@ -103,8 +111,22 @@ Task<Result<Key>> ProcScreen::next_key()
     if (!t)
         co_return Err(Error::NoMemory);
     Result<KeyPress> r = co_await t;
-    if (r.is_err())
-        co_return Err(r.error());
+    if (r.is_err()) {
+        // SIG_WINCH abandoned the read: the grid is a shape this one is not,
+        // and there is no key to carry the new one in. Ask, resize, and report
+        // the interruption so the caller repaints.
+        if (r.error() != Error::Intr || !sig_take(SIG_WINCH))
+            co_return Err(r.error());
+        Task<Result<CursorAt>> c = cursor_get();
+        if (!c)
+            co_return Err(Error::NoMemory);
+        Result<CursorAt> at = co_await c;
+        if (at.is_err())
+            co_return Err(at.error());
+        if (Result<void> bad = resize(at.value().at.cols, at.value().at.rows); bad.is_err())
+            co_return Err(bad.error());
+        co_return Err(Error::Intr);
+    }
 
     // The geometry rides on every key, so a resize needs no event of its own.
     if (Result<void> bad = resize(r.value().at.cols, r.value().at.rows); bad.is_err())

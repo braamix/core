@@ -8,7 +8,54 @@ namespace {
 // and nothing provides __cxa_atexit.
 Vec<Proc *> *g_procs;
 
+// The calls proc_interrupt takes away: the ones a program parks on
+// indefinitely that leave nothing behind when abandoned.
+bool interruptible(Sys op)
+{
+    switch (op) {
+    case Sys::Read:
+    case Sys::KeyRead:
+    case Sys::Sleep:
+    case Sys::Wait:
+    case Sys::ClipRead:
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace
+
+void proc_interrupt(Proc &p)
+{
+    for (Call *c : p.calls)
+        if (c->server && interruptible(sys_op_code(c->op)))
+            sched_cancel(c->server);
+}
+
+bool exec_signal(u32 pid, u32 sig)
+{
+    Proc *p = proc_find(pid);
+    if (!p || p->dead || !(p->caught & sig_bit(sig)))
+        return false;
+
+    // The stepper is parked on `done`, and CancelState::waiting is one slot —
+    // so a signal travels the channel a reply does rather than becoming a
+    // second thing to wait on. A full box is a signal undelivered, and the
+    // caller's default action stands.
+    Reply rep;
+    rep.sig = sig;
+    return p->done.try_send(move(rep));
+}
+
+void sig_raise(u32 pid, u32 sig)
+{
+    if (sig != SIG_KILL && exec_signal(pid, sig))
+        return;
+    if (sig == SIG_WINCH || sig == SIG_CONT)
+        return; // nothing to do to a process that did not ask
+    sched_cancel(pid);
+}
 
 void pipe_release(ProcPipe *q)
 {

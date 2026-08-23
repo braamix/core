@@ -1,23 +1,33 @@
 #include "cmd/sh/job.h"
 #include "decl.h"
+#include "kernel/fmt.h"
 #include "kernel/string.h"
 #include "kernel/text.h"
 
 namespace {
 
-// The two that exist. There are no signals, so this is not a table of them:
-// 0 is the shell ending and 2 is the ^C an interactive shell survives. Every
-// other number is refused rather than silently kept.
+// What can be trapped, by name and by number: 0 is the shell ending and the
+// rest are SIG_CATCHABLE. Every other number is refused rather than kept.
+struct Named {
+    Str name;
+    u32 sig;
+};
+
+constexpr Named NAMES[] = {
+    { "EXIT", 0 },
+    { "INT", SIG_INT },
+    { "TERM", SIG_TERM },
+    { "WINCH", SIG_WINCH },
+};
+
 bool signal_of(Str w, u32 &sig)
 {
-    if (w == "0" || w == "EXIT") {
-        sig = 0;
-        return true;
-    }
-    if (w == "2" || w == "INT") {
-        sig = 2;
-        return true;
-    }
+    Option<u32> n = parse_u32(w);
+    for (const Named &e : NAMES)
+        if (w == e.name || (n.has_value() && n.value() == e.sig)) {
+            sig = e.sig;
+            return true;
+        }
     return false;
 }
 
@@ -26,7 +36,20 @@ bool put_one(String &out, u32 sig)
     Str action;
     if (!trap_get(sig, action))
         return true;
-    return out.append("trap -- '") && out.append(action) && out.append(sig ? "' 2\n" : "' 0\n");
+    Buf<8> tail;
+    tail.put("' ").put(sig).put('\n');
+    return out.append("trap -- '") && out.append(action) && out.append(tail.str());
+}
+
+// The shell is told about a signal only while it has a trap for it: with none
+// set the default action stands, which is what every version before this did.
+Task<Result<void>> follow(u32 sig)
+{
+    if (!sig)
+        co_return Result<void>{}; // EXIT is not a signal
+    Str action;
+    Task<Result<void>> t = sig_catch(sig, trap_get(sig, action));
+    co_return t ? co_await t : Err(Error::NoMemory);
 }
 
 } // namespace
@@ -37,8 +60,9 @@ Task<i32> builtin_trap(Args args, ShIo io)
 {
     if (args.size() == 1) {
         String out;
-        if (!put_one(out, 0) || !put_one(out, 2))
-            co_return 1;
+        for (const Named &e : NAMES)
+            if (!put_one(out, e.sig))
+                co_return 1;
         if (Task<Result<void>> t = write_all(io.out, out.str()))
             co_return (co_await t).is_ok() ? 0 : 1;
         co_return 1;
@@ -67,19 +91,16 @@ Task<i32> builtin_trap(Args args, ShIo io)
                 co_await e;
             co_return 1;
         }
-        if (remove) {
+        // An empty action is v7's "ignore", which is a trap that runs nothing:
+        // asking for the signal is what declines the default.
+        if (remove)
             trap_clear(sig);
-            continue;
-        }
-        // `trap '' 2` cannot be honoured: CancelState::cancelled is sticky, so
-        // once a ^C has been delivered nothing can decline it. Refused rather
-        // than accepted and ignored.
-        if (action.empty() && sig == 2) {
-            co_await write_all(io.err, "trap: cannot ignore an interrupt\n");
+        else if (!trap_set(sig, action)) {
+            co_await write_all(io.err, "trap: out of memory\n");
             co_return 1;
         }
-        if (!trap_set(sig, action)) {
-            co_await write_all(io.err, "trap: out of memory\n");
+        if (Task<Result<void>> t = follow(sig); !t || (co_await t).is_err()) {
+            co_await write_all(io.err, "trap: cannot ask for that signal\n");
             co_return 1;
         }
     }

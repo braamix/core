@@ -165,7 +165,9 @@ Task<i32> proc_main(Args args)
 
         Result<Key> r = co_await fs.next_key();
         if (r.is_err()) {
-            if (r.error() == Error::Again)
+            // Intr is a resize with no key behind it; repaint and ask again,
+            // leaving `arming` alone, since no key was typed.
+            if (r.error() == Error::Again || r.error() == Error::Intr)
                 continue;
             co_return r.error() == Error::Cancelled ? 130 : 1;
         }

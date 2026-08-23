@@ -129,6 +129,19 @@ export function serveProc(ops) {
                 return { result: STEP.TRAPPED, pages };
             }
         },
+
+        // A signal. `_sig` is a leaf call — a word set, nothing to report — so
+        // there is no reply. Before _start there is nobody to tell, and a trap
+        // is left for the next step, which has somewhere to report it.
+        signal(sig) {
+            if (!instance || !started)
+                return;
+            try {
+                instance.exports._sig(sig >>> 0);
+            } catch {
+                // Left for the next step, which has somewhere to report it.
+            }
+        },
     };
 }
 
@@ -197,7 +210,7 @@ export function makeProc(mem, kernel, makeLink, clock = () => 0) {
     // asynchronous call and the step that answers it; the synchronous four are
     // answered in the worker and are not round trips.
     const stat = {
-        calls: 0, steps: 0,
+        calls: 0, steps: 0, signals: 0,
         spawned: 0, compiled: 0, hired: 0, reused: 0, terminated: 0, broke: 0,
     };
 
@@ -314,6 +327,18 @@ export function makeProc(mem, kernel, makeLink, clock = () => 0) {
         p.link.postMessage(
             { k: "step", now: clock(), token: r.get("flags"), payload: payload.buffer },
             [payload.buffer]);
+    }
+
+    // A signal, posted rather than called: only the process's worker reaches its
+    // exports. Nothing is answered, so this leaves `pending` alone and may be
+    // sent while a step is in flight — the worker is single-threaded, so it
+    // lands between two of them.
+    function signal(pid, sig) {
+        const p = procs.get(pid);
+        if (!p || !p.link || p.done)
+            return; // killed, or already over: there is nobody to tell
+        stat.signals++;
+        p.link.postMessage({ k: "sig", sig });
     }
 
     // A step whose result was the process's last: the instance is gone, and the
@@ -457,5 +482,5 @@ export function makeProc(mem, kernel, makeLink, clock = () => 0) {
         idle.push(link);
     }
 
-    return { spawn, step, kill, shutdown, dropWorkers, live, pooled, stats };
+    return { spawn, step, signal, kill, shutdown, dropWorkers, live, pooled, stats };
 }

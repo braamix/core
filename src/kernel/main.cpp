@@ -17,6 +17,7 @@
 #include "user/boot.h"
 #include "user/console.h"
 #include "user/exec.h"
+#include "user/tty.h"
 #include "version.h"
 
 // Runs the static constructors. --no-entry leaves it uncalled, so the kernel
@@ -118,7 +119,10 @@ BRAAM_EXPORT("key") u32 key(u32 code, u32 mods)
 // and re-derives its view, since it is the only call that moves the cells.
 BRAAM_EXPORT("resize") u32 resize(u32 cols, u32 rows)
 {
-    return screen_resize(cols, rows);
+    u32 at = screen_resize(cols, rows);
+    if (at)
+        tty_resized(); // 0 left the old grid whole, so nothing changed shape
+    return at;
 }
 
 // The two syscall entries (Concept.md §4.3). An isolated process imports `sys`

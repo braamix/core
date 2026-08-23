@@ -38,6 +38,10 @@ enum class SvcOp : u32 {
     Verify,  // buf = u32 key_len, u32 sig_len, the key, the signature, the bytes
              //   -> status 0 good, Err(Perm) bad, Err(Unsupported) no Ed25519
     Inflate, // buf = the compressed bytes -> ref = the inflated stream
+
+    // req = pid and token = the signal, because there is no record to hold
+    // either: this is told, not asked, exactly as ProcKill is.
+    ProcSignal,
 };
 
 // A service operation. The record's inline string argument is a URL or a name.
