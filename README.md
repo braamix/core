@@ -11,7 +11,7 @@ downloads a kernel and gives you a prompt. Your files stay in the browser and
 are still there tomorrow. It works on a phone.
 
 Braam is a small command-line system: a kernel, a filesystem, a terminal, a
-shell, thirty-nine programs and a package manager. It is written from scratch in
+shell, forty-one programs and a package manager. It is written from scratch in
 C++20 and compiled to WebAssembly, which browsers run at close to native speed.
 There is no server side. The whole system is a few static files, so any web host
 can serve it.

@@ -7,6 +7,62 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## `basename` and `dirname`, and the pair that was not already there
+
+`doc/TODO.md` A2 said the work was done — "`src/fs/path.cpp` already has both".
+It does not. `path_basename` and `path_dirname` take what the VFS deals in: an
+absolute path that `path_resolve` has already normalised, with no trailing
+slash and no empty component. Handed what a shell script hands `dirname`, they
+answer `path_dirname("foo") == "f"`, `path_dirname("") == ""` and
+`path_basename("foo/") == "/"` — each of them right for the caller they were
+written for and wrong here.
+
+**So the semantics stay apart.** POSIX's pair is string work over arbitrary
+text: it opens nothing, resolves nothing, and has never heard of a working
+directory. The VFS's pair is a step in resolution. Putting both in `path.cpp`
+would have put two functions one adjective apart in a header that **every
+binary in the tree links** — `src/proc/` compiles `path.cpp` in — where picking
+the wrong one is a silent bug rather than a link error. What is reused is
+`path_basename`, at the one point where the two agree: once the trailing
+slashes are trimmed and the all-slashes path has answered `/`, the tail after
+the last separator is the same tail. `dirname`'s rule is written out, because
+dropping the separator *and the run in front of it* is what makes `a//b` say
+`a`, and the kernel's version has no reason to do that.
+
+**GNU's flags, not POSIX's minimum.** `basename` takes `-a` and `-s <suffix>`
+as well as `<path> [<suffix>]`; `dirname` takes several operands. The suffix
+form earns its place twice over here: this shell has no `${x%.c}` — the four
+operators in Shell.md §6 are the whole set — so stripping an extension has no
+other spelling. `-z` is left out: nothing in the tree reads NUL-separated
+input, and the program that would (`xargs`, A7) is not built yet. One rule
+worth writing down: a name that is *only* the suffix keeps it, so
+`basename .c .c` is `.c` rather than nothing.
+
+**They are programs, not builtins.** Both are pure string work whose whole cost
+is the spawn, which is the second half of CLAUDE.md's builtin test — but that
+set is closed at `test`, `[`, `:`, `echo`, `true` and `false`, and widening it
+is a design change to argue in Concept.md first, not a thing to slip in with
+two programs. A loop that calls `dirname` once a turn pays a worker a turn;
+that is what the shell's own `$(…)` costs everywhere else.
+
+9.5 KB and 7.4 KB, against §4.4's duplication; `rootfs/` is 1.26 MB of the 2 MB
+budget.
+
+**A line in `/etc/help` is somebody else's arithmetic, again.** Two entries went
+in and three lines with them — `basename`'s wraps — and `test/smoke/subst.mjs`
+concatenates that document three times and asserts what `wc` prints over it:
+`345 2613 17385` became `354 2718 17994`. Its comment claimed "17,148 bytes is
+thirty-four chunks against eight slots", which was already two changes out of
+date — the byte count predates the last `/etc/help` edit and the chunk count
+predates `SYS_READ_MAX`. The count is gone rather than re-derived: what a deep
+pipeline now costs is TODO C2, to be measured rather than asserted in a
+comment.
+
+`doc/Shell.md` §14 gained three rows rather than two: it was missing `cp`, left
+out when that landed.
+
+---
+
 ## `/bin/cp`, and the copy that was already here three times
 
 The system had `mv` and no `cp`. The copy was not missing — it was written

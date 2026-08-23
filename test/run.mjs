@@ -51,6 +51,7 @@ import * as term from "./smoke/term.mjs";
 import * as tail from "./smoke/tail.mjs";
 import * as chunk from "./smoke/chunk.mjs";
 import * as cp from "./smoke/cp.mjs";
+import * as path from "./smoke/path.mjs";
 import * as unzip from "./smoke/unzip.mjs";
 import * as vars from "./smoke/vars.mjs";
 import * as worker from "./smoke/worker.mjs";
@@ -104,6 +105,7 @@ const CASES = [
     ["tail",       tail.check],
     ["chunk",      chunk.check],
     ["cp",         cp.check],
+    ["path",       path.check],
     ["unzip",      unzip.check],
     ["entry",      entry.check],
     ["language",   language.check],   // last: it exits the shell for good

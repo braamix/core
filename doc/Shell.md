@@ -875,12 +875,15 @@ builtins with it; each program also answers for itself.
 
 | | |
 | --- | --- |
+| `basename` | the last part of a path, without a suffix if one is named |
 | `cat` | copy files, or the input, to the output |
 | `chat` | talk over a WebSocket to whoever else is there |
 | `clear` | blank the screen |
+| `cp` | copy files, and directories with `-r` |
 | `curl` | fetch a URL |
 | `date` | print the date and time |
 | `df` | report filesystem space |
+| `dirname` | all but the last part of a path |
 | `echo` | write the arguments — also a builtin |
 | `edit` | a full-screen editor; `^S` saves, `^Q` quits |
 | `env` | print the environment, or run a command with it changed |

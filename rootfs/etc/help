@@ -37,6 +37,8 @@ Shell builtins
 Programs in /bin
 ----------------
 
+  basename  [-a] [-s <suffix>] <path>... — the last part of a path, without
+            <suffix>; without -a or -s a second word is the suffix
   cat       [<file>...] — print files, or the input
   chat      <url> [<nick>] — chat with whoever else is on a WebSocket
   clear     clear the screen
@@ -44,6 +46,7 @@ Programs in /bin
   curl      [-i] [-X <method>] [-H <header>] [-d <data>] <url> — fetch a URL
   date      [-u] — print the date and time
   df        [-h] — show filesystem space, scaled with -h
+  dirname   <path>... — all but the last part of a path
   echo      [-n] [<word>...] — print the arguments
   edit      <file> — full-screen editor; ^S saves, ^Q quits
   env       [-i] [<name>=<value>...] [<command> [<arg>...]]
