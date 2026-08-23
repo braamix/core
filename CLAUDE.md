@@ -9,7 +9,9 @@ Braam is a CLI operating system that runs entirely in a browser tab: kernel,
 shell, filesystem, terminal and programs, written from scratch in freestanding
 C++20, compiled to wasm32, deployable as a static site with no server and no
 special HTTP headers. No libc, no Emscripten, no `xterm.js` — nothing is linked
-that is not in this tree.
+that is not in this tree. One part of the tree is not ours: `src/math/` is
+musl's libm, vendored under an MIT licence, and it is the only third-party code
+here.
 
 Two things must never regress: the wasm ABI of six imports and nine exports, and
 the three passing CTest cases.
@@ -67,10 +69,12 @@ make clean
 - Version = `BRAAM_VERSION_BASE` ([src/kernel/version.h](src/kernel/version.h),
   hand-edited) + commit count + short hash. `tools/version.py` is the one
   implementation and runs at *build* time; `tools/release.py` imports it.
-- **The six publisher tools in `tools/` are hand-run and no build step calls
+- **The seven publisher tools in `tools/` are hand-run and no build step calls
   them**: `ed25519.py` (the one place a key is read, and the only thing needing
-  `cryptography`), `signindex.py`, `mkanchor.py`, `mkpkg.py`, `mkindex.py`, and
-  `mkrepo.py`, which regenerates `test/unit/repo.data` under keys it destroys.
+  `cryptography`), `signindex.py`, `mkanchor.py`, `mkpkg.py`, `mkindex.py`,
+  `mkrepo.py`, which regenerates `test/unit/repo.data` under keys it destroys,
+  and `mkmathdata.py`, which regenerates `test/unit/math.data` from the host's
+  own libm.
   `mkindex.py` derives Package_Formats.md §6.1's `cmd:` names from each package's
   `bin/`, so no publisher writes one down. **No private key** goes in the tree,
   in anything built from it, or inside `rootfs.zip`.
@@ -79,7 +83,11 @@ make clean
   and the installed SDK, so an out-of-tree program is built exactly as these
   are. `examples/hello/` is a build target for that reason.
 - `-Wall -Wextra -Wshadow` with `BRAAM_WERROR` **ON by default**; the tree is
-  warning-clean. `-DBRAAM_WERROR=OFF` is for bisecting only.
+  warning-clean. `-DBRAAM_WERROR=OFF` is for bisecting only. **`src/math/musl/`
+  and `src/math/cvt/` are the one exemption** — `-w` and a `DisableFormat`
+  `.clang-format`, so that a re-sync with upstream stays a clean diff. They are
+  also the only C in the tree, and are compiled `-nostdinc` against the private
+  header shim in `src/math/musl/shim/`.
 
 ### Toolchain
 
@@ -141,9 +149,10 @@ link error. `src/cmd/pkg/trust.cpp` and `index.cpp` are in that half by taking a
 services from the suite (`test/unit/fakehost.h`) — which is how a check that
 must be tested keeps out of the half that cannot be. `pkg/unzip.cpp`,
 `store.cpp`, `host.cpp` and `install.cpp` stay out, and `sh/glob.cpp` and
-`sh/condrun.cpp` with them, because they walk the store. Anything needing a
-program to run belongs in `test/smoke/`, as a file and a line in `run.mjs`'s
-table.
+`sh/condrun.cpp` with them, because they walk the store. `braam_math` is the one
+half that is *linked* instead: it links `braam_flags` alone and has no syscall
+to hide, as `braam_ui` does not. Anything needing a program to run belongs in
+`test/smoke/`, as a file and a line in `run.mjs`'s table.
 [doc/Testing.md](doc/Testing.md) is the whole of both suites.
 
 ## Architecture invariants
@@ -318,6 +327,7 @@ argue in Concept.md first.
 - Layout (§7): `src/kernel/`; `src/fs/` (paths, VFS, filesystems, host storage
   ABI); `src/svc/` (fetch, WebSocket, clipboard, file transfer, clock, process
   operations); `src/ui/` (layout over a `Grid`: `Pane`, `TextBuf`, `TextView`);
+  `src/math/` (musl's libm, vendored, plus its `strtod` and `printf` engines);
   `src/user/` (exec and the syscall dispatcher, console, pipes, `ProcFs`, boot
   and init); `src/proc/` (a process binary's runtime); `src/cmd/` (one file per
   program, bar `src/cmd/pkg/` and `src/cmd/sh/`).
@@ -327,6 +337,11 @@ argue in Concept.md first.
   `braam_proc`**, so nothing in it may reach a kernel header that pulls in the
   scheduler. **`braam_ui` links `braam_flags` alone** and the kernel does not
   link it; keep it clear of the VFS, the screen and every host import.
+  **`braam_math` is the same shape** and the kernel does not link it either; a
+  program asks for it with `LIBS braam::math`. There is **no `long double`** on
+  this target — it is 113-bit quad and every operation on one is a compiler-rt
+  link error — so musl's `*l.c`, `nexttoward.c` and `nexttowardf.c` stay
+  upstream.
 - **The builtin table is an explicit array and must stay one.** `--gc-sections`
   never extracts an unreferenced archive member, so a self-registering builtin
   would be dropped silently.

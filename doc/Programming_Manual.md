@@ -32,9 +32,10 @@ Either way, this is what you get:
 
 | Path | What it is |
 | --- | --- |
-| `include/braam/{kernel,fs,proc,ui}/` | the headers a program includes |
+| `include/braam/{kernel,fs,proc,ui,math}/` | the headers a program includes |
 | `lib/braam/libbraam_proc.a` | the process runtime: the allocator, the strings, the task scheduler, the syscall wrappers |
 | `lib/braam/libbraam_ui.a` | the layout layer, for a program that paints |
+| `lib/braam/libbraam_math.a` | musl's libm, for a program that asks for it (§6) |
 | `lib/cmake/braam/wasm32-unknown-unknown.cmake` | the toolchain file |
 | `lib/cmake/braam/braamConfig.cmake` | `find_package(braam)` |
 | `lib/cmake/braam/BraamProgram.cmake` | `braam_add_program()` |
@@ -48,7 +49,8 @@ You also need what Braam itself needs: a clang with the wasm32 target and
 `wasm-ld` beside it (`brew install llvm lld`, or `apt install clang lld llvm`),
 CMake 3.24, and Python 3 for the stamp. Nothing is taken from the clang
 distribution but the compiler — no runtime, no headers, no sysroot. There is no
-libc here and there is no way to add one.
+libc here and there is no way to add one. There is a libm, and §6 says how to
+link it.
 
 ---
 
@@ -105,11 +107,11 @@ the build directory and configure again.
 
 `braam_add_program(NAME <n> SOURCES <...> [LIBS <...>])` is the same function
 `src/cmd/` builds the system's own thirty-six programs with. It links
-`braam::proc` and `braam::flags`, links with `--import-memory` so the memory cap
-is the kernel's, and runs `stamp.py` over the result. `LIBS` names anything else
-the program is made of. The CMake target it defines is `bin_<name>` — the file
-is `<name>.wasm`, and the prefix is there because a program may be called `test`
-or `install`.
+`braam::proc` and `braam::flags` — `braam::math` is asked for by name — links
+with `--import-memory` so the memory cap is the kernel's, and runs `stamp.py`
+over the result. `LIBS` names anything else the program is made of. The CMake
+target it defines is `bin_<name>` — the file is `<name>.wasm`, and the prefix is
+there because a program may be called `test` or `install`.
 
 ---
 
@@ -473,14 +475,60 @@ Nothing gives a claim back on your behalf — but nothing has to: a process that
 dies has its claims released by the kernel, because a killed program runs no
 destructor.
 
+### Mathematics — `math/math.h` and `math/ftoa.h`
+
+The one library a program asks for by name, because most do not want it:
+
+```cmake
+braam_add_program(NAME plot SOURCES plot.cpp LIBS braam::math)
+```
+
+`math/math.h` is C99 §7.12 for `double` and `float`: the classification macros
+(`fpclassify`, `isnan`, `isinf`, `isfinite`, `isnormal`, `signbit`), the
+rounding family, `frexp`/`ldexp`/`modf`/`scalbn`/`remquo`, the exponentials and
+logarithms, `pow`, `cbrt`, `hypot`, the trigonometric and hyperbolic families
+and their inverses, `erf`, `lgamma`, `tgamma`, and the Bessel functions. It is
+musl's libm, so it is IEEE-754 throughout — NaN in gives NaN out, a signed zero
+keeps its sign, and subnormals are not flushed.
+
+**Errors are values, and they are IEEE's.** There is no `errno` here and no
+floating-point environment: a domain error is a NaN, a range error is an
+infinity or a zero. `math_errhandling` is 0.
+
+**There is no `long double`.** It is 113-bit quad on this target and every
+operation on one is a compiler-rt call nothing provides, so the `l`-suffixed
+half of `<math.h>` does not exist. `float` and `double` are both real, with
+single-precision kernels rather than rounded doubles.
+
+`math/ftoa.h` is the text half, which no other header offers:
+
+```cpp
+Option<f64> parse_f64(Str);                 // strtod, correctly rounded
+Option<f64> scan_f64(Str, usize &used);     // the same, with strtod's endptr
+Str fmt_f64(char *out, usize cap, f64, i32 prec = -1, char style = 'g');
+Str fmt_f64_shortest(char *out, usize cap, f64);
+Buf<N> &put_f64(Buf<N> &, f64, i32 prec = -1, char style = 'g');
+```
+
+`style` is one of `f e g a` and their capitals and `prec` is printf's, with -1
+its default of six; these are musl's `strtod` and `printf` engines, so a
+conversion is exactly the one a Unix program expects. `fmt_f64_shortest` names
+a double in the fewest digits that read back to it bit-for-bit.
+
+**A program pays only for what it calls** — `--gc-sections` never extracts an
+unreferenced archive member. `sqrt` alone costs 309 bytes, since it is one wasm
+instruction; `exp` 3.1 KB, `sin` and `cos` together 5.3 KB, `pow` 8.3 KB, and
+twelve transcendentals at once 24 KB.
+
 ### What the headers do *not* contain
 
-`include/braam/kernel/` and `include/braam/fs/` are shipped because the two
+`include/braam/kernel/` and `include/braam/fs/` are shipped because the
 libraries' headers include them, and they are worth reading — `str.h`,
-`string.h`, `vec.h`, `span.h`, `result.h`, `fmt.h`, `text.h`, `path.h` are the
-whole standard library here. But the parts of them that name the scheduler, the
-host imports or the VFS belong to the kernel and have nothing behind them in a
-program: reaching one is a link error, which is the intended answer.
+`string.h`, `vec.h`, `span.h`, `result.h`, `fmt.h`, `text.h`, `path.h` and
+`math/math.h` are the whole standard library here. But the parts of them that
+name the scheduler, the host imports or the VFS belong to the kernel and have
+nothing behind them in a program: reaching one is a link error, which is the
+intended answer.
 
 ---
 
@@ -492,7 +540,8 @@ link error or a trap rather than a warning:
 - **No exceptions and no RTTI.** Errors are `Result<T, E>`.
 - **No libc.** No `malloc`, no `memcpy` you did not write, no `<cstring>`.
   `-nostdlib -nostdinc++` is not negotiable, and a construct needing a
-  compiler-rt builtin — 128-bit division, an outlined `memcpy` — will not link.
+  compiler-rt builtin — 128-bit division, an outlined `memcpy`, anything
+  `long double` — will not link. There *is* a libm: `braam::math`, §6.
 - **Never `new` anything.** `operator new` returns null on failure and there are
   no exceptions, so the expression would construct at address zero. Use
   `heap_new` and `heap_delete` from `kernel/alloc.h`.

@@ -16,6 +16,8 @@ add_executable(tests
     unit/test_jsref.cpp
     unit/test_io.cpp
     unit/test_local.cpp
+    unit/test_math.cpp
+    unit/test_ftoa.cpp
     unit/test_match.cpp
     unit/test_opt.cpp
     unit/test_pane.cpp
@@ -90,8 +92,11 @@ add_executable(tests
     ../src/cmd/pkg/version.cpp
     ../src/cmd/pkg/zip.cpp)
 
+# braam_math is linked rather than compiled in: the compile-in convention is
+# there so a syscall in sh/ or pkg/ is a link error, and this one links
+# braam_flags alone and has no syscall to hide -- as braam_ui, above, does not.
 target_link_libraries(tests PRIVATE
-    braam_user braam_fs braam_svc braam_ui braam_core braam_flags)
+    braam_user braam_fs braam_svc braam_ui braam_math braam_core braam_flags)
 
 find_program(BRAAM_NODE node REQUIRED)
 

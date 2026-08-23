@@ -7,6 +7,183 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## A libm, and it is not ours
+
+Nothing in Braam could compute a square root. `f64` existed in `kernel/types.h`
+and was used for one thing, milliseconds crossing the host boundary; the only
+arithmetic on a float anywhere in the tree was four lines of `sched.cpp`
+rounding a timer deadline up. `df` and `ps` faked one decimal place with
+`(rem * 10) / 1024`. That is the wall a Unix port hits, and because
+`--allow-undefined` is deliberately absent (M0) it is a hard wall: `wasm-ld:
+error: undefined symbol: sqrt`, and no way forward from there.
+
+**The decision worth writing down is that this code is vendored.** Every other
+line in the tree is ours. A libm is the wrong place to start being original:
+correctness here is measured in units of the last bit, the algorithms are forty
+years of accumulated argument reduction and minimax fitting, and a bug in one is
+a wrong answer rather than a crash. The source is musl's, as
+wasi-libc/wasix carries it, MIT licensed, with the wasm decisions already made
+upstream — `arch/wasm32/fp_arch.h` says the machine has no floating-point
+exceptions and no alternate rounding modes, so `fp_barrier` and `fp_force_eval`
+are identity functions and `WANT_ROUNDING` is 0.
+
+So `src/math/musl/` is byte-identical to upstream and a re-sync is a clean diff.
+Which settles three things that would otherwise be arguments: those sources
+compile with `-w` rather than this tree's `-Wall -Wextra -Wshadow -Werror`, they
+carry a `.clang-format` with `DisableFormat`, and they are **C**. The last is
+not a preference — 47 of them do not compile as C++, all for the same reason:
+`libm.h`'s `asuint64` and `asdouble` are compound-literal unions, which C
+rejects nothing about and C++ rejects entirely. Enabling C cost one word in
+`project(braam LANGUAGES CXX C)`; the toolchain file already set
+`CMAKE_C_COMPILER`, `CMAKE_C_COMPILER_TARGET` and `CMAKE_C_FLAGS_INIT`.
+
+### What was measured before any of it was written
+
+157 of the 163 candidate sources compiled first try against a header shim of
+about 150 lines. The six that did not were gaps in the shim — a `weak` macro,
+`FP_ILOGB0`, `a_clz_64` — not in musl. The archive that came out had no
+undefined symbol at all beyond `__stack_pointer`: no compiler-rt, no libc,
+nothing for `--allow-undefined` to have hidden.
+
+The cost, linked with `--gc-sections`, which never extracts an unreferenced
+archive member:
+
+| a program that calls | .wasm bytes |
+| --- | --- |
+| `sqrt` | 309 |
+| `fmod` | 864 |
+| `atan2` | 1,410 |
+| `exp` | 3,149 |
+| `log` | 5,261 |
+| `sin` and `cos` | 5,340 |
+| `pow` | 8,319 |
+| `tgamma` | 10,402 |
+| twelve transcendentals at once | 23,924 |
+
+`sqrt` is 309 bytes because it is `f64.sqrt` and the member is never pulled.
+`rootfs/` did not move at all — no program in `src/cmd/` links this — and
+`kernel.wasm` is byte-identical, since the kernel does not link it either.
+
+### long double is not a slow path here, it is a link error
+
+`long double` on wasm32 is 113-bit quad. Every operation on one is a
+compiler-rt call — `__addtf3`, `__multf3`, `__trunctfdf2` — and there is no
+compiler-rt for this target. So the `l`-suffixed half of `<math.h>` cannot
+exist: every `*l.c` is left upstream, and so are `nexttoward.c` and
+`nexttowardf.c`, which take a `long double` argument and were the only two
+non-`l` files to reach for it.
+
+The private `float.h` in `musl/shim/` declares `LDBL_MANT_DIG` to be
+`DBL_MANT_DIG`, which is what steers `libm.h` and both text engines onto their
+53-bit paths. Nothing is compiled with a real quad in it.
+
+The `float` half is real single-precision code — `sinf`, `expf`, `powf` with
+their own data tables — rather than rounded doubles. Rounding wrappers were the
+plan until it turned out musl's kernels cost nothing extra to compile and are
+more accurate.
+
+### errno never came up
+
+The question of what a domain error should be in a system whose errors are
+`Result<T, E>` had an answer before it was asked: musl's libm does not use
+`errno`. `__math_invalid`, `__math_oflow` and `__math_uflow` are pure IEEE
+computations — `(x-x)/(x-x)`, a multiply that overflows — and what comes back
+is a NaN or an infinity. `math_errhandling` is 0 and there is nothing to
+report. A `Result<f64, Error>` return would have been unusable to a port anyway.
+
+### Eight are one instruction, and four that look like it are not
+
+wasm has `f64.sqrt`, `f64.abs`, `f64.floor`, `f64.ceil`, `f64.trunc`,
+`f64.nearest` and `f64.copysign`. `src/math/native.c` defines those eight (with
+`nearbyint` as `rint`, there being no environment to differ about) over the
+builtins, and musl's software versions — including `sqrt_data.c`'s table — are
+not vendored. They are *defined* and not merely declared because a caller
+reaching one through a pointer, or built with `-fno-builtin`, still needs the
+symbol.
+
+`round`, `fmin`, `fmax` and `fma` look like they belong in that list and do
+not. `__builtin_round`, `__builtin_fmin`, `__builtin_fmax` and `__builtin_fma`
+each emit an undefined symbol on this target — probed, not assumed — so musl's
+implementations are load-bearing. `f64.min` and `f64.max` exist but are not
+`fmin` and `fmax`: they propagate a NaN where C says to return the other
+operand, which the unit suite checks.
+
+### The text half was the only real work
+
+`printf("%f")` blocks more ports than the transcendentals do, and musl's two
+engines were not a lift. `src/internal/floatscan.c` and `fmt_fp` inside
+`src/stdio/vfprintf.c` are both parameterised on `LDBL_MANT_DIG` and both run
+through a `FILE` and the `shgetc` scanner, neither of which exists here. So
+`src/math/cvt/` holds them derived rather than verbatim: `long double` becomes
+`double`, `frexpl` and the one L-suffixed literal go with it, and the FILE
+becomes `cvt.h`'s `Cur`, a cursor over a bounded string, and a `Sink`, a
+truncating buffer.
+
+One bug came out of that, and it is worth recording because it was invisible:
+`isspace` and `isdigit` were written as macros, and musl calls them as
+`isspace((c = shgetc(f)))` — so the macro read the stream **twice per test**,
+and the parser was one character behind. `parse_f64("-1")` returned 1.0 and
+`parse_f64(".5")` returned 5.0. They are `static inline` functions now, which is
+what they are in a real libc, and the comment beside them says why.
+
+What that buys is a correctly-rounded `strtod` and an exact `%f`/`%e`/`%g`, the
+same ones every musl program gets. The unit suite checks the three classic
+misses — `0.1`, `2.2250738585072011e-308`, `8.98846567431158e307` — which a
+digit-at-a-time accumulation gets wrong.
+
+`fmt_f64_shortest` is a search rather than a Ryu implementation: ask `fmt_fp`
+for one significant digit, then two, and stop at the first that parses back
+bit-for-bit. With an exact engine underneath that is genuinely the shortest
+round trip, for a dozen lines. The one subtlety is that `%g` chooses exponent
+form below its precision, so `100` at one digit is `1e+02` — correct, and not
+what anyone wants — so the final conversion asks for `e + 1` digits when the
+plain form exists, and `%g` drops the trailing zeros it does not need.
+
+`df` and `ps` keep their integer-tenth fakes. Converting them would make two
+core binaries link a libm for one decimal place each, and their comments already
+say the truncation is deliberate.
+
+### The suite has a real oracle, which the others do not
+
+`test/unit/test_math.cpp` is the first case in the tree that can check an answer
+against something other than itself: `tools/mkmathdata.py` — hand-run, the
+seventh tool in `tools/` — asks the host's own libm through Python and writes
+`test/unit/math.data` as raw f64 bits. The budget is two ulp for everything,
+which absorbs the oracle's own error as well as ours, and the case prints the
+worst it saw.
+
+It sees **15 ulp, in `lgamma`**, and that is the only budget raised. `lgamma`
+has zeros at 1 and 2; near one of them the cancellation costs digits that no
+implementation gets back, and 15 ulp of a value near −0.12 is not a defect.
+`tgamma` gets 4, `sqrt`, `fmod` and `remainder` get 0 because they are exact.
+Everything else is within two.
+
+The rest of the case is what a table cannot say: NaN propagation through every
+kernel, `±Inf` arguments, `copysign(1, -0.0)` being −1 and `1/(-0.0)` being
+−Inf, subnormals through `frexp`/`ldexp`/`nextafter`, `round` being away from
+zero where `rint` is to even, and `fma` keeping the low half of a product.
+
+`tests` links `braam_math` rather than compiling its sources in. The compile-in
+convention exists so that a syscall in `sh/` or `pkg/` is a link error; this
+library links `braam_flags` alone and has no syscall to hide, exactly as
+`braam_ui` does not.
+
+### Three libraries in the SDK, for the same reason there were two
+
+`braam_math` joins `braam_proc` and `braam_ui`. The rule that kept the other
+four out has not changed — `braam_core`, `braam_fs`, `braam_svc` and
+`braam_user` each carry a host import no binary may have — and this one carries
+none, which `test/smoke/abi.mjs` still checks over every binary. Only the count
+moved.
+
+`src/math/musl/` and `src/math/cvt/` are excluded from the header install, and
+that exclusion is not tidiness: those directories answer `<stdint.h>`,
+`<float.h>` and `<math.h>` for the vendored sources and define `errno` and the
+character classes as they need them. A `stdint.h` under `include/braam/` would
+be a trap. The first install put them there, and an out-of-tree build caught it.
+
+---
+
 ## A boot that goes nowhere says so
 
 A black screen was the one failure braam had no words for. Reported against

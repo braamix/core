@@ -169,6 +169,13 @@ About 1,500 lines that we are glad to control:
 - **Core types** — `Str` (a UTF-8 view), `String`, `Vec<T>`, `Span<T>`,
   `Result<T, E>`, `Option<T>`, `HashMap<K, V>`.
 
+One thing beside them is not ours: `braam::math` (`src/math/`) is musl's libm
+vendored under an MIT licence, plus its `strtod` and `printf` float engines, so
+that a Unix port has `<cmath>` and `%f` to link against. It is a library a
+program opts into, it carries no host import, and the kernel does not link it.
+The vendored sources are kept byte-identical to upstream, which is why they are
+C and are exempt from this tree's warning and formatting rules.
+
 Nothing else is available: there is no libc, `new` is not used
 (`heap_new`/`heap_delete` are), and a namespace-scope global must be trivially
 destructible, since a non-trivial destructor needs `__cxa_atexit`. State that
@@ -1391,6 +1398,9 @@ src/cmd/sh/             the shell (§4.5): grammar, word expander, pattern match
                         evaluator, variables, LineEditor, job runtime, builtins, and the
                         main.cpp that makes them a binary like any other
 src/fs/                 Fs interface, path, VFS, OpfsFs, storage ABI
+src/math/               musl's libm, vendored (§3.2); a program links braam::math for it
+src/math/musl/          the vendored sources, byte-identical, with a private header shim
+src/math/cvt/           musl's strtod and printf float engines, derived rather than verbatim
 src/svc/                fetch, WebSocket, clipboard, file transfer, clock, processes (§6)
 src/ui/                 the layout layer over a Grid: Pane, TextBuf, TextView (§3.5)
 src/user/               exec and the syscall dispatcher, the console and its pump, the

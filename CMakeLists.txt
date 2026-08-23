@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(braam LANGUAGES CXX)
+project(braam LANGUAGES CXX C)
 
 if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
     message(FATAL_ERROR
@@ -78,11 +78,13 @@ add_subdirectory(src/kernel)
 add_subdirectory(src/fs)
 add_subdirectory(src/svc)
 add_subdirectory(src/ui)
+add_subdirectory(src/math)
 add_subdirectory(src/user)
 add_subdirectory(src/proc)
 
 # The program recipe, shared with the SDK: it names the targets a consumer
 # imports, so this tree aliases them to the same names.
+add_library(braam::math  ALIAS braam_math)
 add_library(braam::proc  ALIAS braam_proc)
 add_library(braam::ui    ALIAS braam_ui)
 add_library(braam::flags ALIAS braam_flags)
@@ -162,11 +164,12 @@ add_custom_target(serve
     USES_TERMINAL
     COMMENT "Serving ${CMAKE_BINARY_DIR}/web at http://localhost:8080/")
 
-# The SDK — doc/Programming_Manual.md. Two libraries and no more: braam_core,
+# The SDK — doc/Programming_Manual.md. Three libraries and no more: braam_core,
 # braam_fs, braam_svc and braam_user each carry a host import no binary may have.
-install(TARGETS braam_proc braam_ui braam_flags
+install(TARGETS braam_proc braam_ui braam_math braam_flags
         EXPORT braam-targets
         ARCHIVE DESTINATION ${BRAAM_INSTALL_LIBDIR})
+set_target_properties(braam_math  PROPERTIES EXPORT_NAME math)
 set_target_properties(braam_proc  PROPERTIES EXPORT_NAME proc)
 set_target_properties(braam_ui    PROPERTIES EXPORT_NAME ui)
 set_target_properties(braam_flags PROPERTIES EXPORT_NAME flags)
@@ -176,10 +179,15 @@ install(EXPORT braam-targets
 
 # Whole directories rather than proc/io.h's include closure, which would fall
 # behind. Layout preserved: an include within a directory is a bare name.
-foreach(dir kernel fs proc ui)
+# math/musl and math/cvt are excluded: they answer <stdint.h>, <float.h> and
+# <math.h> for the vendored sources, and define errno and the character classes
+# as they need them. Those names under include/braam/ would be a trap.
+foreach(dir kernel fs proc ui math)
     install(DIRECTORY src/${dir}/
             DESTINATION ${BRAAM_INSTALL_INCLUDEDIR}/${dir}
-            FILES_MATCHING PATTERN "*.h")
+            FILES_MATCHING PATTERN "*.h"
+            PATTERN "musl" EXCLUDE
+            PATTERN "cvt" EXCLUDE)
 endforeach()
 # Generated, and kernel/version.h includes it: the SDK names the revision it
 # was cut from.
