@@ -31,6 +31,10 @@ the three passing CTest cases.
   mechanism (§4.3 is normative). Changes to `src/proc/`, `src/user/`,
   [src/kernel/sysabi.h](src/kernel/sysabi.h) or [web/proc.js](web/proc.js) must
   keep it true.
+- **[doc/TODO.md](doc/TODO.md) is the sequence** — what is left and in what
+  order, each entry naming the caller that satisfies §4.3's first rule and
+  whether it moves `PROC_ABI`. It also records why the syscall table is *not*
+  the gap, so that question is not re-derived.
 - **[doc/Testing.md](doc/Testing.md)** is how the two suites are organised, what
   can be tested in which, and the rules the smoke suite's one cumulative session
   runs by. Read it before adding a case or moving one.

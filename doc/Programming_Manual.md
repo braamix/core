@@ -342,7 +342,7 @@ Each is a `Task<Result<T>>`. `Result` carries an `Error` and is unpacked with
 | Group | What is there |
 | --- | --- |
 | Streams | `write_all(fd, Str)`, `read_chunk(fd)`, `read_some(fd, max)`, `close_fd(fd)` |
-| Files | `open_at(path, flags)`, `open_read`, `read_file`, `stat_of`, `list_dir`, `make_dir`, `make_dir_all`, `remove_path`, `touch_path`, `make_link`, `read_link`, `rename_path`, `seek_fd(fd, off, whence)` |
+| Files | `open_at(path, flags)`, `open_read`, `read_file`, `stat_of`, `list_dir`, `make_dir`, `make_dir_all`, `remove_path`, `touch_path`, `make_link`, `read_link`, `rename_path`, `seek_fd(fd, off, whence)`, `copy_file`, `copy_tree` |
 | Directory | `cwd_get()`, `cwd_set(path)` — this process's own, inherited from whoever spawned it |
 | Children | `make_pipe()`, `spawn(Args, ChildIo, const Args *env)`, `wait_child(pid)`, `kill_child(pid)`, `set_fg(pid)` |
 | Terminal | `tty_of(fd)`, `keys_claim(bool)`, `screen_claim(bool)`, `key_read()`, `cursor_get()`, `cursor_set(x, y, on)`, `style_set(fg, bg, attrs)`, `cursor_echo(x, y, cur, flags, runs)` |
@@ -566,8 +566,9 @@ not need the program's cooperation, so a bug that loops for ever costs a command
 rather than the session.
 
 The cost is that every syscall becomes two `postMessage` hops rather than a call
-— 34–45 µs measured, paid per `SYS_CHUNK` — so a program that reads a large file
-pays it per 512 bytes, and one being typed into pays it per round trip its
+— 34–45 µs measured, paid per read — so a program that reads a large file pays
+it per `SYS_READ_MAX` if it names a length and per `SYS_CHUNK` if it does not
+(`read_chunk` names one), and one being typed into pays it per round trip its
 editor makes. There is no way to opt out and nothing to opt out to: a program is
 a worker, and the answer to a program that costs too much in round trips is to
 make fewer of them. The shell was the last to ask for an exception, and cutting

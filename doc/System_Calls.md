@@ -830,9 +830,12 @@ free for the `Truncate` that §8's opening rule forbids adding on speculation.
 folded: `>>` must not cost two round trips, and the position has to be taken at
 the open rather than one call later.
 
-**`Read` grew an optional length, and it can only ever shorten a read.** A `max`
-above `SYS_CHUNK` clamps to it, because 512 is the allocator's top size class on
-both sides of the wire and not a number the caller may raise. What a short read
+**`Read` carries an optional length, and it clamps rather than errors.** A `max`
+above `SYS_READ_MAX` comes back as `SYS_READ_MAX`, and an absent or zero one as
+`SYS_CHUNK`; `sys_read_want` in `sysabi.h` is the one implementation and both
+ends call it. Because it clamps, the ceiling may move without an ABI bump — an
+old binary names no length and still gets 512, and a new one naming 65532 on an
+older kernel gets 512 and loops. What a short read
 leaves of a chunk already taken off a stream is kept on the descriptor — on the
 `Handle`, or on the process record for descriptor 0 — so nothing is lost and the
 next read serves it first. That is what lets `/bin/sh`'s `read` take one line off
@@ -1165,7 +1168,8 @@ failure.
 |---|---|---|
 | `SYS_STDIN`/`STDOUT`/`STDERR` | 0, 1, 2 | the stage's `Stdio`, not the descriptor table |
 | `SYS_FD_MIN` | 3 | the first index into the process's own table |
-| `SYS_CHUNK` | 512 | one read, and the most a write should hand over at once |
+| `SYS_CHUNK` | 512 | one read when the caller names no length |
+| `SYS_READ_MAX` | 65532 | the most a caller may name; a full read is one span |
 | `SYS_STAGE_MAX` | 1 MiB | the cap on `Sys::Stage`, which is the largest blit there can be |
 | `SYS_BLIT_HEAD` | 7 | `ScreenBlit`'s header, in `u32`s |
 | `SYS_O_READ`…`APPEND` | 1, 2, 4, 8, 16 | open flags, restated rather than shared with the VFS |
@@ -1202,9 +1206,11 @@ cannot see the filesystem, and the numbers a binary compiled today speaks must
 not move because the VFS's did; `vfs_flags` (`src/user/syscall.cpp:33-47`) maps
 between them one bit at a time.
 
-`SYS_CHUNK` being 512 rather than a rounder number is the allocator: `FS_BLOCK`
-is the top size class on both sides of the wire, and one byte more costs a whole
-64 KiB span (§8.2).
+`SYS_CHUNK` is what a read yields when the caller names no length; `FS_BLOCK` is
+the allocator's top size class, and it is the largest a *small* allocation can
+be. `SYS_READ_MAX` is what a caller may name, and it is `65536 - 4` so that the
+four-byte status and a full read together are one span exactly — the reply is a
+`String`, whose capacity doubles, so a byte more would take two.
 
 ### Errors
 

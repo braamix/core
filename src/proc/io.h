@@ -83,6 +83,15 @@ Task<Result<void>> make_dir(Str path);
 // anything else in the leaf's place is Err(Exists).
 Task<Result<void>> make_dir_all(Str path);
 
+// One file's bytes into another, which is created or truncated.
+Task<Result<void>> copy_file(Str from, Str to);
+
+// A whole tree, with an explicit stack rather than recursion: a deep tree must
+// not be a deep chain of coroutine frames. Descends on SYS_KIND_DIR alone, so a
+// link is recreated rather than followed and no cycle guard is needed. `to`
+// must not exist.
+Task<Result<void>> copy_tree(Str from, Str to);
+
 Task<Result<void>> remove_path(Str path, bool all);
 
 // Moves an existing file's mtime to now. Err(Unsupported) where the store

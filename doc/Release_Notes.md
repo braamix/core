@@ -7,6 +7,108 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## `/bin/cp`, and the copy that was already here three times
+
+The system had `mv` and no `cp`. The copy was not missing — it was written
+three times over: `copy_file` and `copy_tree` in `src/cmd/mv.cpp`, the same loop
+open-coded in `src/cmd/fimport.cpp`, and the extract path in `/bin/pkg`.
+`mv.cpp`'s comment said so outright ("fimport.cpp's loop") and nothing acted on
+it.
+
+Both now live in `src/proc/io.h`, which is where the header already said this
+belongs — "the few helpers a program would otherwise write again" — beside
+`make_dir_all`. `mv` calls them rather than owning them, so this is a program
+gained and a duplicate lost rather than code added. `--gc-sections` keeps them
+out of a binary that does not copy.
+
+`cp` takes `-r`, `-f`, `-i` and `-n`, and resolves its operands exactly as `mv`
+does: with several sources the last is the directory they land in. A symbolic
+link is recreated rather than followed, which is `copy_tree` descending on
+`SYS_KIND_DIR` alone and is why it needs no cycle guard.
+
+**What it does not do.** There is no `-p`, and there cannot be: OPFS cannot set
+a modification time (`web/fs.js`'s `touch` rewrites a byte so the browser
+restamps to *now*, then reads the stamp back rather than believing it). The
+same limit is why **`mv` of a directory already restamps the whole tree** —
+`FileSystemFileHandle.move` is `getFileHandle` only, so a directory rename is
+always `Err(Unsupported)` and always falls into `copy_tree`. "A rename that is
+sometimes a copy" was in the known gaps; that the copy loses every mtime was
+not, and now is.
+
+`copy_tree` requires its destination not to exist, so `cp -r a b` merges into an
+existing `b/a` no more than `mv` does. Consistent rather than clever; recorded
+in `doc/TODO`.
+
+---
+
+## A read is a span, not half a kilobyte
+
+`SYS_READ_MAX` is 65,532 and `read_chunk` names it. `svc_chunk` yields 64 KiB.
+**`PROC_ABI` does not move**, and that is the point.
+
+**The arithmetic the old number rested on was wrong.** `SYS_CHUNK` was 512
+because "`FS_BLOCK` is the allocator's top size class, and one byte more costs a
+whole 64 KiB span" — but the reply is not 512 bytes, it is `4 + 512`. The status
+word goes in first, and `String::reserve` doubles from 16, so 516 asks for 1024,
+which is past `MAX_SMALL` and takes the large path: **a full 512-byte read has
+always cost a whole span**, on both sides of the wire. Under the stated
+reasoning the right value would have been 508. The question was never "should a
+read start paying for a span" — it was already paying — but "should it get 128
+times the data for the one it pays for".
+
+**It clamps, so the ceiling is not ABI.** `Sys::Read`'s length has always been
+an upper bound that the kernel may lower, and a short read has always been
+legal with the remainder kept on the descriptor. So an old binary names no
+length and still gets 512; a new one naming 65,532 to an older kernel gets 512
+and loops. Nothing stamped is invalidated and no installed package breaks —
+which is what makes this cheap now and is the first thing to doubt. T6
+(below) was decided against a cost that was not there.
+
+`SYS_READ_MAX` is `65536 - 4` rather than 65,536 so that the status word and a
+full read together are one span exactly, and `sys_read_want` moved to
+`sysabi.h`: it is a wire rule, both ends want it, and on the header it is
+reachable from the unit suite.
+
+**The caller was already there and already being refused.** `FdZipSource::read`
+(`src/cmd/pkg/unzip.cpp`) asks for the whole remaining span of a zip entry — an
+arbitrary number — and was silently cut to 512 and made to loop. That is
+`/bin/unzip` and `/bin/pkg`, both shipped. `read_exactly` in `/bin/tail` is the
+second. §4.3's "every operation has a caller in `src/cmd/`" is satisfied by code
+that was written before this change.
+
+**The workload T6 asked for is `pkg verify`**, which opens every installed file
+and hashes it: 1.1 MB, some 2,210 reads, about 100 ms of round trips. It is now
+about eighteen. `test/smoke/chunk.mjs` measures the invariant rather than the
+figure — `wc` of a 64 KiB file against `wc` of a four-byte one, asserting the
+difference in round trips is a handful and not a hundred and twenty-eight.
+
+### The stream branch was dropping what it read
+
+Raising `svc_chunk` first turned `pkg install` red, and the bug it found was
+older than the change. `Sys::Read` served a pushback for a pipe and for
+descriptor 0, and **not for a fetched body, a socket, an inflate stream or a
+picked file** — those four called `chunk_keep`, which *stores* the remainder on
+the handle, and then never looked at it again. It was invisible while the host
+could not yield more than `want`: the remainder was always empty. With a 64 KiB
+yield against a 512-byte `want`, every read past the first 512 bytes of a
+downloaded archive went into a buffer nobody read, and the digest check caught
+it. The check is now hoisted above the kind dispatch, so every kind that fills
+`pend` is served from it — one place instead of two, which is why the third and
+fourth were missed.
+
+### What this costs
+
+A pipe's eight `Channel` slots can now hold 512 KiB rather than 4 KiB, and
+`BRAAM_BIN_INITIAL_PAGES` is four, so a 64 KiB `_alloc` puts `memory.grow` — and
+§8.4's detached views — on the read path rather than on the rare path. The file
+read is bounded by what the file has left, so a large `want` on a small file
+does not take a span to fetch a handful of bytes. `test -x` was the one caller
+that had to be told to ask for less: it decides from the magic or the `#!` line
+and now names `PROC_SHEBANG_MAX`, or every `test -x` would pull 64 KiB off the
+store — which is what the `static_assert` tying the two together was for.
+
+---
+
 ## A descriptor can be told where to be
 
 `Sys::Seek` is op 30, and `Sys::Read` grows an optional length. `PROC_ABI` moves

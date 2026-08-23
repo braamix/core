@@ -55,7 +55,7 @@ struct SvcCall : HostCall {
 // and writes nothing, and the retry is given a buffer that size.
 Task<Result<String>> svc_blob(SvcCall &c);
 
-// A chunk of at most FS_BLOCK bytes, empty at the end of the stream.
+// One span's worth at most, empty at the end of the stream.
 Task<Result<String>> svc_chunk(SvcCall &c);
 
 // Tells the host to release an object: a socket is closed, a body cancelled.

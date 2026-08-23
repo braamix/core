@@ -2,14 +2,19 @@
 #include "proc/io.h"
 #include "proc/opt.h"
 
+// The copy itself is proc/io.h's, shared with /bin/mv, which falls back to it
+// wherever the store will not rename.
+
 namespace {
 
 struct Flags {
-    bool force = false; // -f
-    bool ask   = false; // -i
+    bool recurse = false; // -r
+    bool force   = false; // -f
+    bool ask     = false; // -i
+    bool no_clob = false; // -n
 };
 
-// "overwrite <dst>? " and one line of the answer. BSD's rule: anything but a
+// "overwrite <dst>? " and one line of the answer. mv.cpp's rule: anything but a
 // leading y declines.
 Task<Result<bool>> confirm(Str dst, LineReader &answers)
 {
@@ -26,16 +31,11 @@ Task<Result<bool>> confirm(Str dst, LineReader &answers)
     co_return r.value() && !line.empty() && (line.str()[0] == 'y' || line.str()[0] == 'Y');
 }
 
-// One source to one destination, both absolute. The rename is tried first and
-// Err(Unsupported) is what says to copy instead (proc/io.h).
-Task<Result<void>> move_one(Str from, Str to, Flags f, LineReader &answers)
+// One source to one destination, both absolute.
+Task<Result<void>> copy_one(Str from, Str to, Flags f, LineReader &answers)
 {
-    // rename(2)'s no-op, checked here because the fallback below removes the
-    // destination — which for `mv a a` is the file about to be moved.
     if (from == to)
-        co_return {};
-    // proc_main reports this one; the guard stands because the fallback below
-    // would remove a destination inside the source.
+        co_return Err(Error::Invalid);
     if (path_under(from, to))
         co_return Err(Error::Invalid);
 
@@ -45,39 +45,38 @@ Task<Result<void>> move_one(Str from, Str to, Flags f, LineReader &answers)
     if (src.is_err())
         co_return Err(src.error());
 
+    if (src.value().kind == SYS_KIND_DIR && !f.recurse)
+        co_return Err(Error::IsDir);
+
     Result<FileInfo> dst = Err(Error::NoMemory);
     if (Task<Result<FileInfo>> t = stat_of(to, false))
         dst = co_await t;
     if (dst.is_err() && dst.error() != Error::NotFound)
         co_return Err(dst.error());
 
-    if (dst.is_ok() && !f.force && f.ask) {
-        Result<bool> yes = Err(Error::NoMemory);
-        if (Task<Result<bool>> t = confirm(to, answers))
-            yes = co_await t;
-        if (yes.is_err())
-            co_return Err(yes.error());
-        if (!yes.value())
-            co_return {};
-    }
-
-    Result<void> r = Err(Error::NoMemory);
-    if (Task<Result<void>> t = rename_path(from, to))
-        r = co_await t;
-    if (r.is_ok() || r.error() != Error::Unsupported)
-        co_return r;
-
-    // A rename replaces, so the copy needs a clean name first. Nothing puts
-    // the destination back if what follows fails.
     if (dst.is_ok()) {
-        Result<void> d = Err(Error::NoMemory);
-        if (Task<Result<void>> t = remove_path(to, true))
-            d = co_await t;
-        if (d.is_err())
-            co_return d;
+        if (f.no_clob)
+            co_return {};
+        if (!f.force && f.ask) {
+            Result<bool> yes = Err(Error::NoMemory);
+            if (Task<Result<bool>> t = confirm(to, answers))
+                yes = co_await t;
+            if (yes.is_err())
+                co_return Err(yes.error());
+            if (!yes.value())
+                co_return {};
+        }
+        // copy_tree needs a name of its own, and a link is replaced rather
+        // than written through.
+        if (src.value().kind != SYS_KIND_FILE || dst.value().kind != SYS_KIND_FILE) {
+            Result<void> d = Err(Error::NoMemory);
+            if (Task<Result<void>> t = remove_path(to, true))
+                d = co_await t;
+            if (d.is_err())
+                co_return d;
+        }
     }
 
-    Result<void> c = Err(Error::NoMemory);
     if (src.value().kind == SYS_KIND_LINK) {
         Result<String> target = Err(Error::NoMemory);
         if (Task<Result<String>> t = read_link(from))
@@ -85,17 +84,15 @@ Task<Result<void>> move_one(Str from, Str to, Flags f, LineReader &answers)
         if (target.is_err())
             co_return Err(target.error());
         if (Task<Result<void>> t = make_link(target.value().str(), to))
-            c = co_await t;
-    } else if (src.value().kind == SYS_KIND_DIR) {
-        if (Task<Result<void>> t = copy_tree(from, to))
-            c = co_await t;
-    } else if (Task<Result<void>> t = copy_file(from, to)) {
-        c = co_await t;
+            co_return co_await t;
+        co_return Err(Error::NoMemory);
     }
-    if (c.is_err())
-        co_return c;
-
-    if (Task<Result<void>> t = remove_path(from, true))
+    if (src.value().kind == SYS_KIND_DIR) {
+        if (Task<Result<void>> t = copy_tree(from, to))
+            co_return co_await t;
+        co_return Err(Error::NoMemory);
+    }
+    if (Task<Result<void>> t = copy_file(from, to))
         co_return co_await t;
     co_return Err(Error::NoMemory);
 }
@@ -105,28 +102,32 @@ Task<Result<void>> move_one(Str from, Str to, Flags f, LineReader &answers)
 Task<i32> proc_main(Args args)
 {
     Flags f;
-    OptParse p(args, Opts{ "fi", "" });
+    OptParse p(args, Opts{ "rRfin", "" });
     for (Opt o;;) {
         Result<bool> r = p.next(o);
         if (r.is_err()) {
-            co_await write_all(SYS_STDERR, "mv: bad option\n");
+            co_await write_all(SYS_STDERR, "cp: bad option\n");
             co_return 2;
         }
         if (!r.value())
             break;
-        if (o.name == 'f')
+        if (o.name == 'r' || o.name == 'R')
+            f.recurse = true;
+        else if (o.name == 'f')
             f.force = true;
-        else
+        else if (o.name == 'i')
             f.ask = true;
+        else
+            f.no_clob = true;
     }
 
     Args rest = p.rest();
     if (rest.size() < 2) {
-        co_await write_all(SYS_STDERR, "usage: mv [-fi] <src>... <dst>\n");
+        co_await write_all(SYS_STDERR, "usage: cp [-r] [-fi] [-n] <src>... <dst>\n");
         co_return 2;
     }
 
-    // Absolute throughout: move_one compares its two paths, and a relative one
+    // Absolute throughout: copy_one compares its two paths, and a relative one
     // would not compare.
     Result<String> here = Err(Error::NoMemory);
     if (Task<Result<String>> t = cwd_get())
@@ -139,7 +140,7 @@ Task<i32> proc_main(Args args)
         co_return 1;
 
     // With one source the last operand is the new name; with more it is the
-    // directory they go in. Followed, as BSD's stat is.
+    // directory they go in.
     Result<FileInfo> s = Err(Error::NoMemory);
     if (Task<Result<FileInfo>> t = stat_of(dest.str(), true))
         s = co_await t;
@@ -148,11 +149,11 @@ Task<i32> proc_main(Args args)
 
     bool into_dir = s.is_ok() && s.value().kind == SYS_KIND_DIR;
     if (!into_dir && rest.size() > 2) {
-        co_await write_all(SYS_STDERR, "usage: mv [-fi] <src>... <dir>\n");
+        co_await write_all(SYS_STDERR, "usage: cp [-r] [-fi] [-n] <src>... <dir>\n");
         co_return 2;
     }
 
-    Input replies(Args{}, SYS_STDIN, "mv");
+    Input replies(Args{}, SYS_STDIN, "cp");
     LineReader answers(replies);
 
     i32 status = 0;
@@ -168,15 +169,15 @@ Task<i32> proc_main(Args args)
         }
 
         if (from.str() != to.str() && path_under(from.str(), to.str())) {
-            co_await write_all(SYS_STDERR, "mv: ");
+            co_await write_all(SYS_STDERR, "cp: ");
             co_await write_all(SYS_STDERR, rest[i]);
-            co_await write_all(SYS_STDERR, ": cannot move a directory into itself\n");
+            co_await write_all(SYS_STDERR, ": cannot copy a directory into itself\n");
             status = 1;
             continue;
         }
 
         Result<void> r = Err(Error::NoMemory);
-        if (Task<Result<void>> t = move_one(from.str(), to.str(), f, answers))
+        if (Task<Result<void>> t = copy_one(from.str(), to.str(), f, answers))
             r = co_await t;
         if (r.is_ok())
             continue;
@@ -184,7 +185,7 @@ Task<i32> proc_main(Args args)
             co_return 130;
 
         status = 1;
-        if (Task<void> e = errln("mv", rest[i], r.error()))
+        if (Task<void> e = errln("cp", rest[i], r.error()))
             co_await e;
     }
     co_return status;

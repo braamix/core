@@ -5,15 +5,17 @@
 
 namespace {
 
-// The allocator's top size class: a byte more costs a whole 64 KiB span
-// (Concept.md §8.2), which is why a stream is read in pieces this size.
-constexpr usize CHUNK = 512;
+// The first guess at a blob's size; the sized-twice protocol grows it.
+constexpr usize BLOB_HINT = 512;
+
+// What one read of a stream yields: a whole span (Concept.md §8.2).
+constexpr usize STREAM_CHUNK = 65536;
 
 } // namespace
 
 Task<Result<String>> svc_blob(SvcCall &c)
 {
-    if (!c.ok() || !c.reserve(CHUNK))
+    if (!c.ok() || !c.reserve(BLOB_HINT))
         co_return Err(Error::NoMemory);
 
     for (int attempt = 0; attempt < 2; attempt++) {
@@ -34,7 +36,7 @@ Task<Result<String>> svc_blob(SvcCall &c)
 
 Task<Result<String>> svc_chunk(SvcCall &c)
 {
-    if (!c.ok() || !c.reserve(CHUNK))
+    if (!c.ok() || !c.reserve(STREAM_CHUNK))
         co_return Err(Error::NoMemory);
     CO_TRY_VOID(co_await c);
 

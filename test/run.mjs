@@ -49,6 +49,8 @@ import * as subst from "./smoke/subst.mjs";
 import * as sysinfo from "./smoke/sysinfo.mjs";
 import * as term from "./smoke/term.mjs";
 import * as tail from "./smoke/tail.mjs";
+import * as chunk from "./smoke/chunk.mjs";
+import * as cp from "./smoke/cp.mjs";
 import * as unzip from "./smoke/unzip.mjs";
 import * as vars from "./smoke/vars.mjs";
 import * as worker from "./smoke/worker.mjs";
@@ -100,6 +102,8 @@ const CASES = [
     ["redirect",   redirect.check],
     ["script",     script.check],
     ["tail",       tail.check],
+    ["chunk",      chunk.check],
+    ["cp",         cp.check],
     ["unzip",      unzip.check],
     ["entry",      entry.check],
     ["language",   language.check],   // last: it exits the shell for good

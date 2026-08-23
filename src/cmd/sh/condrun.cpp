@@ -93,7 +93,8 @@ Task<bool> file_runnable(Str path)
         co_return false;
 
     bool runnable = false;
-    if (Task<Result<String>> c = read_chunk(u32(r.value()))) {
+    // The magic or the #! line decides it; no more than that is read.
+    if (Task<Result<String>> c = read_some(u32(r.value()), PROC_SHEBANG_MAX)) {
         Result<String> got = co_await c;
         Str interp, arg;
         runnable = got.is_ok() && (got.value().str().starts_with(WASM_MAGIC) ||

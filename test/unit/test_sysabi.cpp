@@ -139,6 +139,30 @@ void test_sysabi()
         CHECK(sys_seek_to(0, 0, SYS_SEEK_SET, i64(SYS_SEEK_MAX), at) && at == SYS_SEEK_MAX);
     }
 
+    // How much one Sys::Read takes. A length may shorten a read and must never
+    // lengthen one past the ceiling; no length at all is SYS_CHUNK.
+    {
+        u8 buf[4];
+        CHECK_EQ(sys_read_want(nullptr, 0), SYS_CHUNK);   // absent
+        CHECK_EQ(sys_read_want(buf, 3), SYS_CHUNK);       // short of a word
+        sys_put_u32(buf, 0);
+        CHECK_EQ(sys_read_want(buf, 4), SYS_CHUNK);       // zero is not "none"
+        sys_put_u32(buf, 1);
+        CHECK_EQ(sys_read_want(buf, 4), 1u);
+        sys_put_u32(buf, 4096);
+        CHECK_EQ(sys_read_want(buf, 4), 4096u);
+        sys_put_u32(buf, SYS_READ_MAX);
+        CHECK_EQ(sys_read_want(buf, 4), SYS_READ_MAX);
+        sys_put_u32(buf, SYS_READ_MAX + 1);
+        CHECK_EQ(sys_read_want(buf, 4), SYS_READ_MAX);    // clamps, never errors
+        sys_put_u32(buf, 0xffffffff);
+        CHECK_EQ(sys_read_want(buf, 4), SYS_READ_MAX);
+    }
+
+    // The reply is a four-byte status then the bytes, so a full read is one
+    // span exactly — a byte more would double into two.
+    CHECK_EQ(SYS_READ_MAX + 4, 65536u);
+
     // A spawn request's flags word: the two page counts, in one word because
     // `aux` is the pid and nothing else may ride on that.
     ProcMeta pm{ PROC_MAGIC, PROC_ABI, 0, 4, PROC_MAX_PAGES };

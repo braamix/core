@@ -4,6 +4,13 @@
 #include "kernel/traits.h"
 #include "svc/svc.h"
 
+namespace {
+
+// What one read hands back at most. The fake's own number, not the wire's.
+constexpr usize FAKE_YIELD = 512;
+
+} // namespace
+
 bool FakeHost::file(Str path, Str text)
 {
     Entry e;
@@ -63,8 +70,8 @@ Task<Result<String>> FakeHost::read(i32 body)
         co_return Err(Error::Closed);
 
     usize n = text.size() - b.at;
-    if (n > SYS_CHUNK)
-        n = SYS_CHUNK;
+    if (n > FAKE_YIELD)
+        n = FAKE_YIELD;
     String out;
     if (!out.assign(text.substr(b.at, n)))
         co_return Err(Error::NoMemory);

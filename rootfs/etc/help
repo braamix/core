@@ -40,6 +40,7 @@ Programs in /bin
   cat       [<file>...] — print files, or the input
   chat      <url> [<nick>] — chat with whoever else is on a WebSocket
   clear     clear the screen
+  cp        [-r] [-fi] [-n] <src>... <dst> — copy files, directories with -r
   curl      [-i] [-X <method>] [-H <header>] [-d <data>] <url> — fetch a URL
   date      [-u] — print the date and time
   df        [-h] — show filesystem space, scaled with -h

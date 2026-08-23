@@ -16,7 +16,11 @@ Task<Result<void>> write_all(u32 fd, Str s)
 
 Task<Result<String>> read_chunk(u32 fd)
 {
-    Result<SysReply> r = co_await sys_call(Sys::Read, fd);
+    u8 want[4];
+    sys_put_u32(want, SYS_READ_MAX);
+
+    Result<SysReply> r =
+        co_await sys_call(Sys::Read, fd, Str(reinterpret_cast<const char *>(want), sizeof(want)));
     if (r.is_err())
         co_return Err(r.error());
     if (r.value().data.empty())
@@ -245,6 +249,104 @@ Task<Result<void>> make_dir_all(Str path)
             co_return Err(s.error());
         if (s.value().kind != SYS_KIND_DIR)
             co_return Err(Error::Exists);
+    }
+    co_return {};
+}
+
+Task<Result<void>> copy_file(Str from, Str to)
+{
+    Result<i32> in = Err(Error::NoMemory);
+    if (Task<Result<i32>> t = open_read(from))
+        in = co_await t;
+    if (in.is_err())
+        co_return Err(in.error());
+
+    Result<i32> out = Err(Error::NoMemory);
+    if (Task<Result<i32>> t = open_at(to, SYS_O_WRITE | SYS_O_CREATE | SYS_O_TRUNC))
+        out = co_await t;
+    if (out.is_err()) {
+        if (Task<void> k = close_fd(u32(in.value())))
+            co_await k;
+        co_return Err(out.error());
+    }
+
+    Result<void> r;
+    for (;;) {
+        Result<String> chunk = Err(Error::NoMemory);
+        if (Task<Result<String>> t = read_chunk(u32(in.value())))
+            chunk = co_await t;
+        if (chunk.is_err()) {
+            if (chunk.error() != Error::Closed)
+                r = Err(chunk.error());
+            break;
+        }
+        if (Result<void> w = co_await write_all(u32(out.value()), chunk.value().str());
+            w.is_err()) {
+            r = Err(w.error());
+            break;
+        }
+    }
+
+    if (Task<void> k = close_fd(u32(in.value())))
+        co_await k;
+    if (Task<void> k = close_fd(u32(out.value())))
+        co_await k;
+    co_return r;
+}
+
+Task<Result<void>> copy_tree(Str from, Str to)
+{
+    Result<void> made = Err(Error::NoMemory);
+    if (Task<Result<void>> t = make_dir(to))
+        made = co_await t;
+    if (made.is_err())
+        co_return made;
+
+    Vec<String> stack; // directories still to walk, relative to `from`
+    if (!stack.push(String()))
+        co_return Err(Error::NoMemory);
+
+    while (!stack.empty()) {
+        String rel = move(stack[stack.size() - 1]);
+        stack.pop();
+
+        String dir;
+        if (!dir.assign(from) || !dir.append(rel.str()))
+            co_return Err(Error::NoMemory);
+
+        Result<Vec<DirEntry>> got = Err(Error::NoMemory);
+        if (Task<Result<Vec<DirEntry>>> t = list_dir(dir.str()))
+            got = co_await t;
+        if (got.is_err())
+            co_return Err(got.error());
+
+        for (const DirEntry &e : got.value()) {
+            String child, src, dst;
+            if (!child.assign(rel.str()) || !child.push('/') || !child.append(e.name.str()) ||
+                !src.assign(from) || !src.append(child.str()) || !dst.assign(to) ||
+                !dst.append(child.str()))
+                co_return Err(Error::NoMemory);
+
+            Result<void> one = Err(Error::NoMemory);
+            if (e.kind == SYS_KIND_DIR) {
+                if (Task<Result<void>> t = make_dir(dst.str()))
+                    one = co_await t;
+                if (one.is_ok() && !stack.push(move(child)))
+                    one = Err(Error::NoMemory);
+            } else if (e.kind == SYS_KIND_LINK) {
+                Result<String> target = Err(Error::NoMemory);
+                if (Task<Result<String>> t = read_link(src.str()))
+                    target = co_await t;
+                if (target.is_err())
+                    one = Err(target.error());
+                else if (Task<Result<void>> t = make_link(target.value().str(), dst.str()))
+                    one = co_await t;
+            } else if (Task<Result<void>> t = copy_file(src.str(), dst.str())) {
+                one = co_await t;
+            }
+            if (one.is_err())
+                co_return one;
+        }
     }
     co_return {};
 }

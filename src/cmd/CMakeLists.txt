@@ -7,8 +7,8 @@
 add_subdirectory(pkg)
 add_subdirectory(sh)
 
-set(BRAAM_BIN_LIST cat chat clear curl date df echo edit env false fexport fimport grep head hog
-                   less ln ls mkdir mount mv pbcopy pbpaste pkg ps pwd rm sh sleep spin tail
+set(BRAAM_BIN_LIST cat chat clear cp curl date df echo edit env false fexport fimport grep head
+                   hog less ln ls mkdir mount mv pbcopy pbpaste pkg ps pwd rm sh sleep spin tail
                    test timeout touch true uname unzip vmstat watch wc)
 set(BRAAM_BIN_PROGRAMS ${BRAAM_BIN_LIST} PARENT_SCOPE)
 

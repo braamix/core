@@ -79,18 +79,6 @@ Result<u64> handle_seek(Handle &h, u32 whence, i64 off)
     return to;
 }
 
-// How much one Sys::Read may take. An absent length is a whole chunk, and no
-// length grows one past SYS_CHUNK.
-u32 read_want(Str payload)
-{
-    if (payload.size() < 4)
-        return SYS_CHUNK;
-    u32 max = sys_get_u32(reinterpret_cast<const u8 *>(payload.data()));
-    if (max == 0 || max > SYS_CHUNK)
-        return SYS_CHUNK;
-    return max;
-}
-
 // What a short read left last time, before the stream is asked again. True when
 // it answered, whether with bytes or with an error.
 bool pend_reply(String &pend, u32 want, String &reply, i32 &status)
@@ -545,7 +533,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         }
 
         case Sys::Read: {
-            u32 want = read_want(payload);
+            u32 want = sys_read_want(reinterpret_cast<const u8 *>(payload.data()), payload.size());
 
             if (fd == SYS_STDIN) {
                 if (pend_reply(p.in_pend, want, reply, status))
@@ -567,12 +555,15 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             HandleRef hold(h);
             HandleBusy busy(h, false);
 
+            // What a short read left last time, before anything is asked
+            // again. Every kind that fills `pend` is served from it here.
+            if (pend_reply(h->pend, want, reply, status))
+                break;
+
             // The read end of a pipe. Err(Closed) is status 0 here as it is
             // everywhere else: the writer's end went, and that is an end of
             // input rather than a failure.
             if (h->kind == Handle::Kind::PipeRead) {
-                if (pend_reply(h->pend, want, reply, status))
-                    break;
                 Source in        = pipe_source(h->pipe.q->ch);
                 Result<String> r = Err(Error::Again);
                 CO_RETRY(r, in.read());
@@ -607,12 +598,21 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 break;
             }
 
-            u8 *block = static_cast<u8 *>(heap_alloc(SYS_CHUNK));
+            // No more than the file has left, so a large `want` on a small
+            // file does not take a span to read a handful of bytes.
+            usize take = want;
+            if (Result<u64> end = vfs_size(h->file.fd); end.is_ok()) {
+                u64 left = end.value() > h->file.off ? end.value() - h->file.off : 0;
+                if (left < take)
+                    take = usize(left);
+            }
+
+            u8 *block = static_cast<u8 *>(heap_alloc(take ? take : 1));
             if (!block) {
                 status = -i32(Error::NoMemory);
                 break;
             }
-            Result<usize> r = vfs_read(h->file.fd, h->file.off, block, want);
+            Result<usize> r = vfs_read(h->file.fd, h->file.off, block, take);
             if (r.is_ok()) {
                 h->file.off += r.value();
                 status = i32(r.value());

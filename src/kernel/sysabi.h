@@ -301,9 +301,15 @@ constexpr u64 SYS_SEEK_MAX = (u64(1) << 63) - 1;
 // Sys::Seek's payload, in u32s: the whence, then the offset low word and high.
 constexpr usize SYS_SEEK_WORDS = 3;
 
-// One read, and the most a write should hand over at once: FS_BLOCK is the
-// allocator's top size class on both sides of the wire (Concept.md §8.2).
+// What one read yields when the caller names no length.
 constexpr u32 SYS_CHUNK = 512;
+
+// The most one may name. The reply is a four-byte status then the bytes, so
+// this lands a full read on exactly one span (Concept.md §8.2).
+constexpr u32 SYS_READ_MAX = 65536 - 4;
+
+static_assert(SYS_READ_MAX + 4 <= 65536, "a full read no longer fits one span");
+static_assert(SYS_CHUNK <= SYS_READ_MAX, "the default read is above the ceiling");
 
 // `test -x` decides from one chunk (src/cmd/sh/condrun.cpp).
 static_assert(PROC_SHEBANG_MAX <= SYS_CHUNK, "test -x could no longer see a whole #! line");
@@ -448,6 +454,20 @@ inline void sys_put_u32(u8 *p, u32 v)
     p[1] = u8(v >> 8);
     p[2] = u8(v >> 16);
     p[3] = u8(v >> 24);
+}
+
+// --------------------------------------------------------------- Sys::Read
+
+// How much one read may take. An absent or zero length is SYS_CHUNK, and no
+// length grows one past SYS_READ_MAX.
+inline u32 sys_read_want(const u8 *payload, usize len)
+{
+    if (len < 4)
+        return SYS_CHUNK;
+    u32 max = sys_get_u32(payload);
+    if (max == 0)
+        return SYS_CHUNK;
+    return max > SYS_READ_MAX ? SYS_READ_MAX : max;
 }
 
 // --------------------------------------------------------------- Sys::Seek

@@ -965,10 +965,11 @@ kernel worker. Starting a worker is the other cost, and the pool (§4.2) is the
 answer.
 
 **A syscall is the cost that does not go away**: two `postMessage` hops and two
-copies, **measured at 34–45 µs** in three engines. A syscall-bound program pays
-it per `SYS_CHUNK` (512 bytes) — a quarter of a megabyte through three processes
-is 6–13 ms — which is why a bigger chunk or a batched step protocol was decided
-against. What that leaves on the interactive path is the *line* rather than the
+copies, **measured at 34–45 µs** in three engines. A reader that names a length
+pays it per `SYS_READ_MAX` (65,532 bytes) rather than per `SYS_CHUNK`, so a
+quarter of a megabyte through three processes is four reads a stage and not
+five hundred; a batched step protocol stays decided against. What that leaves on
+the interactive path is the *line* rather than the
 key: a keystroke is two round trips and Enter to the next prompt is five, paid
 once a line, which is why it is affordable.
 
