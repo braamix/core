@@ -259,7 +259,7 @@ it, and how much memory to give it. It lives in a wasm custom section named
 ```c
 struct ProcMeta {
     u32 magic;          // 0x6d617262, "bram"
-    u32 abi;            // PROC_ABI, currently 18
+    u32 abi;            // PROC_ABI, currently 19
     u32 flags;
     u32 initial_pages;
     u32 max_pages;
@@ -760,7 +760,7 @@ one can grow without renumbering anything. Every operation has a caller in
 ### Asynchronous — `sys_async(op, token, ptr, len)`
 
 Reply is `i32 status` then data. A negative status is `-Error`. Served in
-`proc_syscall`, `src/user/syscall.cpp:468-1680`.
+`proc_syscall`, `src/user/syscall.cpp:468-1698`.
 
 | # | Name | Op-word arg | Payload | Status | Data |
 |---|---|---|---|---|---|
@@ -792,6 +792,7 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 56 | `Fexport` | — | `u32 name_len`, the name, the bytes | 0 | — |
 | 57 | `Verify` | — | `u32 key_len`, `u32 sig_len`, the key, the signature, then the signed bytes | 0 for a good signature | — |
 | 58 | `Inflate` | — | the compressed bytes | the fd | — |
+| 59 | `Random` | how many bytes | — | 0 | that many random bytes |
 | 64 | `KeyClaim` | bit 0 = take, else release | — | 0 | `u32 cols`, `u32 rows` |
 | 65 | `KeyRead` | — | — | 0 | `u32 code`, `u32 mods`, `u32 cols`, `u32 rows` |
 | 66 | `ScreenEnter` | bit 0 = enter, else leave | — | 0 | `u32 cols`, `u32 rows` |
@@ -859,6 +860,19 @@ leaves of a chunk already taken off a stream is kept on the descriptor — on th
 next read serves it first. That is what lets `/bin/sh`'s `read` take one line off
 a pipe without taking the next one, and it lives in the kernel because a buffer
 in a program outlives the descriptor number it was keyed to.
+
+**`Random` refuses rather than clamps, which is the opposite of `Read`.** A
+short read is what a stream *means* — the caller comes back for the rest — and
+that is why `sys_read_want` caps silently. Randomness has no such convention: a
+caller sizing a buffer for a key and handed half of one has zeros on the end
+and no way to find out. So zero, and anything above `SYS_RANDOM_MAX`, is
+`Err(Invalid)`, and a reply that is not exactly the count asked for is
+`Err(Io)`. The cap is 256 because a key is 32 bytes and a nonce twelve; a
+caller wanting more loops, which is what `get_random` in `src/proc/io.cpp` is.
+
+The count rides in the op word rather than the payload — it is one small
+immediate and nothing else wants the field — so this is the second operation
+after `Clock` that stages nothing at all.
 
 **`SigAct` carries its mask as a payload, which nothing else this small does.**
 The op word's argument is 24 bits and `SIG_WINCH` is bit 28, so the mask does
@@ -1195,6 +1209,7 @@ failure.
 | `SYS_SEEK_MAX` | 2^63 − 1 | the largest position; the wire's offset is signed |
 | `SYS_SEEK_WORDS` | 3 | `Seek`'s payload, in `u32`s |
 | `SYS_TRUNC_WORDS` | 2 | `Truncate`'s payload, in `u32`s |
+| `SYS_RANDOM_MAX` | 256 | the most one `Random` may ask for; a longer draw is a loop in `get_random` |
 | `SYS_KIND_FILE`/`DIR`/`LINK` | 0, 1, 2 | what `Stat` and `List` report |
 | `SYS_STAT_NOFOLLOW` | 1 | `Stat`'s arg: report a final symbolic link itself |
 | `SYS_STORE_*` | 1, 2, 4, 8 | OPFS, sync, persisted, and "the host answered at all" |

@@ -2,7 +2,7 @@
 // Part of the smoke suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, hasRootfs, prompt, rows, screen, shows, store } from "./harness.mjs";
+import { fail, hasRootfs, output, prompt, rows, screen, shows, store } from "./harness.mjs";
 
 export function check() {
     let s = screen();
@@ -39,6 +39,32 @@ export function check() {
     vrun("false");
     if (!rows(vrun("echo $?")).includes("1"))
         fail("$? did not carry the last command's status");
+
+    // $RANDOM, seeded once from Sys::Random and stepped per reference. The
+    // values are not asserted: the fake's stream is fixed but how many draws
+    // came before this line is not.
+    const drawn = (text = "echo $RANDOM") => {
+        vrun("clear");
+        const got = output(vrun(text)).join("|");
+        if (!/^\d{1,5}$/.test(got) || Number(got) > 32767)
+            fail(`\`${text}\` printed ${JSON.stringify(got)}, expected 0..32767`);
+        return got;
+    };
+    const [d1, d2, d3] = [drawn(), drawn(), drawn()];
+    if (d1 === d2 && d2 === d3)
+        fail(`$RANDOM printed ${d1} three times running`);
+
+    // Each shell seeds itself, so a nested one does not repeat another.
+    if (drawn("sh -c 'echo $RANDOM'") === drawn("sh -c 'echo $RANDOM'"))
+        fail("two shells drew the same first number");
+
+    // Not a table entry: an assignment shadows it, unset brings it back, and it
+    // reaches no child.
+    vshows("RANDOM=7; echo $RANDOM", "7");
+    if (rows(vrun("env")).some((line) => line.startsWith("RANDOM=")))
+        fail("RANDOM reached a child's environment");
+    vrun("unset RANDOM");
+    drawn();
 
     // An assignment prefix does not stay. `echo` is a builtin, so the prefix is
     // applied around it and put back; a program gets it in its environment

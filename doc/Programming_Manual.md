@@ -346,7 +346,7 @@ Each is a `Task<Result<T>>`. `Result` carries an `Error` and is unpacked with
 | Directory | `cwd_get()`, `cwd_set(path)` — this process's own, inherited from whoever spawned it |
 | Children | `make_pipe()`, `spawn(Args, ChildIo, const Args *env)`, `wait_child(pid)`, `kill_child(pid)`, `set_fg(pid)` |
 | Terminal | `tty_of(fd)`, `keys_claim(bool)`, `screen_claim(bool)`, `key_read()`, `cursor_get()`, `cursor_set(x, y, on)`, `style_set(fg, bg, attrs)`, `cursor_echo(x, y, cur, flags, runs)` |
-| System | `storage_of()`, `sleep_for(ms)`, `clock_now()`, `proc_pid()`, `proc_now()` |
+| System | `storage_of()`, `sleep_for(ms)`, `clock_now()`, `get_random(len)`, `proc_pid()`, `proc_now()` |
 | Environment | `proc_env(name)`, `proc_env_count()`, `proc_env_at(i)` — from `proc/rt.h`, and not syscalls |
 | Host services | `fetch_url(url, spec)`, `ws_connect(url)`, `clip_get`, `clip_put`, `pick`, `pick_open`, `fexport`, `verify_sig`, `inflate` |
 | Helpers | `errln(who, what, why)`, `Input`, `LineReader`, `next_line`, `next_field` |

@@ -49,6 +49,72 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The one number the kernel cannot make
+
+`Sys::Random` is op 59, and it is the first operation here that exists because
+the kernel is *unable* to answer rather than because a program had nowhere to
+ask. `sched_now()` is a millisecond counter that starts at zero every boot; a
+pid is a serial number handed out in order. Neither is entropy, and a mixer over
+the two is a sequence anybody with a stopwatch reproduces.
+
+**TODO.md's N5 argued against this ABI, and was right for four milestones.** It
+proposed a shell-local PRNG seeded from `Sys::Now ^ Sys::GetPid` — no operation,
+no bump, no host code — on the ground that nothing in the tree generated a
+nonce, a key or a session id. What changed is not that one of those appeared; it
+is that `$RANDOM` is *itself* the caller §4.3's first rule wants, and once a
+shell variable depends on a value, seeding it from a boot clock is a lie told in
+the documentation rather than a simplification. The PRNG N5 proposed survived
+intact. Only its seed moved.
+
+**`$RANDOM` seeds once and steps purely, and that is forced rather than
+chosen.** `cb_look` in `src/cmd/sh/var.cpp` is a plain `bool`, and the
+synchronous half of the wire is closed at four operations (§4.3). A draw per
+reference would mean making word expansion a coroutine — which would also cost
+`src/cmd/sh/expand.cpp` its purity, and that file is compiled straight into
+`tests.wasm`, where a syscall is a link error. So the host is asked once, at
+shell startup, for four bytes, and every reference after that is
+`hash_key(++counter) >> 17`: a counter *through* a bijection rather than the
+bijection iterated on itself, because the first has a period of 2^32 exactly and
+the second can in principle find a short cycle. The cost is one host round trip
+per `/bin/sh` start, including every `sh -c` in a pipeline, and that is the
+whole of it.
+
+**The synchronous half stayed closed, and the wall clock is why.**
+`crypto.getRandomValues` fills its array in place and returns; it is as
+synchronous as `Date.now()`, and §2.2 sanctions exactly two synchronous imports.
+Concept.md §6 had already settled this case once for the clock — a service
+import existed, one more operation on it costs nothing, a second value-returning
+import would cost the invariant. Randomness is the second instance of the same
+near miss and took the same answer without a new argument being needed. Two near
+misses and still no third import is the rule working rather than bending.
+
+**The count is refused, not clamped.** `Sys::Read` caps silently at
+`SYS_READ_MAX` because a short read is what a stream means and the caller comes
+back for the rest. There is no such convention here, and a caller sizing a
+buffer for a 32-byte key and handed sixteen has zeros on the end and no way to
+find out. `SYS_RANDOM_MAX` is 256 — `getrandom(2)` draws the line in the same
+place and for the same reason — and zero or anything above it is `Err(Invalid)`.
+
+**The cap lives on the wire and the chunking lives in the SDK.**
+`get_random(len)` in `src/proc/io.cpp` loops, so a program asks for whatever it
+wants and the ABI stays narrow enough that a hostile process cannot name a
+megabyte of CSPRNG output in one op word. Nothing in the tree draws more than
+four bytes yet, so that loop is covered by review rather than by a test — said
+here rather than left to be discovered.
+
+**It rode `PROC_ABI` 18 → 19 rather than forcing a bump of its own**, which is
+TODO.md's batching rule applied deliberately this time rather than noticed
+afterwards. A new operation is additive and needs no bump at all; the bump was
+already on the branch, and an operation that arrives with one costs nothing
+extra.
+
+`${RANDOM-x}` draws twice and shows the second: `Walk::braced` asks `is_set`
+before it asks `named`, and both go through `Vars::look`. Nothing can tell the
+difference — every draw is a number nobody predicted — and every fix costs
+either mutable state in a file that is pure by design or a shell-specific name
+list inside an expander that deliberately does not know what a shell is. It is
+documented in Shell.md §8 and left alone. bash has the same wart.
+
 ## A slot that waited four milestones for somebody to want it
 
 `Sys::Truncate` is op 31, and `/bin/truncate` is the program that made it

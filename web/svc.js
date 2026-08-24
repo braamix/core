@@ -32,6 +32,7 @@ export const OP = {
     VERIFY: 19,
     INFLATE: 20,
     PROC_SIGNAL: 21,
+    RANDOM: 22,
 };
 
 const utf8 = new TextEncoder();
@@ -402,6 +403,11 @@ export function makeSvcImport(mem, deposit, relay, reply, proc) {
                 r.fail(E.PERM);
             return;
         }
+
+        // No relay either: getRandomValues is in the worker, and synchronous.
+        case OP.RANDOM:
+            r.write(crypto.getRandomValues(new Uint8Array(r.get("flags"))));
+            return;
 
         // A reader like a fetch body's, so OP.READ and OP.DROP serve it
         // unchanged. A corrupt stream errors on a later read, not here.

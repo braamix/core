@@ -26,7 +26,7 @@ struct ProcMeta {
 
 constexpr Str PROC_SECTION   = "braam";
 constexpr u32 PROC_MAGIC     = 0x6d617262; // "bram"
-constexpr u32 PROC_ABI       = 18;
+constexpr u32 PROC_ABI       = 19;
 constexpr u32 PROC_PAGE      = 65536;
 constexpr u32 PROC_MAX_PAGES = 256; // 16 MB, the ceiling the kernel imposes
 
@@ -125,6 +125,10 @@ enum class Sys : u32 {
 
     // Raw deflate. The input is capped at SYS_STAGE_MAX; the output is not.
     Inflate, // payload = the compressed bytes;  status = the fd
+
+    // Bytes out of the host's CSPRNG. Zero or above SYS_RANDOM_MAX is
+    // Err(Invalid); a short answer never happens.
+    Random = 59, // arg = how many bytes;  data = that many
 
     // The terminal. Cells, never a byte stream (§2.3): a full-screen program
     // paints a grid of its own and blits what changed. Both claims are held by
@@ -253,6 +257,11 @@ constexpr u32 SYS_STAGE_MAX = 1u << 20;
 // Ed25519's fixed sizes, in bytes.
 constexpr u32 SYS_ED25519_KEY = 32;
 constexpr u32 SYS_ED25519_SIG = 64;
+
+// The most one Sys::Random may ask for; get_random() loops for more.
+constexpr u32 SYS_RANDOM_MAX = 256;
+
+static_assert(SYS_RANDOM_MAX < (1u << 24), "a count must fit the op word's argument");
 
 // One entry of Sys::List's reply: u32 kind, u64 size, u64 mtime, u32 name_len,
 // the name. `mtime` is milliseconds since the epoch, 0 when the filesystem keeps

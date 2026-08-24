@@ -39,6 +39,42 @@ Task<i32> ask_clock()
     co_return 0;
 }
 
+// Two draws, kept apart: a host answering zeros would pass a length check.
+u8 random_a[4], random_b[4];
+usize random_size;
+bool random_differs;
+
+Task<i32> ask_random()
+{
+    Task<Result<String>> t = svc_random(4);
+    if (!t)
+        co_return 1;
+    Result<String> r = co_await t;
+    answered         = true;
+    if (r.is_err()) {
+        failure = r.error();
+        co_return 1;
+    }
+    random_size = r.value().size();
+    for (usize i = 0; i < 4 && i < random_size; i++)
+        random_a[i] = u8(r.value().str()[i]);
+
+    Task<Result<String>> u = svc_random(4);
+    if (!u)
+        co_return 1;
+    Result<String> s = co_await u;
+    if (s.is_err() || s.value().size() != 4) {
+        failure = s.is_err() ? s.error() : Error::Io;
+        co_return 1;
+    }
+    for (usize i = 0; i < 4; i++)
+        random_b[i] = u8(s.value().str()[i]);
+    for (usize i = 0; i < 4; i++)
+        if (random_a[i] != random_b[i])
+            random_differs = true;
+    co_return 0;
+}
+
 // What the host says about itself, which boot asks for once and keeps. The
 // blank line in the middle is the contract: above it is the banner's half.
 bool host_split;
@@ -213,6 +249,20 @@ void test_svc()
     CHECK_EQ(sched_tick(0), -1);
     CHECK(answered);
     CHECK(clock_read.epoch_ms > 0);
+    CHECK_EQ(host_orphans(), 0);
+
+    // Random bytes, over the one-reserve reply: exactly the count asked for,
+    // and a second draw that is not the first. The fake's stream is fixed, so
+    // the values themselves are not checked.
+    sched_reset();
+    answered       = false;
+    random_size    = 0;
+    random_differs = false;
+    CHECK(sched_spawn(ask_random()) != 0);
+    CHECK_EQ(sched_tick(0), -1);
+    CHECK(answered);
+    CHECK_EQ(random_size, 4u);
+    CHECK(random_differs);
     CHECK_EQ(host_orphans(), 0);
 
     // The host's description of itself, over the sized-twice reply that every

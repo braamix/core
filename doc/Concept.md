@@ -803,9 +803,10 @@ The wire's conventions:
   and its own scheduler job, so a socket read that never completes cannot starve
   the keystroke behind it.
 
-**The table is forty-seven operations and `PROC_ABI` is 18**: four synchronous —
-`exit`, `getpid`, `now`, `stage` — and forty-three asynchronous. `Truncate` is
-the newest: a file's length, set on an open descriptor.
+**The table is forty-eight operations and `PROC_ABI` is 19**: four synchronous —
+`exit`, `getpid`, `now`, `stage` — and forty-four asynchronous. `Random` is
+the newest: bytes from the host's CSPRNG, which is the one value a kernel whose
+clock is a counter and whose pids are serial numbers cannot make for itself.
 [System_Calls.md](System_Calls.md) lists them all with what each carries.
 
 Four rules bound the table:
@@ -818,6 +819,9 @@ Four rules bound the table:
   of reading the whole file. `Truncate`'s is `/bin/truncate`, and the two
   landed together: the operation was left unbuilt for four milestones with
   `vfs_truncate` wired beneath it precisely because no program wanted it.
+  `Random`'s is `/bin/sh`, which seeds `$RANDOM` once at startup; the rule
+  reached the other way there, since [TODO.md](TODO.md) argued against the
+  operation for as long as no variable depended on one.
 - **The synchronous half is closed at four.** Each is answerable inside the
   process's own worker with no kernel to ask — `getpid` from the closure, `now`
   from the step message's clock plus elapsed time, `exit` buffered onto the
@@ -1403,12 +1407,23 @@ an enum value on each side.
   fetched body. Its input is one staged payload and is therefore capped at
   `SYS_STAGE_MAX`; its output is not capped, which is the asymmetry that makes
   the operation worth having.
+- **Random bytes** — `crypto.getRandomValues`, which is on
+  `WorkerGlobalScope` and so needs no relay, as the signature check does
+  not. A count goes in and that many bytes come back: no stream and no
+  descriptor, because entropy is drawn in one shot at a size the caller
+  already knows. Capped at `SYS_RANDOM_MAX`, which is 256 — a key is 32
+  bytes and a nonce twelve, and a longer draw is a loop in the caller.
 
-Every one of them is a promise on the host side, so every one takes a wake token
-and §2.2 is untouched. The wall clock is the near miss — `Date.now()` is as
-synchronous as `host_now()` — but a service already had an import, and one more
-operation on it costs nothing while a second value-returning import would cost
-the invariant.
+Every one of them but two is a promise on the host side, so every one takes a
+wake token and §2.2 is untouched. The wall clock is the first near miss —
+`Date.now()` is as synchronous as `host_now()` — but a service already had an
+import, and one more operation on it costs nothing while a second
+value-returning import would cost the invariant. `crypto.getRandomValues` is
+the second, and the precedent settles it without a new argument: it fills the
+array in place and returns, so it *could* have been a synchronous import, and
+it is an operation on the one that exists instead. Two near misses and still
+no third import is the shape the rule was written to produce, and the
+synchronous half stays closed at four.
 
 The clipboard, the picker and the download need the DOM, so `web/svc.js` relays
 those across `postMessage` and answers by id. That is invisible from the kernel:

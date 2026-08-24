@@ -94,6 +94,11 @@ void test_sysabi()
     CHECK_EQ(u32(Sys::Fg), 84u);
     CHECK_EQ(u32(Sys::Seek), 30u); // the filesystem block's growth room
     CHECK_EQ(u32(Sys::Truncate), 31u);
+    CHECK_EQ(u32(Sys::Random), 59u); // the host services' last slot
+
+    // Random's count rides in the same 24-bit field, and the cap is far inside it.
+    CHECK_EQ(sys_op_arg(sys_op(Sys::Random, SYS_RANDOM_MAX)), SYS_RANDOM_MAX);
+    CHECK(sys_op_code(sys_op(Sys::Random, SYS_RANDOM_MAX)) == Sys::Random);
 
     // Seek names its descriptor in the op word, as every descriptor operation
     // does; the offset is too wide for that field and rides in the payload.

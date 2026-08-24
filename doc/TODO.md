@@ -17,7 +17,7 @@ or renumber it.
 
 ## Why the syscall table is not the gap
 
-The table was measured against the generic Unix syscall set. Forty-seven
+The table was measured against the generic Unix syscall set. Forty-eight
 operations answer it, and what is left divides four ways:
 
 - **Covered by another mechanism.** `fork` (the spawn model), `dup2` (`Spawn`
@@ -33,8 +33,8 @@ operations answer it, and what is left divides four ways:
 - **Deliberate.** `bg`/`^Z` with `Wait`'s `WNOHANG`, `chmod`/`access`/`umask`,
   `link`, CPU metering, per-process root, `Kill` restricted to children. Each is
   in CLAUDE.md's known gaps with its argument in Release_Notes.md.
-- **Missing, and waiting for a caller.** `fstat`, `O_EXCL`, `getrandom`,
-  `mount`. See "Not scheduled" below — none of them has one.
+- **Missing, and waiting for a caller.** `fstat`, `O_EXCL`, `mount`. See "Not
+  scheduled" below — none of them has one.
 
 The twelve missing *programs* were checked against the table one by one. None
 is blocked on a syscall. **The gap is the program layer**, which is what
@@ -113,12 +113,14 @@ Each needs an argument in Concept.md before any of it is built.
   that. `Fs` has no stat-by-handle either, so mtime could not be answered.
 - **N4. `O_EXCL`.** Its only caller would be a `mktemp` that would use the pid
   anyway, and `Open` already refuses a second concurrent writer.
-- **N5. Randomness.** Nothing in the tree generates a nonce, a key, a session id
-  or a temp name; `pkg` only *verifies* signatures and numbers its generations.
-  If it is ever wanted, `$RANDOM` is a shell-local PRNG seeded from
-  `Sys::Now ^ Sys::GetPid` — not an ABI. A `/proc` entry over an appended
-  `SvcOp` would also work, since `ProcFs::open` is a `Task` and can await, but
-  it has no customer.
+- **N5. Randomness** — done, and not the way this entry argued. It held that
+  `$RANDOM` was a shell-local PRNG seeded from `Sys::Now ^ Sys::GetPid` and
+  not an ABI, on the ground that nothing in the tree wanted a nonce or a key.
+  What landed is `Sys::Random`, op 59, over an appended `SvcOp` and
+  `crypto.getRandomValues`; the caller §4.3 asks for is `/bin/sh`, which is
+  `$RANDOM` itself. The PRNG survived and only its seed moved. It rode the
+  `PROC_ABI` 18 → 19 bump rather than forcing one. Release_Notes.md has the
+  argument.
 - **N6. `Sys::Mount`.** §5.4 says it is unbuilt; it needs the `Fs` backend *and*
   an answer to the namespace question §5.1 leaves open.
 - **N7. A batched step protocol.** Reconsider only if a workload survives

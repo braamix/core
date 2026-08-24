@@ -3,6 +3,7 @@
 #include "job.h"
 #include "kernel/alloc.h"
 #include "kernel/fmt.h"
+#include "kernel/hash.h"
 #include "kernel/host.h"
 #include "proc/rt.h"
 
@@ -16,6 +17,7 @@ Vec<String> *g_args; // $0 at [0], the positional parameters after it
 u32 g_pid;
 i32 g_status;
 u32 g_bg;
+u32 g_rand; // $RANDOM's counter, seeded once by var_seed_random
 
 // The numeric specials, formatted on demand. One buffer is enough: the
 // expander copies a value before it looks the next one up.
@@ -73,6 +75,13 @@ Str keep_num(Str s)
     return Str(g_num, n);
 }
 
+// $RANDOM: a counter through murmur3's finalizer, top fifteen bits. Pure, so
+// cb_look stays a plain bool.
+u32 next_random()
+{
+    return hash_key(++g_rand) >> 17;
+}
+
 bool cb_look(void *, Str name, Str &value)
 {
     if (name.size() == 1) {
@@ -107,7 +116,17 @@ bool cb_look(void *, Str name, Str &value)
             break;
         }
     }
-    return var_get(name, value);
+    if (var_get(name, value))
+        return true;
+
+    // Asked after the table, so `RANDOM=7` shadows it and `unset` brings it
+    // back. Never an entry, so nothing exports it.
+    if (name == "RANDOM") {
+        Buf<16> b;
+        value = keep_num(b.put(next_random()).str());
+        return true;
+    }
+    return false;
 }
 
 bool cb_set(void *, Str name, Str value)
@@ -340,6 +359,11 @@ void var_status(i32 s)
 void var_last_bg(u32 pid)
 {
     g_bg = pid;
+}
+
+void var_seed_random(u32 seed)
+{
+    g_rand = seed;
 }
 
 // Namespace-scope and constant-initialised: no guard, no __cxa_atexit (§C.3).

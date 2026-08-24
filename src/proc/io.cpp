@@ -686,6 +686,27 @@ Task<Result<Clock>> clock_now()
     co_return Clock{ wide(p), i32(sys_get_u32(p + 8)) };
 }
 
+Task<Result<String>> get_random(u32 len)
+{
+    String out;
+    if (!out.reserve(len))
+        co_return Err(Error::NoMemory);
+
+    while (len) {
+        u32 n              = len < SYS_RANDOM_MAX ? len : SYS_RANDOM_MAX;
+        Result<SysReply> r = co_await sys_call(Sys::Random, n);
+        if (r.is_err())
+            co_return Err(r.error());
+        if (r.value().data.size() != n)
+            co_return Err(Error::Io);
+        // SysReply::data dies at the next syscall, so each chunk is copied now.
+        if (!out.append(r.value().data))
+            co_return Err(Error::NoMemory);
+        len -= n;
+    }
+    co_return move(out);
+}
+
 Task<Result<StorageInfo>> storage_of()
 {
     Result<SysReply> r = co_await sys_call(Sys::Storage, 0);

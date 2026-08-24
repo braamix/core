@@ -280,6 +280,10 @@ struct Clock {
 
 Task<Result<Clock>> clock_now();
 
+// `len` bytes from the host's CSPRNG. Drawn in chunks of SYS_RANDOM_MAX, which
+// is the most the wire carries at once; a len of 0 is an empty String.
+Task<Result<String>> get_random(u32 len);
+
 // Host services. Everything that is a stream of bytes comes back as a
 // descriptor, so read_chunk and close_fd serve it and there is nothing new to
 // learn: a fetched body reads like a file, and a socket is written like one.

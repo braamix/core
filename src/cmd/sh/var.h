@@ -62,5 +62,8 @@ bool var_init(u32 pid, Str name0);
 void var_status(i32 s);    // $?
 void var_last_bg(u32 pid); // $!
 
+// $RANDOM's seed, planted from shell.cpp for var_init's reason.
+void var_seed_random(u32 seed);
+
 // The callbacks the expander is given, wired to everything above.
 const Vars &shell_vars();

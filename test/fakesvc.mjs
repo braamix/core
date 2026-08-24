@@ -31,6 +31,21 @@ function verifyEd25519(key, sig, msg) {
     return nodeVerify(null, Buffer.from(msg), pub, Buffer.from(sig));
 }
 
+// A fixed stream rather than real entropy, so a run repeats. Never re-seeded,
+// including across a kernel reload: two shells must not agree.
+function fakeEntropy(net, n) {
+    const out = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+        let x = net.entropy;
+        x ^= x << 13; x >>>= 0;
+        x ^= x >>> 17;
+        x ^= x << 5;  x >>>= 0;
+        net.entropy = x;
+        out[i] = x & 0xff;
+    }
+    return out;
+}
+
 // What perform() returns when it has not answered yet.
 const PARKED = Symbol("parked");
 
@@ -47,6 +62,7 @@ export class FakeNet {
         this.exported = [];      // {name, bytes}
         this.sockets = [];
         this.now = 1782000000000;  // a fixed epoch, so `date` prints the same twice
+        this.entropy = 0x9e3779b9; // fakeEntropy's state; reset() leaves it alone
         // Short and fixed: it lands on the boot grid, which the tests read back,
         // and the blank line is the split the banner stops at.
         this.hostinfo = "browser  Fake 1\ncpu      2 cores\n\nlocale   en\nagent    fake\n";
@@ -265,6 +281,10 @@ export function makeFakeSvc(mem, net, kernel) {
                 r.fail(E.PERM);
             return;
         }
+
+        case OP.RANDOM:
+            r.write(fakeEntropy(net, r.get("flags")));
+            return;
 
         // Eagerly, because perform() is synchronous and DecompressionStream is
         // not: the browser refuses a truncated stream on a later read, this

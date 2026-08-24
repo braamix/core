@@ -469,10 +469,28 @@ first `n`.
 `HOME`, which `cd` with no operand uses and which falls back to the literal
 `/home`, and `PATH`, which `command -v` walks — though what *runs* a
 command word is the kernel reading the same variable out of the environment
-(§4). It plants none of its own. The environment init hands `/bin/sh` is
-`PATH=/bin`, `HOME=/home` and `SHELL=/bin/sh`, and everything in an incoming
-environment becomes an exported shell variable at startup, so a nested `sh` is
-not a wall.
+(§4). It plants none of its own, and answers exactly one it does not keep. The
+environment init hands `/bin/sh` is `PATH=/bin`, `HOME=/home` and
+`SHELL=/bin/sh`, and everything in an incoming environment becomes an exported
+shell variable at startup, so a nested `sh` is not a wall.
+
+**`RANDOM` is the one the shell answers itself.** Every reference is a new
+number in 0–32767. It is not an entry in the table: `set` does not list it,
+`export` cannot mark it, and no child inherits it — a nested `sh` draws from a
+sequence of its own. Assigning to the name makes an ordinary variable that
+shadows the generator, and `unset RANDOM` brings the generator back. Under
+`set -u` it counts as set, so `$RANDOM` never trips `nounset`.
+
+The sequence is a counter through `hash_key`, seeded once at startup from
+`Sys::Random` — one host round trip per shell and none afterwards, because a
+`$` expansion cannot await. It is a PRNG and not a CSPRNG: it is a temp-file
+suffix and a die roll, and nothing should be keyed with it. A host that will
+not answer leaves the shell running on a seed made from the pid and the boot
+clock, which is a sequence but a guessable one.
+
+`${RANDOM-x}` draws twice and shows the second, because `${x-y}` asks whether
+`x` is set before it asks what it is. Nothing can tell the difference, and no
+accounting inside the expander would be worth the state it would cost.
 
 **`PATH` is exported whether or not it is marked.** Assigning it marks it, since
 an unexported one would never reach the kernel that reads it. Unsetting it is
