@@ -720,6 +720,30 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             break;
         }
 
+        // Seek's guards, and vfs_truncate's own refusal of a descriptor that
+        // was not opened for writing. It never awaits, so no HandleRef.
+        case Sys::Truncate: {
+            Handle *h = fd < SYS_FD_MIN ? nullptr : proc_handle(p, fd);
+            if (fd < SYS_FD_MIN || (h && h->kind != Handle::Kind::File)) {
+                status = -i32(Error::Unsupported);
+                break;
+            }
+            if (!h || payload.size() < SYS_TRUNC_WORDS * 4) {
+                status = -i32(Error::Invalid);
+                break;
+            }
+            if (h->busy_w) {
+                status = -i32(Error::Perm);
+                break;
+            }
+
+            const u8 *w    = reinterpret_cast<const u8 *>(payload.data());
+            u64 n          = u64(sys_get_u32(w)) | (u64(sys_get_u32(w + 4)) << 32);
+            Result<void> r = vfs_truncate(h->file.fd, n);
+            status         = r.is_err() ? -i32(r.error()) : 0;
+            break;
+        }
+
         case Sys::Stat: {
             String abs;
             if (Result<void> a = proc_path(p, payload, abs); a.is_err()) {

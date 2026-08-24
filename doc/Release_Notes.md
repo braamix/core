@@ -7,6 +7,93 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## A slot that waited four milestones for somebody to want it
+
+`Sys::Truncate` is op 31, and `/bin/truncate` is the program that made it
+legitimate. TODO.md's N2 was not "this is missing" but "this must not be built
+yet": `vfs_truncate`, `Fs::truncate`, `OpfsFs::truncate`, `FsSyncOp::Truncate`
+and `web/fs.js`'s `SYNC.TRUNCATE` were all complete and all uncalled, and
+§8's opening rule — *every operation has a caller in `src/cmd/`* — reads
+forwards, not backwards. What changed is that the caller arrived. Nothing under
+`src/fs/` or `web/` was touched.
+
+**By descriptor, not by path.** `Fs::truncate` takes an open handle, so op 31
+is `ftruncate` and needs no new VFS entry point. A path form would have needed
+one *and* would have walked into §5.2's exclusive-writer lock: the caller must
+hold the file open to change it, and a second open of a file it is already
+writing is `Err(Perm)` — it would have been refused for the very state that
+makes the operation meaningful.
+
+**The dispatcher case is `Seek`'s, and shorter.** Same guards — a descriptor
+below `SYS_FD_MIN` or of any kind but `File` is `Err(Unsupported)`, a missing
+handle or a short payload `Err(Invalid)` — plus the `busy_w` test §4.3 asks for.
+It takes no `HandleRef` and no `HandleBusy`, because those arm a guard *for the
+length of a syscall that suspends* and `vfs_truncate` is a plain `Result<void>`
+that never awaits. Refusing a descriptor not opened for writing is
+`vfs_truncate`'s own answer rather than a second check on top of it.
+
+**`PROC_ABI` stays at 18, deferred to the next release.** Precedent said
+otherwise — `Seek` moved it to 18 for exactly this shape of change — but slot 31
+was already a hole in the enum, so nothing renumbers and no existing binary
+names the new op. The bump is now something to batch rather than something each
+operation pays for alone. The cost of waiting, written down so it is a decision
+and not an oversight: a binary built today and run on a kernel built yesterday
+meets `Err(Unsupported)` at the call instead of a diagnostic at `exec`. Within
+one tree that cannot happen, since `make` rebuilds and re-stamps everything.
+
+**The SIZE grammar lives in `src/proc/`, not in the program.** `truncate` takes
+GNU's whole SIZE operand — `+`, `-`, `<`, `>`, `/`, `%`, and K/M/G/T against
+KB/MB/GB/TB — and that parser is the only real logic in the change. **The
+in-wasm suite cannot run a program**, so a grammar inside `src/cmd/truncate.cpp`
+would have been untestable below the smoke suite. `src/proc/size.cpp` is
+syscall-free and compiled straight into `tests`, which is the arrangement
+`proc/opt.cpp` and `proc/time.cpp` already established, and `test_size.cpp`
+covers every modifier, both unit families, and the three ways it refuses:
+non-digits, an overflow past `SYS_SEEK_MAX`, and a rounding to a multiple of
+zero. `SIZE_BLOCK` restates `FS_BLOCK` rather than reaching for it — a program
+binary shares headers with the kernel, and the VFS's are not among them.
+
+**N3 stays closed.** `truncate` is exactly the program that would have wanted an
+`fstat`, and it did not need one: `seek_fd(fd, 0, SYS_SEEK_END)` on the
+descriptor it already holds gives the only field anybody wants, which is what
+N3 says. `-r` does not even need that — `stat_of` answers by path in one call
+where an open, a seek and a close would be three.
+
+**Only a modifier costs the extra call.** `truncate -s 0 f` is an open, a
+truncate and a close; `+`, `-`, `<`, `>`, `/` and `%` add the seek, and `-r`
+pays one `stat_of` for the whole run however many operands follow.
+
+**`-c` succeeds on a file that is not there**, which is GNU's behaviour and
+looks like a bug until you say why: the flag means *do not create*, so a missing
+file is the outcome asked for rather than a failure. It reaches the program as
+the `Err(NotFound)` an open without `SYS_O_CREATE` returns, which is the one
+error the loop swallows.
+
+**`-s` had to be a valued option for `-s -100` to parse.** `OptParse` takes the
+whole following word for a valued letter, so the leading `-` never reaches the
+flag-bundle path; a bare negative *operand* would still be eaten, but truncate
+has none.
+
+**The fake filesystem did not grow.** `test/unit/test_vfs.cpp`'s `TempFs`
+implemented `truncate` as a shrink alone, which nothing had noticed because
+nothing called it. `FileSystemSyncAccessHandle.truncate` zero-fills, and so do
+`web/fs.js` and `test/fakefs.mjs`; the fixture now does too, and a VFS case
+asserts a grow reads back as NULs. A divergence between a fake and the thing it
+stands for is only harmless while the operation is dead.
+
+Two things the smoke case had to be shaped around, both of them the suite's
+rules rather than the program's. The screen is 60 columns and a command that
+wraps puts its own tail into the output, so the case `cd`s into `/home/q` and
+uses bare names, as `cp` does — and the usage line was shortened to fit, with
+the modifiers moved into `/etc/help` where there is room to name them. And `wc`
+reads a NUL-filled file as one word, since a NUL is not whitespace, so every
+size assertion goes through one helper rather than thirty hand-written triples.
+
+`truncate` is 18,057 bytes and takes `rootfs/` to about 1.28 MB of the 2 MiB in
+`tools/size_budget.txt`.
+
+---
+
 ## The last operation that could blank somebody else's screen
 
 TODO.md's N1: `ScreenClear` was the one operation in the terminal block with no

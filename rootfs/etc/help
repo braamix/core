@@ -78,6 +78,8 @@ Programs in /bin
   timeout   [-m] <secs> <command> [<arg>...]
             — run a command, and kill it after a delay (124)
   touch     <file>... — make empty files, or update an existing one's mtime
+  truncate  [-co] [-r <rfile>] [-s [+-<>/%]<size>] <file>...
+            — set a file's length, growing it with zeros or shrinking it
   true      do nothing, and succeed
   uname     [-a|-s|-r|-m] — name the system, and with -a the host it runs on
   unzip     [-l] [-p] [-d <dir>] <archive> [<name>...]

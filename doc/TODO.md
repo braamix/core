@@ -17,7 +17,7 @@ or renumber it.
 
 ## Why the syscall table is not the gap
 
-The table was measured against the generic Unix syscall set. Forty-six
+The table was measured against the generic Unix syscall set. Forty-seven
 operations answer it, and what is left divides four ways:
 
 - **Covered by another mechanism.** `fork` (the spawn model), `dup2` (`Spawn`
@@ -33,8 +33,8 @@ operations answer it, and what is left divides four ways:
 - **Deliberate.** `bg`/`^Z` with `Wait`'s `WNOHANG`, `chmod`/`access`/`umask`,
   `link`, CPU metering, per-process root, `Kill` restricted to children. Each is
   in CLAUDE.md's known gaps with its argument in Release_Notes.md.
-- **Missing, and waiting for a caller.** `ftruncate`, `fstat`, `O_EXCL`,
-  `getrandom`, `mount`. See "Not scheduled" below — none of them has one.
+- **Missing, and waiting for a caller.** `fstat`, `O_EXCL`, `getrandom`,
+  `mount`. See "Not scheduled" below — none of them has one.
 
 The twelve missing *programs* were checked against the table one by one. None
 is blocked on a syscall. **The gap is the program layer**, which is what
@@ -108,16 +108,6 @@ Size is not the constraint: `rootfs/` is around 1.2 MB of the 2 MB in
 
 Each needs an argument in Concept.md before any of it is built.
 
-- **N1. `ScreenClear` checks the screen's owner** — done, and the asymmetry was
-  fixed rather than written down. It refuses while another process holds the
-  alternate screen, which is `Cursor`, `Style` and `Echo`'s test and not
-  `ScreenBlit`'s: its three callers blank the shell's own screen and could not
-  claim it if they wanted to. Concept.md §3.5, System_Calls.md §10, and the
-  release note for the argument.
-- **N2. `Sys::Truncate`, op 31.** The slot stays reserved. `vfs_truncate` and
-  `Fs::truncate` are wired and called by nothing, and the would-be callers —
-  `/bin/truncate`, `/bin/split` — do not exist. Building a program to justify a
-  syscall is the first rule run backwards.
 - **N3. `fstat`.** The only field anyone wants from a descriptor is its size,
   and `seek_fd(fd, 0, SYS_SEEK_END)` already gives it — `/bin/tail` does exactly
   that. `Fs` has no stat-by-handle either, so mtime could not be answered.

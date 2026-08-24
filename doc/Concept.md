@@ -803,9 +803,9 @@ The wire's conventions:
   and its own scheduler job, so a socket read that never completes cannot starve
   the keystroke behind it.
 
-**The table is forty-six operations and `PROC_ABI` is 18**: four synchronous —
-`exit`, `getpid`, `now`, `stage` — and forty-two asynchronous. `Seek` is the
-newest: a descriptor's read/write position, in `lseek(2)`'s three forms.
+**The table is forty-seven operations and `PROC_ABI` is 18**: four synchronous —
+`exit`, `getpid`, `now`, `stage` — and forty-three asynchronous. `Truncate` is
+the newest: a file's length, set on an open descriptor.
 [System_Calls.md](System_Calls.md) lists them all with what each carries.
 
 Four rules bound the table:
@@ -815,7 +815,9 @@ Four rules bound the table:
   caller is refactored. `Dup`'s caller is `/bin/sh`, which is a program like any
   other, and so is `Seek`'s: the `read` builtin winds a seekable descriptor back
   to just past the newline, and `/bin/tail` seeks to the window it needs instead
-  of reading the whole file.
+  of reading the whole file. `Truncate`'s is `/bin/truncate`, and the two
+  landed together: the operation was left unbuilt for four milestones with
+  `vfs_truncate` wired beneath it precisely because no program wanted it.
 - **The synchronous half is closed at four.** Each is answerable inside the
   process's own worker with no kernel to ask — `getpid` from the closure, `now`
   from the step message's clock plus elapsed time, `exit` buffered onto the
@@ -834,6 +836,14 @@ Four rules bound the table:
   ProcFs generates a file at `open` and has no idea who is reading — so `chdir`
   is an operation, because "which process is asking" is not a question a
   filesystem can be asked.
+
+**`Truncate` names a descriptor, not a path.** `Fs::truncate` takes an open
+handle and `vfs_truncate` refuses one that was not opened for writing, so the
+operation is `ftruncate` and needs no new VFS entry point. A path-based form
+would need one *and* would collide with §5.2's exclusive-writer lock whenever
+the file it names is already open for writing — the caller would be refused for
+holding the file it is trying to change. Growing writes zeros and the
+descriptor's own position does not move.
 
 **A descriptor named in a spawn is moved, not duplicated.** The parent's slot is
 closed and the child owns it. POSIX duplicates and expects the parent to close

@@ -49,6 +49,7 @@ import * as subst from "./smoke/subst.mjs";
 import * as sysinfo from "./smoke/sysinfo.mjs";
 import * as term from "./smoke/term.mjs";
 import * as tail from "./smoke/tail.mjs";
+import * as truncate from "./smoke/truncate.mjs";
 import * as chunk from "./smoke/chunk.mjs";
 import * as cp from "./smoke/cp.mjs";
 import * as path from "./smoke/path.mjs";
@@ -105,6 +106,7 @@ const CASES = [
     ["tail",       tail.check],
     ["chunk",      chunk.check],
     ["cp",         cp.check],
+    ["truncate",   truncate.check],
     ["path",       path.check],
     ["unzip",      unzip.check],
     ["entry",      entry.check],

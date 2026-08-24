@@ -28,6 +28,7 @@ add_executable(tests
     unit/test_sched.cpp
     unit/test_screen.cpp
     unit/test_sha256.cpp
+    unit/test_size.cpp
     unit/test_plan.cpp
     unit/test_solve.cpp
     unit/test_stanza.cpp
@@ -62,10 +63,11 @@ add_executable(tests
     ../src/cmd/sh/parse.cpp
     ../src/cmd/sh/tokenize.cpp
 
-    # The option parser and the calendar are the process runtime's, and pure
-    # for the same reason: Args, Str and Result and nothing else. braam_proc is
-    # not linked here.
+    # The option parser, the calendar and truncate's SIZE grammar are the
+    # process runtime's, and pure for the same reason: Args, Str and Result and
+    # nothing else. braam_proc is not linked here.
     ../src/proc/opt.cpp
+    ../src/proc/size.cpp
     ../src/proc/time.cpp
 
     # pkg's digest, its encodings, the version grammar, the dependency token,

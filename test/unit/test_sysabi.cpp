@@ -93,6 +93,7 @@ void test_sysabi()
     CHECK_EQ(u32(Sys::Tty), 72u);
     CHECK_EQ(u32(Sys::Fg), 84u);
     CHECK_EQ(u32(Sys::Seek), 30u); // the filesystem block's growth room
+    CHECK_EQ(u32(Sys::Truncate), 31u);
 
     // Seek names its descriptor in the op word, as every descriptor operation
     // does; the offset is too wide for that field and rides in the payload.

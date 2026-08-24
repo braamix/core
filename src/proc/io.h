@@ -53,6 +53,11 @@ Task<Result<u32>> dup_fd(u32 fd);
 // input.
 Task<Result<u64>> seek_fd(u32 fd, i64 off, u32 whence);
 
+// The file's length, set: grown with zeros or shrunk, leaving the descriptor's
+// position where it was. Err(Perm) unless the open asked for SYS_O_WRITE, and
+// what seek_fd refuses this refuses.
+Task<Result<void>> truncate_fd(u32 fd, u64 n);
+
 // What Sys::Stat answers with, and one entry of what Sys::List answers with.
 // `kind` is SYS_KIND_FILE, SYS_KIND_DIR or SYS_KIND_LINK; `mtime` is
 // milliseconds since the epoch, 0 when the filesystem keeps none — every

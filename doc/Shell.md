@@ -911,6 +911,7 @@ builtins with it; each program also answers for itself.
 | `test` | evaluate a condition — also a builtin |
 | `timeout` | run a command, killing it after a delay |
 | `touch` | create empty files |
+| `truncate` | set a file's length |
 | `true` | succeed — also a builtin |
 | `uname` | name the system |
 | `vmstat` | report what the kernel is doing, as rates |

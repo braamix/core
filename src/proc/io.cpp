@@ -163,6 +163,19 @@ Task<Result<u64>> seek_fd(u32 fd, i64 off, u32 whence)
     co_return wide(reinterpret_cast<const u8 *>(r.value().data.data()));
 }
 
+Task<Result<void>> truncate_fd(u32 fd, u64 n)
+{
+    u8 req[SYS_TRUNC_WORDS * 4];
+    sys_put_u32(req, u32(n));
+    sys_put_u32(req + 4, u32(n >> 32));
+
+    Result<SysReply> r =
+        co_await sys_call(Sys::Truncate, fd, Str(reinterpret_cast<const char *>(req), sizeof(req)));
+    if (r.is_err())
+        co_return Err(r.error());
+    co_return {};
+}
+
 Task<Result<FileInfo>> stat_of(Str path, bool follow)
 {
     Result<SysReply> r = co_await sys_call(Sys::Stat, follow ? 0 : SYS_STAT_NOFOLLOW, path);

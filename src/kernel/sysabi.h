@@ -96,6 +96,11 @@ enum class Sys : u32 {
     // are 0, 1 and 2.
     Seek = 30, // arg = fd;  payload = u32 whence, i64 offset;  data = u64 position
 
+    // A file's length, set. Grows with zeros and shrinks; the descriptor's own
+    // position does not move. Not opened for writing is Err(Perm), and what
+    // Seek refuses Truncate refuses.
+    Truncate, // arg = fd;  payload = u64 length
+
     // Time. The timer queue is the kernel's.
     Sleep = 32, // payload = u32 milliseconds
 
@@ -301,6 +306,9 @@ constexpr u64 SYS_SEEK_MAX = (u64(1) << 63) - 1;
 
 // Sys::Seek's payload, in u32s: the whence, then the offset low word and high.
 constexpr usize SYS_SEEK_WORDS = 3;
+
+// Sys::Truncate's payload, in u32s: the length, low word then high.
+constexpr usize SYS_TRUNC_WORDS = 2;
 
 // What one read yields when the caller names no length.
 constexpr u32 SYS_CHUNK = 512;

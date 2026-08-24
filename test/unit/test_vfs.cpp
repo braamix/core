@@ -173,6 +173,10 @@ struct TempFs final : Fs {
         if (!node)
             return Err(Error::Invalid);
         node->mtime = ++clock_;
+        // Grows with zeros, as FileSystemSyncAccessHandle.truncate does.
+        while (node->data.size() < usize(n))
+            if (!node->data.push('\0'))
+                return Err(Error::NoMemory);
         node->data.truncate(usize(n));
         return {};
     }
@@ -473,6 +477,22 @@ void test_vfs()
     CHECK(vfs_truncate(fd, 0).error() == Error::Perm);
     vfs_close(fd);
     CHECK(vfs_size(fd).error() == Error::Invalid);
+
+    // Truncate shrinks and grows, and a grow is zeros. Sys::Truncate's caller.
+    fd = run_now(vfs_open("/home/t", O_READ | O_WRITE | O_CREATE)).value();
+    CHECK(write(fd, 0, "abcdef").is_ok());
+    CHECK(vfs_truncate(fd, 3).is_ok());
+    CHECK_EQ(u32(vfs_size(fd).value()), 3u);
+    CHECK(vfs_truncate(fd, 6).is_ok());
+    CHECK_EQ(u32(vfs_size(fd).value()), 6u);
+    __builtin_memset(buf, 'z', 6);
+    CHECK_EQ(u32(vfs_read(fd, 0, buf, 6).value()), 6u);
+    CHECK(Str(reinterpret_cast<const char *>(buf), 6) == Str("abc\0\0\0", 6));
+    CHECK(vfs_truncate(fd, 0).is_ok());
+    CHECK_EQ(u32(vfs_size(fd).value()), 0u);
+    vfs_close(fd);
+    CHECK(vfs_truncate(fd, 0).error() == Error::Invalid);
+    CHECK(run_now(vfs_remove("/home/t", false)).is_ok());
 
     // A read-only mount is refused above the filesystem, not by it.
     CHECK(run_now(vfs_open("/etc/x", O_WRITE | O_CREATE)).error() == Error::Perm);

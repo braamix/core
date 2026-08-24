@@ -760,7 +760,7 @@ one can grow without renumbering anything. Every operation has a caller in
 ### Asynchronous — `sys_async(op, token, ptr, len)`
 
 Reply is `i32 status` then data. A negative status is `-Error`. Served in
-`proc_syscall`, `src/user/syscall.cpp:380-1320`.
+`proc_syscall`, `src/user/syscall.cpp:468-1680`.
 
 | # | Name | Op-word arg | Payload | Status | Data |
 |---|---|---|---|---|---|
@@ -779,6 +779,7 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 28 | `ReadLink` | — | the path | 0 | the target, unresolved |
 | 29 | `Rename` | — | `u32 from_len`, the old path, the new one | 0 | — |
 | 30 | `Seek` | fd | `u32 whence`, `i64 offset` | 0 | `u64` position |
+| 31 | `Truncate` | fd | `u64 length` | 0 | — |
 | 32 | `Sleep` | — | `u32 ms` | 0 | — |
 | 48 | `Clock` | — | — | 0 | `u64 epoch_ms`, `i32 tz_min` |
 | 49 | `Storage` | — | — | 0 | `u64 quota`, `u64 usage`, `u32 flags` |
@@ -823,12 +824,29 @@ across a mount already answers; the `read` builtin branches on the difference.
 Descriptors 0, 1 and 2 are not in the table at all (§9), so there is no handle
 to move: making them seekable means reaching through the stage's `Stdio`, which
 is a §4.3 decision and not a patch. Seeking *past* the end is not an error — a
-read there returns 0 bytes, which is already an end of input — and 31 is left
-free for the `Truncate` that §8's opening rule forbids adding on speculation.
+read there returns 0 bytes, which is already an end of input.
 
 **`SYS_O_APPEND` is a `Seek(0, SYS_SEEK_END)` folded into the open**, and stays
 folded: `>>` must not cost two round trips, and the position has to be taken at
 the open rather than one call later.
+
+**`Truncate` is `Seek`'s neighbour in every sense.** It took slot 31, which had
+been held open for it since `Seek` landed and which §8's opening rule kept
+empty until a program wanted it — `/bin/truncate`, which arrived in the same
+commit. It names its descriptor in the op word for `Seek`'s reason and carries
+its length in the payload for `Seek`'s reason, as two `u32` words
+(`SYS_TRUNC_WORDS`), low then high.
+
+It refuses what `Seek` refuses, and one thing more: a descriptor that is not a
+file, and 0, 1 and 2, are `Err(Unsupported)`; a descriptor that was not opened
+`SYS_O_WRITE` is `Err(Perm)`, which is `vfs_truncate`'s own answer and not a
+check in the dispatcher; and one already inside a write is `Err(Perm)` too, by
+§4.3's rule that a second concurrent use in the same direction is refused.
+
+**A grow is zeros and the position does not move**, which is `ftruncate(2)`.
+The grow is real rather than a hole: `FileSystemSyncAccessHandle.truncate`
+zero-fills, and a length past 4 GiB is `Err(Invalid)` from `OpfsFs`'s own
+`off32` — the store's limit, surfacing.
 
 **`Read` carries an optional length, and it clamps rather than errors.** A `max`
 above `SYS_READ_MAX` comes back as `SYS_READ_MAX`, and an absent or zero one as
@@ -1176,6 +1194,7 @@ failure.
 | `SYS_SEEK_SET`/`CUR`/`END` | 0, 1, 2 | `Seek`'s whence, in Unix's numbers |
 | `SYS_SEEK_MAX` | 2^63 − 1 | the largest position; the wire's offset is signed |
 | `SYS_SEEK_WORDS` | 3 | `Seek`'s payload, in `u32`s |
+| `SYS_TRUNC_WORDS` | 2 | `Truncate`'s payload, in `u32`s |
 | `SYS_KIND_FILE`/`DIR`/`LINK` | 0, 1, 2 | what `Stat` and `List` report |
 | `SYS_STAT_NOFOLLOW` | 1 | `Stat`'s arg: report a final symbolic link itself |
 | `SYS_STORE_*` | 1, 2, 4, 8 | OPFS, sync, persisted, and "the host answered at all" |
@@ -1254,11 +1273,11 @@ A `Handle` is a descriptor whatever is behind it, and there are eight kinds:
 | `PipeRead` | `Pipe` | the channel, EOF when the writer goes | — | `Close`, **or being moved into a child** |
 | `PipeWrite` | `Pipe` | — | the channel | `Close`, **or being moved into a child** |
 
-`File` is the only kind `Seek` accepts: its offset is a number the handle keeps,
-where every other kind is a stream nothing can wind back. Each of those keeps
-instead whatever a short `Read` left of a chunk it had already taken, so a length
-never loses bytes; that remainder dies with the handle, which is why a reused
-descriptor number cannot inherit one.
+`File` is the only kind `Seek` and `Truncate` accept: it has a length and an
+offset the handle keeps, where every other kind is a stream nothing can wind
+back or cut short. Each of those keeps instead whatever a short `Read` left of a
+chunk it had already taken, so a length never loses bytes; that remainder dies
+with the handle, which is why a reused descriptor number cannot inherit one.
 
 Making the host services descriptors is what lets `Read`, `Write` and `Close`
 serve all of them. The alternative was a `fetch` family, a socket family and a
