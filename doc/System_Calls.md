@@ -1377,10 +1377,16 @@ that has already gone, and for `ScreenEnter` it would mean snapshotting the
 blanked grid the first claimant is painting, which loses the shell's screen
 instead of giving it back.
 
-`ScreenBlit` is held to the same rule: from a process without the screen it is
-`Err(Perm)`, since otherwise it would paint over whichever process does hold it.
-`ScreenClear` is not — `clear` and `watch` blank the shell's own screen without
-ever claiming it.
+**Touching the grid is held to the rule in two shapes.** `ScreenBlit` is
+`Err(Perm)` from a process *without* the screen, since otherwise it would paint
+over whichever process does hold it: a blit is what the claim is for.
+`ScreenClear` is `Err(Perm)` only while *somebody else* holds it — the test
+`Cursor`, `Style` and `Echo` already make, `tty_screen_owner()` non-zero and not
+the caller's pid. That is the shape it has to have: its three callers —
+`/bin/clear`, `watch`'s repaint and the shell's `^L` — blank the shell's own
+screen without ever claiming it, and could not claim it if they wanted to, since
+`~FullScreen` restores the snapshot it took. A holder may still clear the grid
+it is painting.
 
 **Geometry rides on every key.** `KeyRead` answers with `code`, `mods`, `cols`
 and `rows` together, so a program that repaints per keystroke handles a resize

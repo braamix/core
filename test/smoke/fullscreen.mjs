@@ -107,4 +107,29 @@ export function check() {
         fail(`the second claimant was not refused: ${JSON.stringify(rows(s))}`);
     if (!row(s, s.cursor_y).endsWith("$"))
         fail(`the screen did not come back: ${JSON.stringify(rows(s))}`);
+
+    // A clear from a process that does not hold the screen. The sleep orders
+    // the two stages; the answer goes to a file, since the restore puts the
+    // grid back. Typed in three goes: KEY_RING is 32 and nothing drains it.
+    type("edit /home/m7.txt | sh -c ");
+    run(3100);
+    type("'sleep -m 200; clear; ");
+    run(3101);
+    type("echo $? > /home/n1'");
+    press(KEY.ENTER);
+    run(3102);
+    s = screen();
+    if (row(s, 0) !== "hXello")
+        fail(`edit did not take the screen: ${JSON.stringify(rows(s))}`);
+
+    run(3400); // the timer fires, and the refused clear leaves the grid alone
+    s = screen();
+    if (row(s, 0) !== "hXello")
+        fail(`the holder's screen was blanked under it: ${JSON.stringify(rows(s))}`);
+
+    press("q".codePointAt(0), CTRL); // unmodified, so it quits at once
+    run(3410);
+    s = submit("cat /home/n1", 3420);
+    if (!rows(s).some((line) => line === "1"))
+        fail(`a clear under a screen holder was not refused: ${JSON.stringify(rows(s))}`);
 }

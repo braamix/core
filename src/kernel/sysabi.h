@@ -128,7 +128,8 @@ enum class Sys : u32 {
     KeyRead,       // data = u32 code, u32 mods, u32 cols, u32 rows
     ScreenEnter,   // arg bit 0 = the alternate screen, else back; data = cols, rows
     ScreenBlit,    // payload = u32 x, y, w, h, cursor_x, cursor_y, cursor_on, then w*h Cells
-    ScreenClear,   // blank the shell's screen and home its cursor
+    ScreenClear,   // blank the shell's screen and home its cursor; refused
+                   //   while another process holds the alternate screen
 
     // The cursor of the scrolling screen, the one a prompt lives in. Get and
     // set in one operation, as KeyClaim and Chdir are. A set is refused while

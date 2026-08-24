@@ -1270,10 +1270,17 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             break;
         }
 
-        case Sys::ScreenClear:
+        // Refused while somebody else holds the screen, as a cursor set is.
+        case Sys::ScreenClear: {
+            u32 owner = tty_screen_owner();
+            if (owner && owner != p.pid) {
+                status = -i32(Error::Perm);
+                break;
+            }
             screen_clear();
             status = 0;
             break;
+        }
 
         // The scrolling screen's cursor, which is where a prompt lives. Writing
         // moves it — Sys::Write goes through screen_write, which wraps and

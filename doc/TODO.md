@@ -108,10 +108,12 @@ Size is not the constraint: `rootfs/` is around 1.2 MB of the 2 MB in
 
 Each needs an argument in Concept.md before any of it is built.
 
-- **N1. `ScreenClear` checks nothing.** It is the only screen operation that
-  does not refuse while another process holds the alternate screen, so any
-  process can blank the shell's screen. Either fix the asymmetry or write down
-  why it is one. Not a missing syscall.
+- **N1. `ScreenClear` checks the screen's owner** — done, and the asymmetry was
+  fixed rather than written down. It refuses while another process holds the
+  alternate screen, which is `Cursor`, `Style` and `Echo`'s test and not
+  `ScreenBlit`'s: its three callers blank the shell's own screen and could not
+  claim it if they wanted to. Concept.md §3.5, System_Calls.md §10, and the
+  release note for the argument.
 - **N2. `Sys::Truncate`, op 31.** The slot stays reserved. `vfs_truncate` and
   `Fs::truncate` are wired and called by nothing, and the would-be callers —
   `/bin/truncate`, `/bin/split` — do not exist. Building a program to justify a

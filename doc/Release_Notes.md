@@ -7,6 +7,66 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## The last operation that could blank somebody else's screen
+
+TODO.md's N1: `ScreenClear` was the one operation in the terminal block with no
+authorisation check at all, so any process could blank the grid a full-screen
+program was painting. It now refuses while another process holds the alternate
+screen. The wire does not move — same op number, same empty argument and
+payload, so `PROC_ABI` stays where it is. What moved is the answer.
+
+**This supersedes "`ScreenBlit` is checked; `ScreenClear` is not"**, further
+down this file, which stands where it is. That note argued the operation should
+stay open "because `clear` and `watch` blank the shell's own screen without ever
+claiming it, and refusing them would be a change to two programs to enforce a
+rule about a third". The reasoning was sound and the arithmetic was wrong: it
+priced the fix against `ScreenBlit`'s guard, which is the only one in the block
+that would have cost those programs anything.
+
+**There are two guard shapes, and this one is not a blit's.** `ScreenBlit` and
+`KeyRead` ask *do you hold it* — `!p.alt` and `!p.keys` — because a blit is what
+the claim exists for. `Cursor`'s set, `Style` and `Echo` ask the weaker
+question, *does somebody else hold it*: `tty_screen_owner()` non-zero and not
+the caller's pid. `ScreenClear` belongs with the second three, and taking their
+test verbatim costs its callers nothing, because all of them run with the screen
+free. The old note counted three programs where there are three callers and one
+of them is not a program: `/bin/clear`, `watch`'s repaint, and the shell's `^L`,
+which that note missed.
+
+**The strict shape was not available anyway.** A `/bin/clear` that took the
+screen to satisfy `!p.alt` would blank nothing: `~FullScreen` copies its
+snapshot back, so claim-clear-release is a no-op by construction. The shell
+could not have claimed for `^L` either — the prompt lives *on* the scrolling
+grid, and taking the alternate screen is what hides it. An operation whose only
+callers cannot satisfy a rule does not have that rule; it has the other one.
+
+**A holder may still clear its own grid**, which is what `owner != p.pid` says
+rather than `!owner`. Nothing does today — `edit` and `less` paint by blitting a
+grid of their own — but refusing it would be a rule with no argument behind it,
+and the three neighbours it copies do not refuse it either.
+
+Nothing else changed. The callers were left alone: all three already returned
+1 (or `Err(Io)`) on any error from the call, and a diagnostic would be written
+to a grid the holder is painting over and the restore then puts back, which is
+the same reason the test below writes its answer to a file.
+
+**The test is the pipeline, not a background job.** `test/smoke/fullscreen.mjs`
+runs `edit /home/m7.txt | sh -c 'sleep -m 200; clear; echo $? > /home/n1'`: the
+editor takes the screen, the second stage's timer fires under it, and the clear
+is refused. `&` would have been the natural way to put a second process beside a
+foreground one, but `g_next_id` in `sh/job.cpp` only climbs, so a job taken here
+would renumber `jobs.mjs`'s `[1]` two cases later — the cumulative session's
+cost, and the reason the sleep does the ordering instead. Two assertions,
+because the failure has two faces: the holder's grid still reads `hXello`, and
+`/home/n1` reads 1. Before the change the first of those is a blank screen.
+
+The line is typed in three goes because `KEY_RING` is 32 and `type()` does not
+tick between characters, so a 71-character command loses its tail. That is the
+ring's documented policy rather than a bug, but it is the kind of thing a case
+discovers the hard way.
+
+---
+
 ## `pkg upgrade` learns operands, and the pin learns how to come off
 
 The section below says "**`pkg upgrade` keeps its no-operand form.** `pkg

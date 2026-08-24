@@ -364,9 +364,12 @@ through the pump**, and the prompt is no exception.
 on the kernel, named by the pid that took it.** A second claim is `Err(Perm)`
 rather than a nested one, and a claim clears its route only if it is still the
 holder, so a parent and a child may die in either order. Nesting would mean
-restoring a predecessor that may already be gone. Painting is held to the same
-rule: a `ScreenBlit` from a process that does not hold the screen is refused
-(§4.3).
+restoring a predecessor that may already be gone. Touching the grid is held to
+the rule in two shapes (§4.3). A `ScreenBlit` is refused from a process that
+does not hold the screen, since a blit is what the claim is *for*. A
+`ScreenClear` — and a cursor set, a style and an echo with it — is refused only
+while *somebody else* holds it: those are the operations the shell's own screen
+is made of, and `clear`, `watch` and `^L` blank it without ever claiming it.
 
 **`^C` reaches the foreground if there is one, and is delivered to the claimant
 if there is not.** The foreground is a set of pids a process arms with
