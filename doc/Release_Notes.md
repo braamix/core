@@ -7,6 +7,48 @@ spec disagree about intent, the spec wins and one of the two needs amending.
 
 ---
 
+## 0.6 — The programs a script assumed were there
+
+`BRAAM_VERSION_BASE` moves to 0.6; the commit count and the hash behind it carry
+on unedited. 0.4 was about how a program arrives and 0.5 about what it can count
+on once it is here — a libm, a signal, an SDK that packages it. Both were
+written from the point of view of a program being *written*. 0.6 is written from
+the point of view of a script already running, and what that turned up was
+smaller and more embarrassing: there was no `cp`, no `basename`, no `dirname`
+and no `truncate`, and neither `pkg install` nor `pkg upgrade` would take an
+operand naming what to act on. Every one of those is a line somebody had already
+typed and got an error for.
+
+**Three operations went in underneath, and only one of them was a new idea.**
+`Sys::Seek` is op 30 and `Sys::Read` grew an optional length: the position had
+existed since §5.2 — `FileIo::off`, on the process's own `Handle` — and no
+program had an operation with which to name it. `Sys::Truncate` is op 31, whose
+whole implementation had been complete and uncalled since M4, waiting for §8's
+first rule to be satisfied forwards rather than backwards. The read span is not
+an operation at all, just a number: `SYS_READ_MAX` is 65,532 where `SYS_CHUNK`
+was 512, because the arithmetic that justified 512 had counted the payload and
+forgotten the status word.
+
+**`PROC_ABI` moves from 17 to 18, and that is the release's one real cost.** A
+binary stamped for 0.5 meets `Err(Unsupported)` at `exec` — a diagnostic, not a
+crash, and distinguishable from a file that was never a program. Every package
+built against the 0.5 SDK has to be rebuilt and its repository re-signed;
+the three in `braamix/apps` were, at a new packaging revision each, so that
+`pkg upgrade` has a higher version to move to rather than an equal one to
+ignore. `Sys::Truncate` then deliberately did *not* move it again, which is the
+batching rule arriving one release late but arriving.
+
+**The move is the assertion, not the count.** No commit between 0.5 and here
+forced a new base. A copy that already existed three times over finally getting
+one home in `src/proc/io.h`; a pair of path functions that TODO.md wrongly
+believed were already written; an operand on two subcommands; a `ScreenClear`
+that stopped being the last terminal operation nobody had to be authorised for;
+a repository with an address of its own. Individually they are a system being
+tidied. Together they change what a person can assume when they sit down to
+write a shell script here — 0.5's answer to "what can I write" was "a program",
+and 0.6's is "a program, or the five-line script that was going to call four
+things that did not exist".
+
 ## A slot that waited four milestones for somebody to want it
 
 `Sys::Truncate` is op 31, and `/bin/truncate` is the program that made it
