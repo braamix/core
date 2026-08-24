@@ -51,11 +51,13 @@ things that did not exist".
 
 ## The one number the kernel cannot make
 
-`Sys::Random` is op 59, and it is the first operation here that exists because
+`Sys::Random` is op 5, and it is the first operation here that exists because
 the kernel is *unable* to answer rather than because a program had nowhere to
 ask. `sched_now()` is a millisecond counter that starts at zero every boot; a
 pid is a serial number handed out in order. Neither is entropy, and a mixer over
-the two is a sequence anybody with a stopwatch reproduces.
+the two is a sequence anybody with a stopwatch reproduces. So `exec_sys` has no
+case for it at all and falls to `-Unsupported`: a refusal is diagnosable, and a
+plausible-looking number is not.
 
 **TODO.md's N5 argued against this ABI, and was right for four milestones.** It
 proposed a shell-local PRNG seeded from `Sys::Now ^ Sys::GetPid` — no operation,
@@ -63,57 +65,85 @@ no bump, no host code — on the ground that nothing in the tree generated a
 nonce, a key or a session id. What changed is not that one of those appeared; it
 is that `$RANDOM` is *itself* the caller §4.3's first rule wants, and once a
 shell variable depends on a value, seeding it from a boot clock is a lie told in
-the documentation rather than a simplification. The PRNG N5 proposed survived
-intact. Only its seed moved.
+the documentation rather than a simplification. The PRNG did not survive either:
+with a synchronous operation there is nothing left for it to do.
 
-**`$RANDOM` seeds once and steps purely, and that is forced rather than
-chosen.** `cb_look` in `src/cmd/sh/var.cpp` is a plain `bool`, and the
-synchronous half of the wire is closed at four operations (§4.3). A draw per
-reference would mean making word expansion a coroutine — which would also cost
-`src/cmd/sh/expand.cpp` its purity, and that file is compiled straight into
-`tests.wasm`, where a syscall is a link error. So the host is asked once, at
-shell startup, for four bytes, and every reference after that is
-`hash_key(++counter) >> 17`: a counter *through* a bijection rather than the
-bijection iterated on itself, because the first has a period of 2^32 exactly and
-the second can in principle find a short cycle. The cost is one host round trip
-per `/bin/sh` start, including every `sh -c` in a pipeline, and that is the
-whole of it.
+**The synchronous half is closed at five, and was closed at four.**
+System_Calls.md said four *permanently*, and gave the reason in the same breath:
+each of the four is answerable inside the process's own worker with no kernel to
+ask. The reason was right and the number was a census.
+`crypto.getRandomValues` is on `WorkerGlobalScope`, fills its array and returns;
+it passed the stated test the whole time. Writing a census down as though it
+were the rule is a mistake this codebase can make cheaply and should correct
+cheaply — and the correction is not to open the set but to say what else has to
+be true.
 
-**The synchronous half stayed closed, and the wall clock is why.**
-`crypto.getRandomValues` fills its array in place and returns; it is as
-synchronous as `Date.now()`, and §2.2 sanctions exactly two synchronous imports.
-Concept.md §6 had already settled this case once for the clock — a service
-import existed, one more operation on it costs nothing, a second value-returning
-import would cost the invariant. Randomness is the second instance of the same
-near miss and took the same answer without a new argument being needed. Two near
-misses and still no third import is the rule working rather than bending.
+**Three things, at once, which is what shuts it again.** The worker must answer
+with nothing to ask. Nothing else may already answer the same question, or a
+program gets two answers and has to know which one it asked for. And the whole
+answer must fit the one `i32` `sys` returns, because the synchronous wire has no
+payload direction at all — `Sys::Stage` exists so the *host* can find somewhere
+to copy into, and a process cannot receive through it. Randomness passes all
+three, and it is the limiting case of the second: every bit pattern is a valid
+draw, so there is no answer for a second source to contradict. The wall clock,
+the obvious next candidate, fails two of the three, and neither failure is about
+how synchronous `Date.now()` is: `Sys::Now` already answers "what time is it"
+there, and what `Sys::Clock` carries is a `u64` of epoch milliseconds *and* an
+`i32` of timezone offset, which does not fit 32 bits and never will.
 
-**The count is refused, not clamped.** `Sys::Read` caps silently at
-`SYS_READ_MAX` because a short read is what a stream means and the caller comes
-back for the rest. There is no such convention here, and a caller sizing a
-buffer for a 32-byte key and handed sixteen has zeros on the end and no way to
-find out. `SYS_RANDOM_MAX` is 256 — `getrandom(2)` draws the line in the same
-place and for the same reason — and zero or anything above it is `Err(Invalid)`.
+**Each realm draws for itself, and that is not two answers to one question.** A
+process draws in its own worker through `Sys::Random`; the kernel draws through
+`SvcOp::Random` and `host_svc`, which is how `/proc/random` is served. Two
+mechanisms for one idea would normally be a smell, and the second clause above
+is exactly why it is not one here: there is no agreement to preserve between
+them, because there is no right answer to disagree about. It also settles a
+misreading the first attempt at this made: §2.2 governs the *kernel's* six
+imports of `host`, and a draw made in a process's worker never crosses that
+boundary at all. There is no seventh import either way.
 
-**The cap lives on the wire and the chunking lives in the SDK.**
-`get_random(len)` in `src/proc/io.cpp` loops, so a program asks for whatever it
-wants and the ABI stays narrow enough that a hostile process cannot name a
-megabyte of CSPRNG output in one op word. Nothing in the tree draws more than
-four bytes yet, so that loop is covered by review rather than by a test — said
-here rather than left to be discovered.
+**`/proc/random` is a decimal `u32` per `open`, and its `stat` says 0.**
+Measuring a file must not spend entropy: `ls -l /proc` would otherwise make a
+host round trip per listing and `test -s` one per test, purely to learn a width.
+Linux answers 0 for every `/proc` size for a related reason, and this tree
+already argued that a `/proc` size is a snapshot which need not agree with the
+next read. `open` is the only one of the three calls asked to produce the text,
+so it is the only one that awaits, and `generate()` stays synchronous — which
+also keeps `ProcFs::stat` and `ProcFs::list` reachable from `run_now()` in the
+unit suite.
 
-**It rode `PROC_ABI` 18 → 19 rather than forcing a bump of its own**, which is
-TODO.md's batching rule applied deliberately this time rather than noticed
-afterwards. A new operation is additive and needs no bump at all; the bump was
-already on the branch, and an operation that arrives with one costs nothing
-extra.
+**`$RANDOM` is drawn per reference, and it is a CSPRNG.** The constraint that
+forced the first design has not moved: `cb_look` in `src/cmd/sh/var.cpp` is a
+plain `bool`, word expansion cannot await, and `src/cmd/sh/expand.cpp` is
+compiled straight into `tests.wasm` where a syscall is a link error. What moved
+is that a *synchronous* syscall does not need to be awaited. The counter, its
+seed, `var_seed_random` and the seeding call in `shell.cpp` are all gone, and
+with them one host round trip per `/bin/sh` start — every `sh -c` in a pipeline
+included. There is no longer a degraded mode to document either: the old design
+fell back to the pid and the boot clock when the host would not answer, and
+nothing falls back now.
+
+**The wire has no argument and no error channel**, which is what makes it a
+synchronous operation rather than a synchronous version of an asynchronous one.
+It takes nothing and returns 32 bits. There is no count to validate, no pointer
+for the host to write through, no `SYS_RANDOM_MAX`, and no status: every bit
+pattern is a draw, all zeros included, and one of `0xffffffff` arrives looking
+like `-1` and is a number. An operation that had to say "invalid" would have had
+to say it somewhere, and the only place left is the return value carrying the
+answer.
+
+**`PROC_ABI` stays 19.** The operation moved from 59 to 5 before either number
+reached main, which is what a branch is for. A new operation is additive and
+needs no bump at all; this one arrived alongside a bump that was already being
+made, and moving it between halves of the table on the same branch costs nothing
+further.
 
 `${RANDOM-x}` draws twice and shows the second: `Walk::braced` asks `is_set`
 before it asks `named`, and both go through `Vars::look`. Nothing can tell the
-difference — every draw is a number nobody predicted — and every fix costs
-either mutable state in a file that is pure by design or a shell-specific name
-list inside an expander that deliberately does not know what a shell is. It is
-documented in Shell.md §8 and left alone. bash has the same wart.
+difference — every draw is a number nobody predicted, which is now literally
+rather than approximately true — and every fix costs either mutable state in a
+file that is pure by design or a shell-specific name list inside an expander
+that deliberately does not know what a shell is. It is documented in Shell.md §8
+and left alone. bash has the same wart.
 
 ## A slot that waited four milestones for somebody to want it
 

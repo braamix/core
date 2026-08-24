@@ -11,6 +11,7 @@
 #include "kernel/text.h"
 #include "kernel/traits.h"
 #include "kernel/version.h"
+#include "svc/svc.h"
 #include "tty.h"
 
 namespace {
@@ -21,7 +22,7 @@ namespace {
 constexpr usize PROC_MAX = 64;
 
 constexpr Str FILES[] = {
-    "cwd", "host", "meminfo", "mounts", "stat", "tasks", "uptime", "version"
+    "cwd", "host", "meminfo", "mounts", "random", "stat", "tasks", "uptime", "version"
 };
 
 // What /proc/tasks and /proc/<pid> share, so the two cannot disagree.
@@ -198,9 +199,15 @@ bool generate(Str name, String &out)
         return out.append(b.str());
     }
 
+    // Empty here, and filled by open() alone: this is the one entry whose text
+    // costs a host call, and stat and list must not spend entropy to measure a
+    // file. They report 0, as Linux does for all of /proc.
+    if (name == "random")
+        return true;
+
     // What this is and what it runs on, which `uname` reformats. The first four
     // the kernel knows for itself; the rest the host said at boot and boot kept,
-    // since a /proc file is generated here and now with nothing to await.
+    // since a browser does not change under a running tab.
     //
     // The screen is read fresh every time — it moves with the window. Storage is
     // not here at all: quota and usage are live figures, and `df` asks for them.
@@ -363,11 +370,27 @@ struct ProcFs final : Fs {
         if (path == "/")
             co_return Err(Error::IsDir);
 
+        Str name = path.substr(1);
         String text;
-        if (!known(path.substr(1)))
+        if (!known(name))
             co_return Err(Error::NotFound);
-        if (!generate(path.substr(1), text))
+        if (name == "random") {
+            // The kernel's own draw, which is a host call and so is made here
+            // rather than in generate(): open is the only Task of the three.
+            Result<String> r = Err(Error::NoMemory);
+            if (Task<Result<String>> t = svc_random(4))
+                r = co_await t;
+            if (r.is_err())
+                co_return Err(r.error());
+            if (r.value().size() != 4)
+                co_return Err(Error::Io);
+            Buf<16> b;
+            b.put(sys_get_u32(reinterpret_cast<const u8 *>(r.value().data()))).put('\n');
+            if (!text.append(b.str()))
+                co_return Err(Error::NoMemory);
+        } else if (!generate(name, text)) {
             co_return Err(Error::NoMemory);
+        }
 
         for (usize h = 0; h < open_.size(); h++) {
             if (!open_[h]) {

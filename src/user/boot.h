@@ -24,8 +24,8 @@ Task<bool> boot_filesystem(const u32 &pid);
 
 // What the host said about itself at boot, as `name value` lines with a blank
 // line splitting what the banner showed from the rest (src/svc/svc.h). Cached
-// because /proc/host is generated synchronously and a browser does not change
-// mid-session; empty before boot has asked, and after an answer that failed.
+// because a browser does not change mid-session; empty before boot has asked,
+// and after an answer that failed.
 Str host_facts();
 
 // `pid` is init's own, which is the shell's: it runs inside init's task rather

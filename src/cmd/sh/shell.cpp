@@ -4,7 +4,6 @@
 #include "fs/path.h"
 #include "job.h"
 #include "kernel/fmt.h"
-#include "kernel/hash.h"
 #include "kernel/string.h"
 #include "proc/io.h"
 #include "proc/rt.h"
@@ -218,16 +217,6 @@ Task<i32> shell(ShellStart s)
         co_await write_all(SYS_STDERR, "sh: out of memory\n");
         co_return 1;
     }
-    // $RANDOM's seed. Once, here: cb_look is a plain bool and an expansion
-    // cannot await. A host that will not answer leaves the pid and the clock.
-    u32 seed = hash_key(proc_pid() ^ proc_now());
-    if (Task<Result<String>> t = get_random(4)) {
-        Result<String> r = co_await t;
-        if (r.is_ok() && r.value().size() == 4)
-            seed = sys_get_u32(reinterpret_cast<const u8 *>(r.value().data()));
-    }
-    var_seed_random(seed);
-
     sh_set_flags(s.flags);
 
     bool console = s.from == ShellIn::Console;

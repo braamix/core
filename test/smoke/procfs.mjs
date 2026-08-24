@@ -130,5 +130,19 @@ export function check() {
     if (paced[2] === paced[3])
         fail(`vmstat's second row repeated the first: ${JSON.stringify(paced)}`);
 
+    // /proc/random is the kernel's own draw, a host call per open rather than a
+    // snapshot of state it holds. A u32 each time, and not the same one twice.
+    const drew = [];
+    for (let i = 0; i < 2; i++) {
+        submit("clear", 1189 + i * 0.02);
+        const got = rows(submit("cat /proc/random", 1189.01 + i * 0.02))
+            .filter((line) => line && !line.includes("$")).join("|");
+        if (!/^\d{1,10}$/.test(got) || Number(got) > 4294967295)
+            fail(`cat /proc/random printed ${JSON.stringify(got)}, expected a u32`);
+        drew.push(got);
+    }
+    if (drew[0] === drew[1])
+        fail(`/proc/random printed ${drew[0]} twice`);
+
     regrid(60, 16, "the resize after ps failed");
 }

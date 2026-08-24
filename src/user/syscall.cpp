@@ -1199,24 +1199,6 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             break;
         }
 
-        case Sys::Random: {
-            u32 want = sys_op_arg(c.op);
-            if (want == 0 || want > SYS_RANDOM_MAX) {
-                status = -i32(Error::Invalid);
-                break;
-            }
-            Result<String> r = Err(Error::NoMemory);
-            CO_CALL(r, svc_random(want));
-            if (r.is_err()) {
-                status = -i32(r.error());
-                break;
-            }
-            if (!reply.append(r.value().str()))
-                co_return Err(Error::NoMemory);
-            status = 0;
-            break;
-        }
-
         case Sys::KeyClaim:
         case Sys::ScreenEnter: {
             bool take = sys_op_arg(c.op) & 1;

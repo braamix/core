@@ -7,9 +7,13 @@ import { serveProc, workerOps, STEP } from "./proc.js";
 let ops = null;
 let server = null;
 
+// One buffer: one worker holds one process, and nothing here re-enters.
+const bits = new Uint32Array(1);
+
 self.onmessage = ({ data }) => {
     if (data.k === "bind") {
-        ops = workerOps(data.pid, () => performance.now());
+        ops = workerOps(data.pid, () => performance.now(),
+                        () => crypto.getRandomValues(bits)[0]);
         server = serveProc(ops);
         try {
             server.bind(data.module, data.initial, data.maximum);

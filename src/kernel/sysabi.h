@@ -46,13 +46,14 @@ enum class ProcStep : u32 {
 
 // Syscalls. The synchronous half answers inside the export and never parks; the
 // asynchronous half records a request whose reply reaches the process through
-// _resume. The synchronous half is closed at four (Concept.md §4.3).
+// _resume. The synchronous half is closed at five (Concept.md §4.3).
 enum class Sys : u32 {
     // sys(op, a0, a1, a2) -> i32
     Exit = 1, // a0 = exit status
     GetPid,   // -> pid
     Now,      // -> milliseconds since boot
     Stage,    // a0 = bytes the host is about to copy in; -> kernel address, or 0
+    Random,   // -> 32 random bits; every pattern is a draw, so there is no status
 
     // sys_async(op, token, ptr, len). The reply is an i32 status then any data;
     // the op word's upper bits are the operation's argument.
@@ -125,10 +126,6 @@ enum class Sys : u32 {
 
     // Raw deflate. The input is capped at SYS_STAGE_MAX; the output is not.
     Inflate, // payload = the compressed bytes;  status = the fd
-
-    // Bytes out of the host's CSPRNG. Zero or above SYS_RANDOM_MAX is
-    // Err(Invalid); a short answer never happens.
-    Random = 59, // arg = how many bytes;  data = that many
 
     // The terminal. Cells, never a byte stream (§2.3): a full-screen program
     // paints a grid of its own and blits what changed. Both claims are held by
@@ -257,11 +254,6 @@ constexpr u32 SYS_STAGE_MAX = 1u << 20;
 // Ed25519's fixed sizes, in bytes.
 constexpr u32 SYS_ED25519_KEY = 32;
 constexpr u32 SYS_ED25519_SIG = 64;
-
-// The most one Sys::Random may ask for; get_random() loops for more.
-constexpr u32 SYS_RANDOM_MAX = 256;
-
-static_assert(SYS_RANDOM_MAX < (1u << 24), "a count must fit the op word's argument");
 
 // One entry of Sys::List's reply: u32 kind, u64 size, u64 mtime, u32 name_len,
 // the name. `mtime` is milliseconds since the epoch, 0 when the filesystem keeps

@@ -31,7 +31,7 @@ BRAAM_SYS_IMPORT("sys_async") void sys_async(u32 op, u32 token, u32 ptr, u32 len
 Task<i32> proc_main(Args args);
 
 // The signals delivered and not yet collected, as sig_bit()s (Concept.md §3.5).
-// A word `_sig` wrote: no syscall, so the synchronous half stays closed at four.
+// A word `_sig` wrote: no syscall, so the synchronous half stays closed at five.
 // Only what sig_catch asked for arrives here; the rest is acted on.
 u32 sig_pending();
 
@@ -52,6 +52,13 @@ inline u32 proc_pid()
 inline u32 proc_now()
 {
     return u32(sys(u32(Sys::Now), 0, 0, 0));
+}
+
+// One word out of this process's own worker, from crypto.getRandomValues. No
+// error: every bit pattern is a draw, the ones that look negative included.
+inline u32 proc_random()
+{
+    return u32(sys(u32(Sys::Random), 0, 0, 0));
 }
 
 // The environment this process was entered with, as NAME=value words viewing

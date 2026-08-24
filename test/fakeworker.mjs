@@ -19,6 +19,18 @@ import { serveProc, workerOps, STEP } from "../web/proc.js";
 // literals and a test that watched the wall clock would not be a test.
 const CLOCK = () => 0;
 
+// The entropy the same way: a fixed stream, so a run repeats. xorshift32 over
+// net.entropy, shared with the kernel's own draws in fakesvc.mjs and never
+// re-seeded — two shells must not agree, across a kernel reload included.
+function fakeEntropy(net) {
+    let x = net.entropy;
+    x ^= x << 13; x >>>= 0;
+    x ^= x >>> 17;
+    x ^= x << 5;  x >>>= 0;
+    net.entropy = x;
+    return x;
+}
+
 export function makeFakeLinks(net) {
     const links = [];
 
@@ -106,7 +118,7 @@ export function makeFakeLinks(net) {
                 net.bound.push(m.pid);
                 if (net.holdIn && --net.holdIn === 0)
                     net.held.add(m.pid);
-                ops = workerOps(m.pid, CLOCK);
+                ops = workerOps(m.pid, CLOCK, () => fakeEntropy(net));
                 server = serveProc(ops);
                 try {
                     server.bind(m.module, m.initial, m.maximum);

@@ -439,6 +439,10 @@ Task<i32> exec_process(Executable &exe, Args args, Stdio io, Str cwd, Str env, b
     }
 }
 
+// The kernel's side of the synchronous wire, and mostly its definition rather
+// than a live path: the host relays only Exit and Stage through here, the two it
+// issues on the process's behalf (web/proc.js's finish). A program's GetPid and
+// Now are answered in its own worker and never arrive.
 i32 exec_sys(u32 pid, u32 op, u32 a0, u32, u32)
 {
     Proc *p = proc_find(pid);
@@ -456,6 +460,10 @@ i32 exec_sys(u32 pid, u32 op, u32 a0, u32, u32)
         return i32(sched_now());
     case Sys::Stage:
         return i32(proc_stage(*p, a0));
+    // Sys::Random has no case: there is no entropy in this binary, and this is
+    // not a coroutine, so svc_random is out of reach. The process's own worker
+    // answers it and never relays it. A refusal is diagnosable; a number made
+    // from sched_now() and a pid is not.
     default:
         return -i32(Error::Unsupported);
     }

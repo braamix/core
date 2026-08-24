@@ -113,14 +113,6 @@ Each needs an argument in Concept.md before any of it is built.
   that. `Fs` has no stat-by-handle either, so mtime could not be answered.
 - **N4. `O_EXCL`.** Its only caller would be a `mktemp` that would use the pid
   anyway, and `Open` already refuses a second concurrent writer.
-- **N5. Randomness** — done, and not the way this entry argued. It held that
-  `$RANDOM` was a shell-local PRNG seeded from `Sys::Now ^ Sys::GetPid` and
-  not an ABI, on the ground that nothing in the tree wanted a nonce or a key.
-  What landed is `Sys::Random`, op 59, over an appended `SvcOp` and
-  `crypto.getRandomValues`; the caller §4.3 asks for is `/bin/sh`, which is
-  `$RANDOM` itself. The PRNG survived and only its seed moved. It rode the
-  `PROC_ABI` 18 → 19 bump rather than forcing one. Release_Notes.md has the
-  argument.
 - **N6. `Sys::Mount`.** §5.4 says it is unbuilt; it needs the `Fs` backend *and*
   an answer to the namespace question §5.1 leaves open.
 - **N7. A batched step protocol.** Reconsider only if a workload survives

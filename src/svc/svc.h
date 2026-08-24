@@ -116,8 +116,8 @@ Task<Result<void>> svc_verify(Str key, Str sig, Str bytes);
 Task<Result<String>> svc_random(u32 n);
 
 // What the browser will state about itself: browser, OS, architecture, cores,
-// memory, locale. Asked once at boot and cached (src/user/boot.cpp), because a
-// /proc file is generated synchronously and the answer cannot change anyway.
+// memory, locale. Asked once at boot and cached (src/user/boot.cpp), because
+// the answer cannot change under a running tab.
 //
 // A CPU model and a clock rate are not in it: no browser API discloses either,
 // and the fields that would carry them are omitted rather than guessed at.

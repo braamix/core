@@ -94,11 +94,19 @@ void test_sysabi()
     CHECK_EQ(u32(Sys::Fg), 84u);
     CHECK_EQ(u32(Sys::Seek), 30u); // the filesystem block's growth room
     CHECK_EQ(u32(Sys::Truncate), 31u);
-    CHECK_EQ(u32(Sys::Random), 59u); // the host services' last slot
 
-    // Random's count rides in the same 24-bit field, and the cap is far inside it.
-    CHECK_EQ(sys_op_arg(sys_op(Sys::Random, SYS_RANDOM_MAX)), SYS_RANDOM_MAX);
-    CHECK(sys_op_code(sys_op(Sys::Random, SYS_RANDOM_MAX)) == Sys::Random);
+    // The synchronous half, which is five and was four. Nothing packs an
+    // argument into these: sys() has three spare scalars, so sys_op() is the
+    // asynchronous half's convention alone.
+    CHECK_EQ(u32(Sys::Exit), 1u);
+    CHECK_EQ(u32(Sys::GetPid), 2u);
+    CHECK_EQ(u32(Sys::Now), 3u);
+    CHECK_EQ(u32(Sys::Stage), 4u);
+    CHECK_EQ(u32(Sys::Random), 5u);
+
+    // The room the synchronous block still has: the asynchronous half starts at
+    // Write, and the two are one enum and one byte of op word.
+    CHECK(u32(Sys::Random) < u32(Sys::Write));
 
     // Seek names its descriptor in the op word, as every descriptor operation
     // does; the offset is too wide for that field and rides in the payload.

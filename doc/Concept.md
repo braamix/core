@@ -803,10 +803,12 @@ The wire's conventions:
   and its own scheduler job, so a socket read that never completes cannot starve
   the keystroke behind it.
 
-**The table is forty-eight operations and `PROC_ABI` is 19**: four synchronous —
-`exit`, `getpid`, `now`, `stage` — and forty-four asynchronous. `Random` is
-the newest: bytes from the host's CSPRNG, which is the one value a kernel whose
-clock is a counter and whose pids are serial numbers cannot make for itself.
+**The table is forty-eight operations and `PROC_ABI` is 19**: five synchronous —
+`exit`, `getpid`, `now`, `stage`, `random` — and forty-three asynchronous.
+`Random` is the newest and the first the synchronous half has taken since the
+wire was written: 32 bits out of the worker's own CSPRNG, which is the one value
+a kernel whose clock is a counter and whose pids are serial numbers cannot make
+for itself.
 [System_Calls.md](System_Calls.md) lists them all with what each carries.
 
 Four rules bound the table:
@@ -819,16 +821,20 @@ Four rules bound the table:
   of reading the whole file. `Truncate`'s is `/bin/truncate`, and the two
   landed together: the operation was left unbuilt for four milestones with
   `vfs_truncate` wired beneath it precisely because no program wanted it.
-  `Random`'s is `/bin/sh`, which seeds `$RANDOM` once at startup; the rule
-  reached the other way there, since [TODO.md](TODO.md) argued against the
-  operation for as long as no variable depended on one.
-- **The synchronous half is closed at four.** Each is answerable inside the
+  `Random`'s is `/bin/sh`, whose `$RANDOM` is one draw per reference; the rule
+  reached the other way there, since randomness was argued against for as long
+  as no variable depended on one.
+- **The synchronous half is closed at five.** Each is answerable inside the
   process's own worker with no kernel to ask — `getpid` from the closure, `now`
   from the step message's clock plus elapsed time, `exit` buffered onto the
   step's reply, `stage` refused with the "no room" answer the runtime already
-  handles — which is the whole reason one binary runs there at all. A fifth
-  would have nothing to answer with and would fail in a worker alone. So an
-  operation that needs the kernel is asynchronous whatever it costs, including a
+  handles, `random` from the worker's own `crypto.getRandomValues` — which is
+  the whole reason one binary runs there at all. It was four until `Random`; the
+  rule is the test, not the count. Two more clauses keep the test narrow:
+  nothing else may answer the same question, and the answer must fit the one
+  `i32` `sys` returns. [System_Calls.md](System_Calls.md) §5 works them through.
+  An operation that fails the test would work nowhere but in a worker. So
+  anything needing the kernel is asynchronous whatever it costs, including a
   `wait` on a child that has already exited.
 - **A stream of bytes comes back as a descriptor**, so `read`, `write` and
   `close` serve it and nothing is duplicated: a fetched body is read like a
@@ -950,7 +956,7 @@ The step's reply also carries **how much memory the instance has committed**, in
 `result_hi`. It belongs here rather than in an operation of its own for the
 reason the ABI is this small: only the worker can read a `WebAssembly.Memory`,
 the message is already being sent, and `/proc` — which publishes the figure
-(§5.1) — is generated with nothing to await. It is therefore as of the last
+(§5.1) — has nothing of its own to ask. It is therefore as of the last
 step, which is as current as it can be: a process grows its memory only while it
 runs.
 
@@ -1121,9 +1127,9 @@ is the price of one store: `/bin` used to be immutable because it was a
 read-only archive mount, and what stands in for that now is that the archive can
 always be unpacked again (§5.2).
 
-`/proc` is `ProcFs` over the scheduler: `cwd`, `meminfo`, `mounts`, `stat`,
-`tasks`, `uptime`, `version`, and one file per live pid. It is also why the
-process ABI is as small as it is (§4.3) — a process reads its answers here
+`/proc` is `ProcFs` over the scheduler: `cwd`, `meminfo`, `mounts`, `random`,
+`stat`, `tasks`, `uptime`, `version`, and one file per live pid. It is also why
+the process ABI is as small as it is (§4.3) — a process reads its answers here
 rather than asking for an operation — and it makes `cat` and `grep` the
 introspection tools, with no second interface to keep in step. The tree is flat:
 a process here has one line of state, and a generated directory level would hold
@@ -1149,7 +1155,12 @@ useful; `/proc/<pid>` names the binding outright, for a pid with none of the
 rest to show. The memory figure is the one thing here the kernel cannot see for
 itself: a `WebAssembly.Memory` reports its own size and only the worker holds
 one, so it comes back in every step's reply (§4.3) rather than in an operation
-of its own — a file generated at `open` could not have awaited one.
+of its own.
+
+`/proc/random` is the kernel's own draw: a decimal `u32` per `open`, and the one
+entry whose text costs a host call. Its `stat`, and its line in a listing, say 0
+and draw nothing — measuring a file should not spend entropy, and a `/proc` size
+was never binding. Only `open` is asked for the text, so only `open` awaits.
 
 `/proc/stat` is what the kernel has *done* rather than what it is holding: one
 `name value` line per counter, cumulative since boot, and the reader does the
@@ -1407,23 +1418,28 @@ an enum value on each side.
   fetched body. Its input is one staged payload and is therefore capped at
   `SYS_STAGE_MAX`; its output is not capped, which is the asymmetry that makes
   the operation worth having.
-- **Random bytes** — `crypto.getRandomValues`, which is on
-  `WorkerGlobalScope` and so needs no relay, as the signature check does
-  not. A count goes in and that many bytes come back: no stream and no
-  descriptor, because entropy is drawn in one shot at a size the caller
-  already knows. Capped at `SYS_RANDOM_MAX`, which is 256 — a key is 32
-  bytes and a nonce twelve, and a longer draw is a loop in the caller.
+- **Random bytes** — `crypto.getRandomValues`, which is on `WorkerGlobalScope`
+  and so needs no relay, as the signature check does not. A count goes in and
+  that many bytes come back: no stream and no descriptor, because entropy is
+  drawn in one shot at a size the caller already knows. Its caller is
+  `/proc/random` (§5) — this is the *kernel's* draw, and a process makes its own
+  in its own worker through `Sys::Random` rather than asking for this one.
 
-Every one of them but two is a promise on the host side, so every one takes a
-wake token and §2.2 is untouched. The wall clock is the first near miss —
-`Date.now()` is as synchronous as `host_now()` — but a service already had an
-import, and one more operation on it costs nothing while a second
-value-returning import would cost the invariant. `crypto.getRandomValues` is
-the second, and the precedent settles it without a new argument: it fills the
-array in place and returns, so it *could* have been a synchronous import, and
-it is an operation on the one that exists instead. Two near misses and still
-no third import is the shape the rule was written to produce, and the
-synchronous half stays closed at four.
+Every one of them is a promise on the host side, so every one takes a wake token
+and §2.2 is untouched. The wall clock is the near miss — `Date.now()` is as
+synchronous as `host_now()` — but a service already had an import, and one more
+operation on it costs nothing while a second value-returning import would cost
+the invariant.
+
+`crypto.getRandomValues` looks like a second near miss but is not, because it
+crosses a different boundary. §2.2 governs the *kernel's* six imports of `host`.
+The kernel's draw is an operation on `host_svc`, one of the six; a process's is
+made in its own worker by [web/proc.js](../web/proc.js), which `kernel.wasm`
+never sees. Neither adds a seventh import. Each realm drawing separately is not
+two answers to one question: any 32 bits is a valid draw, so there is nothing to
+disagree about. The wall clock cannot take the process's road — `Sys::Now`
+answers the time there already, and `Sys::Clock` returns a `u64` and an `i32`,
+which do not fit one `i32`.
 
 The clipboard, the picker and the download need the DOM, so `web/svc.js` relays
 those across `postMessage` and answers by id. That is invisible from the kernel:

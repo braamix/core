@@ -40,9 +40,9 @@ export function check() {
     if (!rows(vrun("echo $?")).includes("1"))
         fail("$? did not carry the last command's status");
 
-    // $RANDOM, seeded once from Sys::Random and stepped per reference. The
-    // values are not asserted: the fake's stream is fixed but how many draws
-    // came before this line is not.
+    // $RANDOM, one Sys::Random per reference, answered in the shell's own
+    // worker. The values are not asserted: the fake's stream is fixed but how
+    // many draws came before this line is not.
     const drawn = (text = "echo $RANDOM") => {
         vrun("clear");
         const got = output(vrun(text)).join("|");
@@ -54,7 +54,8 @@ export function check() {
     if (d1 === d2 && d2 === d3)
         fail(`$RANDOM printed ${d1} three times running`);
 
-    // Each shell seeds itself, so a nested one does not repeat another.
+    // There is no seed to share, so two shells draw independently and a nested
+    // one is not a repeat of its parent.
     if (drawn("sh -c 'echo $RANDOM'") === drawn("sh -c 'echo $RANDOM'"))
         fail("two shells drew the same first number");
 

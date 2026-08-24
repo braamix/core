@@ -23,7 +23,7 @@ export const STEP = { EXITED: 0, SUSPENDED: 1, TRAPPED: 2 };
 // src/kernel/sysabi.h's Sys. The synchronous half is answered in the process's
 // own worker, because a worker boundary has no synchronous direction, and the
 // asynchronous half rides back on the step's reply (Concept.md §4.3).
-const SYS = { EXIT: 1, GETPID: 2, NOW: 3, STAGE: 4 };
+const SYS = { EXIT: 1, GETPID: 2, NOW: 3, STAGE: 4, RANDOM: 5 };
 
 // src/kernel/sysabi.h's proc_pack: the two page counts in one word.
 const initialOf = (flags) => flags & 0xffff;
@@ -147,10 +147,15 @@ export function serveProc(ops) {
 
 // The other half of `ops`, running in the process's own worker. Nothing here
 // reaches the kernel: `getpid` is the pid the host bound in, `now` is a clock
-// the step message carried, `exit` and the asynchronous call ride back on the
-// step's reply, and `stage` is refused — it is the host's syscall rather than a
-// program's, and a hostile binary may still call it.
-export function workerOps(pid, clock) {
+// the step message carried, `random` is this worker's own CSPRNG, `exit` and the
+// asynchronous call ride back on the step's reply, and `stage` is refused — it
+// is the host's syscall rather than a program's, and a hostile binary may still
+// call it.
+//
+// `clock` and `entropy` are what this cannot make for itself, and both are
+// parameters for one reason: the tests hand it a frozen clock and a fixed
+// stream.
+export function workerOps(pid, clock, entropy) {
     let base = 0;
     let at = 0;
     let exit;
@@ -168,6 +173,10 @@ export function workerOps(pid, clock) {
                 return (base + (clock() - at)) >>> 0;
             case SYS.STAGE:
                 return 0;
+            // Every bit pattern is a draw, the top one included: nothing here
+            // is a status, so a value arriving as -1 is a number.
+            case SYS.RANDOM:
+                return entropy() >>> 0;
             default:
                 return -E.UNSUPPORTED;
             }

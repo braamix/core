@@ -315,7 +315,7 @@ itself.
 
 ## 5. The synchronous half, and why it is closed
 
-Four operations, answered inside the export, never parking:
+Five operations, answered inside the export, never parking:
 
 | # | Name | Arguments | Returns |
 |---|---|---|---|
@@ -323,8 +323,9 @@ Four operations, answered inside the export, never parking:
 | 2 | `GetPid` | — | the pid |
 | 3 | `Now` | — | milliseconds since boot |
 | 4 | `Stage` | `a0` = bytes about to be copied in | a kernel address, or 0 |
+| 5 | `Random` | — | 32 random bits |
 
-`exec_sys` (`src/user/exec.cpp:319-337`) is a plain switch with no scheduling in
+`exec_sys` (`src/user/exec.cpp:446-470`) is a plain switch with no scheduling in
 it at all. Note that `Sys::Exit` only *records* the status on the process
 record; the process still has to return from `_start`/`_resume` before the step
 reports `Exited`.
@@ -334,7 +335,7 @@ can ask where to copy a payload, and a program never calls it — but a hostile
 binary can, so it is bounded by `SYS_STAGE_MAX` (1 MiB, the largest blit there
 can be) rather than handed an arbitrary `heap_alloc`.
 
-**The set is closed at four, permanently.** All four are answerable inside the
+**The set is closed at five, permanently.** All five are answerable inside the
 process's own worker with no kernel to ask, which is the only reason a
 synchronous half exists at all — the boundary a syscall crosses has no
 synchronous direction:
@@ -349,10 +350,41 @@ synchronous direction:
   nothing observes the delay.
 - `Stage` is refused with 0 — the "no room" answer the runtime already handles.
   Unknown operations are refused locally too, and never relayed.
+- `Random` is one `crypto.getRandomValues`, which is on `WorkerGlobalScope` and
+  fills its array before it returns.
 
-A fifth synchronous operation would have nothing to answer with inside a worker
-and would fail there alone, which is the worst way for an ABI to break. So an
-operation that needs the kernel is asynchronous whatever it costs.
+It was four until `Random`. The rule was always the test above, not the count.
+`crypto.getRandomValues` is synchronous and lives in the worker, so it passed
+that test all along.
+
+**Three things must be true, which is why the set is small.** The worker must
+answer with nothing to ask. Nothing else may answer the same question, or a
+program gets two answers. And the answer must fit the one `i32` `sys` returns,
+because this half carries no payload back.
+
+Randomness passes all three. The second is easy for it: any 32 bits is a valid
+draw, so no second source can disagree. That is also why the kernel drawing its
+own through `SvcOp::Random` is not a conflict. The wall clock fails two: `Now`
+already answers the time here, and `Sys::Clock` returns a `u64` and an `i32`,
+which do not fit. `navigator.hardwareConcurrency` fails the second: `/proc/host`
+publishes it.
+
+An operation that fails the test would work nowhere but in a worker, which is
+the worst way for an ABI to break. So anything needing the kernel is
+asynchronous, whatever it costs.
+
+**`Random` is the one operation the kernel does not answer.** `exec_sys` has no
+case for it. There is no entropy in `kernel.wasm`, and `exec_sys` is a plain
+switch, so it cannot await `svc_random`. It refuses instead, which is easier to
+diagnose than a number built from a counter and a pid. Nothing is lost: the host
+relays only `Exit` and `Stage` through `exec_sys`, so a program's `GetPid`,
+`Now` and `Random` never arrive there. `Stage` is already answered two ways —
+refused in the worker, served by the kernel — and `Random` is the same split
+reversed.
+
+`Random` is also the only operation here whose return is not a status. A draw of
+`0xffffffff` comes back as `-1` and is a number, not an error; there is no error
+to collide with. `proc_random()` casts through `u32`, as `proc_pid()` does.
 
 ---
 
@@ -522,15 +554,15 @@ synchronous half possible across a boundary that has no synchronous direction:
    (no kernel involved, no message sent)
 ```
 
-That is also why the synchronous half is closed at four (§5): an operation that
+That is also why the synchronous half is closed at five (§5): an operation that
 needs the kernel has no way to ask for it from here.
 
 A worker boundary has no synchronous direction — §1 rules out
 `SharedArrayBuffer` and therefore `Atomics.wait` — and `sys` is by construction
-synchronous. It survives because none of its four operations has to reach the
+synchronous. It survives because none of its five operations has to reach the
 kernel at all. That is the result M9 turned on, and deleting tier 2 is what made
-it the only case there is: `spin.wasm` has no other place to run, so those four
-are answered in its own worker or not at all.
+it the only case there is: `spin.wasm` has no other place to run, so they are
+answered in its own worker or not at all.
 
 ### 7.3 The step message, both ways
 
@@ -577,7 +609,7 @@ and reads it (§5).
 
 `pages` is how much memory the instance has committed, and it rides here rather
 than on an operation of its own: only the worker can read a
-`WebAssembly.Memory`, `/proc` is generated with nothing to await, and the step
+`WebAssembly.Memory`, `/proc` has nothing of its own to ask, and the step
 is already a message each way. It arrives in the reply record's otherwise unused
 `result_hi`, and `proc_step` hands it to the stepper through a `u32 *pages`
 out-param, which stores it on the `Proc` record for `/proc` to publish as a
@@ -760,7 +792,7 @@ one can grow without renumbering anything. Every operation has a caller in
 ### Asynchronous — `sys_async(op, token, ptr, len)`
 
 Reply is `i32 status` then data. A negative status is `-Error`. Served in
-`proc_syscall`, `src/user/syscall.cpp:468-1698`.
+`proc_syscall`, `src/user/syscall.cpp:468-1680`.
 
 | # | Name | Op-word arg | Payload | Status | Data |
 |---|---|---|---|---|---|
@@ -792,7 +824,6 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 56 | `Fexport` | — | `u32 name_len`, the name, the bytes | 0 | — |
 | 57 | `Verify` | — | `u32 key_len`, `u32 sig_len`, the key, the signature, then the signed bytes | 0 for a good signature | — |
 | 58 | `Inflate` | — | the compressed bytes | the fd | — |
-| 59 | `Random` | how many bytes | — | 0 | that many random bytes |
 | 64 | `KeyClaim` | bit 0 = take, else release | — | 0 | `u32 cols`, `u32 rows` |
 | 65 | `KeyRead` | — | — | 0 | `u32 code`, `u32 mods`, `u32 cols`, `u32 rows` |
 | 66 | `ScreenEnter` | bit 0 = enter, else leave | — | 0 | `u32 cols`, `u32 rows` |
@@ -860,19 +891,6 @@ leaves of a chunk already taken off a stream is kept on the descriptor — on th
 next read serves it first. That is what lets `/bin/sh`'s `read` take one line off
 a pipe without taking the next one, and it lives in the kernel because a buffer
 in a program outlives the descriptor number it was keyed to.
-
-**`Random` refuses rather than clamps, which is the opposite of `Read`.** A
-short read is what a stream *means* — the caller comes back for the rest — and
-that is why `sys_read_want` caps silently. Randomness has no such convention: a
-caller sizing a buffer for a key and handed half of one has zeros on the end
-and no way to find out. So zero, and anything above `SYS_RANDOM_MAX`, is
-`Err(Invalid)`, and a reply that is not exactly the count asked for is
-`Err(Io)`. The cap is 256 because a key is 32 bytes and a nonce twelve; a
-caller wanting more loops, which is what `get_random` in `src/proc/io.cpp` is.
-
-The count rides in the op word rather than the payload — it is one small
-immediate and nothing else wants the field — so this is the second operation
-after `Clock` that stages nothing at all.
 
 **`SigAct` carries its mask as a payload, which nothing else this small does.**
 The op word's argument is 24 bits and `SIG_WINCH` is bit 28, so the mask does
@@ -1209,7 +1227,6 @@ failure.
 | `SYS_SEEK_MAX` | 2^63 − 1 | the largest position; the wire's offset is signed |
 | `SYS_SEEK_WORDS` | 3 | `Seek`'s payload, in `u32`s |
 | `SYS_TRUNC_WORDS` | 2 | `Truncate`'s payload, in `u32`s |
-| `SYS_RANDOM_MAX` | 256 | the most one `Random` may ask for; a longer draw is a loop in `get_random` |
 | `SYS_KIND_FILE`/`DIR`/`LINK` | 0, 1, 2 | what `Stat` and `List` report |
 | `SYS_STAT_NOFOLLOW` | 1 | `Stat`'s arg: report a final symbolic link itself |
 | `SYS_STORE_*` | 1, 2, 4, 8 | OPFS, sync, persisted, and "the host answered at all" |

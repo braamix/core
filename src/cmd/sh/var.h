@@ -55,15 +55,12 @@ void vars_drop(Vec<VarEntry *> &v);
 // appended to afterwards. A name marked but never given a value is skipped.
 bool vars_env(String &store, Vec<Str> &words);
 
-// $$ and $0, and this process's environment into the table. Nothing here makes
-// a syscall: the environment came in with _start.
+// $$ and $0, and this process's environment into the table. Nothing in here
+// makes a syscall: the environment came in with _start.
 bool var_init(u32 pid, Str name0);
 
 void var_status(i32 s);    // $?
 void var_last_bg(u32 pid); // $!
-
-// $RANDOM's seed, planted from shell.cpp for var_init's reason.
-void var_seed_random(u32 seed);
 
 // The callbacks the expander is given, wired to everything above.
 const Vars &shell_vars();
