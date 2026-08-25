@@ -46,14 +46,14 @@ sections A and B are.
 
 No ABI change. Each is one file in `src/cmd/`, a name in `BRAAM_BIN_LIST`
 (`src/cmd/CMakeLists.txt`), **a line in `rootfs/etc/help` in the same commit** —
-nothing notices at run time when that goes stale and the `help` smoke case fails
-on a forgotten line — and a case in `test/smoke/` with a line in the `CASES`
-table in `test/run.mjs`. The in-wasm suite cannot run a program, so every one of
-these is a smoke case.
+nothing notices at run time when that goes stale and the `help` system case
+fails on a forgotten line — and a case in `test/system/` with a line in the
+`CASES` table in `test/run.mjs`. The in-wasm suite cannot run a program, so
+every one of these is a system case.
 
 Adding a program also moves two counts that are written down: `compared` in
 `test/unit/test_zip.cpp` (the archive's file count) and the byte count in
-`test/smoke/subst.mjs` (which concatenates `/etc/help` three times).
+`test/system/subst.mjs` (which concatenates `/etc/help` three times).
 
 - [x] **A1. `cp`** — done. The copy moved to `src/proc/io.h` and `mv` now
       shares it.
@@ -106,7 +106,7 @@ where several writes coalesce into one syscall. None of the below moves
       real caller: `File::get`, `File::put` and `rune_lower` have no caller in
       `src/cmd/` today and are covered by `test/unit/test_filebuf.cpp` and the
       manual's worked example alone. Wants a line in `rootfs/etc/help` and a
-      smoke case, and moves `compared` in `test_zip.cpp` and the byte count in
+      system case, and moves `compared` in `test_zip.cpp` and the byte count in
       `subst.mjs` as any new program does.
 - [ ] **D2. Formatted output over a `File`.** "A write per field is a syscall
       per field" stopped being true the moment the stream buffered, so `Buf<N>`
@@ -138,7 +138,7 @@ where several writes coalesce into one syscall. None of the below moves
 ## C — measured, not guessed
 
 - [ ] **C1. `pkg verify` over a megabyte.** `SYS_READ_MAX` should have taken it
-      from ~2,210 reads to ~18. `test/smoke/chunk.mjs` asserts the invariant on
+      from ~2,210 reads to ~18. `test/system/chunk.mjs` asserts the invariant on
       `wc`; the megabyte workload has not been measured since, and the figure in
       the release note is derived rather than observed.
 - [ ] **C2. The pipe now carries more.** Eight `Channel` slots at 64 KiB is

@@ -49,6 +49,35 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The suite was never a smoke test
+
+`test/smoke/` is now `test/system/`, and the CTest case with it: the three names
+are `system`, `unit` and `size`. Nothing about what runs changed — the same
+ordered `CASES` table, the same cumulative session, the same `--kernel` mode of
+`test/run.mjs`.
+
+A smoke test is a handful of assertions that the thing starts at all, run before
+anyone bothers with the real suite. That is what `smoke` meant here when it was
+`boot.mjs` and `abi.mjs`. It is not what forty-seven cases are — booting the
+shipping kernel, typing four thousand keystrokes at a shell that has been alive
+the whole time, installing and removing packages, killing workers to watch init
+replace them. The name promised a triage pass and delivered the end-to-end
+suite, so `unit` and `smoke` looked like a scope and a smell test rather than
+two halves of one line.
+
+**The obvious rename is the wrong one.** `test/node/` names the harness, and the
+harness does not divide the two suites: `run.mjs --tests` drives `tests.wasm`
+under Node as well. Naming it after the runner would say the in-wasm suite is
+*not* run by Node, which is false, and would leave the pair inconsistent in the
+other direction — a runner beside a scope. The axis that does divide them is
+Testing.md §2's dividing line, the one the build already enforces: everything
+below a program, against everything that needs a program to run. `unit` and
+`system` are the two ends of that.
+
+Nothing here is renamed retroactively. Notes below this one say `smoke` because
+that is what the suite was called when they were written, and this file is
+appended to rather than rewritten.
+
 ## The second device is the one the kernel makes itself
 
 The note two below this one said `urandom` was coming and would be "a row". It

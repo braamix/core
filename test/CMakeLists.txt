@@ -112,12 +112,12 @@ find_program(BRAAM_NODE node REQUIRED)
 # Every binary follows: the surface and the metadata are an ABI of their own,
 # and the exact-import assertion is what proves none picked up a host import.
 foreach(prog IN LISTS BRAAM_BIN_PROGRAMS)
-    list(APPEND BRAAM_SMOKE_BINARIES $<TARGET_FILE:bin_${prog}>)
+    list(APPEND BRAAM_SYSTEM_BINARIES $<TARGET_FILE:bin_${prog}>)
 endforeach()
 
-add_test(NAME smoke
+add_test(NAME system
     COMMAND ${BRAAM_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/run.mjs --kernel $<TARGET_FILE:kernel>
-            ${CMAKE_BINARY_DIR}/web/rootfs.zip ${BRAAM_SMOKE_BINARIES})
+            ${CMAKE_BINARY_DIR}/web/rootfs.zip ${BRAAM_SYSTEM_BINARIES})
 
 # The archive comes along here too: test_zip reads the same bytes web/fs.js
 # does, so the two readers of one format are compared rather than each trusted.

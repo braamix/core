@@ -712,7 +712,7 @@ $ node -e 'const m=new WebAssembly.Module(require("fs").readFileSync("build/hell
   console.log(new Uint32Array(WebAssembly.Module.customSections(m,"braam")[0]))'
 ```
 
-In the Braam source tree, `test/smoke/abi.mjs` asserts all of that for every
+In the Braam source tree, `test/system/abi.mjs` asserts all of that for every
 binary, and will do it for a binary of yours if you hand it one:
 
 ```

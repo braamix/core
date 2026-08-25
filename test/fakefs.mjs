@@ -1,5 +1,5 @@
 // A storage backend for the tests: the same wire format web/fs.js speaks, over
-// a Map that outlives the kernel instance. That is what lets the smoke test
+// a Map that outlives the kernel instance. That is what lets the system suite
 // prove M5's first criterion — write a file, reload the page, the file is still
 // there — with a fresh WebAssembly.Instance standing in for the reload.
 //

@@ -12,13 +12,13 @@ of it; [Release_Notes.md](Release_Notes.md) holds the arguments.
 
 | Name | What runs | What it proves |
 |---|---|---|
-| `smoke` | `test/run.mjs --kernel kernel.wasm rootfs.zip <bin>...` under Node | the shipping kernel, booted, driven by keystrokes, running real programs |
+| `system` | `test/run.mjs --kernel kernel.wasm rootfs.zip <bin>...` under Node | the shipping kernel, booted, driven by keystrokes, running real programs |
 | `unit` | `test/run.mjs --tests tests.wasm rootfs.zip` under Node | the kernel's own code, called directly, below the level of a program |
 | `size` | `tools/size_budget.txt` | `kernel.wasm` is inside its budget |
 
-One at a time: `ctest --test-dir build -R smoke --output-on-failure`.
+One at a time: `ctest --test-dir build -R system --output-on-failure`.
 
-The whole of `smoke` takes about a second. Node stands in for the browser —
+The whole of `system` takes about a second. Node stands in for the browser —
 instantiating a freestanding module needs nothing browser-specific — and
 [test/fakefs.mjs](../test/fakefs.mjs), [test/fakesvc.mjs](../test/fakesvc.mjs)
 and [test/fakeworker.mjs](../test/fakeworker.mjs) stand in for OPFS, the host
@@ -33,7 +33,7 @@ other rather than each trusted against its own idea of it.
 
 **The in-wasm suite cannot run a program, and the shell is one.** It reaches
 everything *below* a program, and anything that needs one to run belongs in the
-smoke suite. That is enforced by the build rather than by convention: the pure
+system suite. That is enforced by the build rather than by convention: the pure
 sources are **compiled straight into `tests.wasm`** instead of being linked from
 their libraries, so a syscall in one of them is a link error.
 
@@ -83,14 +83,14 @@ itself. Regenerate it by re-running the tool, never by hand.
 `PkgHost` stand-in. There is **no filter**: the case list is inside the wasm, so
 running one case means building `tests` and reading the harness output.
 
-## 4. The smoke suite
+## 4. The system suite
 
 [test/run.mjs](../test/run.mjs) is the ordered case list and nothing else. Every
-case is one file in [test/smoke/](../test/smoke/) exporting a single
+case is one file in [test/system/](../test/system/) exporting a single
 `check()`, and takes its kernel, screen and shell from
-[test/smoke/harness.mjs](../test/smoke/harness.mjs) — the one owner of the
+[test/system/harness.mjs](../test/system/harness.mjs) — the one owner of the
 instance, the grid address, the tracked cwd and the two fakes. The nine `pkg`
-cases share [test/smoke/pkgfix.mjs](../test/smoke/pkgfix.mjs) as well: the
+cases share [test/system/pkgfix.mjs](../test/system/pkgfix.mjs) as well: the
 fixtures, the two repositories, one clock and the four shapes they assert in.
 
 The harness also exports `zipOf(pairs)`, which writes stored (method 0) entries
@@ -111,7 +111,7 @@ t.is("echo /bin/l*", "/bin/less /bin/ln /bin/ls");  // all of it, joined with |
 t.has("echo $x", "one");                            // one row among all of them
 ```
 
-## 5. The rules the smoke suite runs by
+## 5. The rules the system suite runs by
 
 It is **one cumulative session**, not a set of independent tests. That is what
 makes it worth having — a shell that has been running for four thousand
@@ -150,15 +150,15 @@ keystrokes is the thing under test — and it is what the rules are about.
 
 - **Below a program** — a new file in `test/unit/`, per §3. Order it by what it
   stands on and say so in the comment.
-- **A program, the shell, the screen or a key** — a new file in `test/smoke/`
+- **A program, the shell, the screen or a key** — a new file in `test/system/`
   and a line in the `CASES` table in `test/run.mjs`, placed where the state it
   needs already exists. Pick a clock base after its neighbour's.
 - **A new program or builtin updates `rootfs/etc/help` in the same commit.**
   That document is the whole of `help`, nothing notices at run time when it goes
   stale, and the `help` case fails on a forgotten line.
-- **A change to the wasm ABI updates `test/smoke/abi.mjs` in the same commit** —
-  the seven imports and nine exports, and every binary's three imports and four
-  exports, are asserted there by name.
+- **A change to the wasm ABI updates `test/system/abi.mjs` in the same
+  commit** — the seven imports and nine exports, and every binary's three
+  imports and four exports, are asserted there by name.
 
 ## 7. Running part of it
 

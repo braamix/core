@@ -2,61 +2,61 @@
 // browser: instantiating a freestanding module needs nothing browser-specific,
 // and test/fakefs.mjs stands in for OPFS.
 //
-// The smoke suite is the ordered list below and nothing else. Every case is one
-// file in test/smoke/, taking its kernel, screen and shell from
-// test/smoke/harness.mjs; doc/Testing.md has the rules they run by. The order
+// The system suite is the ordered list below and nothing else. Every case is
+// one file in test/system/, taking its kernel, screen and shell from
+// test/system/harness.mjs; doc/Testing.md has the rules they run by. The order
 // is load-bearing — the suite is one cumulative session — so an entry that
 // depends on an earlier one says so beside it.
 
-import { fail, hasRootfs, init, kernel } from "./smoke/harness.mjs";
+import { fail, hasRootfs, init, kernel } from "./system/harness.mjs";
 
-import * as abi from "./smoke/abi.mjs";
-import * as boot from "./smoke/boot.mjs";
-import * as cwd from "./smoke/cwd.mjs";
-import * as entry from "./smoke/entry.mjs";
-import * as flow from "./smoke/flow.mjs";
-import * as fullscreen from "./smoke/fullscreen.mjs";
-import * as glob from "./smoke/glob.mjs";
-import * as help from "./smoke/help.mjs";
-import * as interrupt from "./smoke/interrupt.mjs";
-import * as jobs from "./smoke/jobs.mjs";
-import * as language from "./smoke/language.mjs";
-import * as lists from "./smoke/lists.mjs";
-import * as ls from "./smoke/ls.mjs";
-import * as net from "./smoke/net.mjs";
-import * as persist from "./smoke/persist.mjs";
-import * as pipe from "./smoke/pipe.mjs";
-import * as pkgcli from "./smoke/pkgcli.mjs";
-import * as pkgClean from "./smoke/pkg-clean.mjs";
-import * as pkgCrash from "./smoke/pkg-crash.mjs";
-import * as pkgInstall from "./smoke/pkg-install.mjs";
-import * as pkgLocal from "./smoke/pkg-local.mjs";
-import * as pkgRemove from "./smoke/pkg-remove.mjs";
-import * as pkgScripts from "./smoke/pkg-scripts.mjs";
-import * as pkgUpdate from "./smoke/pkg-update.mjs";
-import * as pkgUpgrade from "./smoke/pkg-upgrade.mjs";
-import * as pkgVerify from "./smoke/pkg-verify.mjs";
-import * as procfs from "./smoke/procfs.mjs";
-import * as process_ from "./smoke/process.mjs";
-import * as redirect from "./smoke/redirect.mjs";
-import * as rename from "./smoke/rename.mjs";
-import * as respawn from "./smoke/respawn.mjs";
-import * as script from "./smoke/script.mjs";
-import * as sh from "./smoke/sh.mjs";
-import * as signal from "./smoke/signal.mjs";
-import * as spawn from "./smoke/spawn.mjs";
-import * as subst from "./smoke/subst.mjs";
-import * as sysinfo from "./smoke/sysinfo.mjs";
-import * as term from "./smoke/term.mjs";
-import * as tail from "./smoke/tail.mjs";
-import * as truncate from "./smoke/truncate.mjs";
-import * as chunk from "./smoke/chunk.mjs";
-import * as cp from "./smoke/cp.mjs";
-import * as path from "./smoke/path.mjs";
-import * as unzip from "./smoke/unzip.mjs";
-import * as vars from "./smoke/vars.mjs";
-import * as worker from "./smoke/worker.mjs";
-import * as wrap from "./smoke/wrap.mjs";
+import * as abi from "./system/abi.mjs";
+import * as boot from "./system/boot.mjs";
+import * as cwd from "./system/cwd.mjs";
+import * as entry from "./system/entry.mjs";
+import * as flow from "./system/flow.mjs";
+import * as fullscreen from "./system/fullscreen.mjs";
+import * as glob from "./system/glob.mjs";
+import * as help from "./system/help.mjs";
+import * as interrupt from "./system/interrupt.mjs";
+import * as jobs from "./system/jobs.mjs";
+import * as language from "./system/language.mjs";
+import * as lists from "./system/lists.mjs";
+import * as ls from "./system/ls.mjs";
+import * as net from "./system/net.mjs";
+import * as persist from "./system/persist.mjs";
+import * as pipe from "./system/pipe.mjs";
+import * as pkgcli from "./system/pkgcli.mjs";
+import * as pkgClean from "./system/pkg-clean.mjs";
+import * as pkgCrash from "./system/pkg-crash.mjs";
+import * as pkgInstall from "./system/pkg-install.mjs";
+import * as pkgLocal from "./system/pkg-local.mjs";
+import * as pkgRemove from "./system/pkg-remove.mjs";
+import * as pkgScripts from "./system/pkg-scripts.mjs";
+import * as pkgUpdate from "./system/pkg-update.mjs";
+import * as pkgUpgrade from "./system/pkg-upgrade.mjs";
+import * as pkgVerify from "./system/pkg-verify.mjs";
+import * as procfs from "./system/procfs.mjs";
+import * as process_ from "./system/process.mjs";
+import * as redirect from "./system/redirect.mjs";
+import * as rename from "./system/rename.mjs";
+import * as respawn from "./system/respawn.mjs";
+import * as script from "./system/script.mjs";
+import * as sh from "./system/sh.mjs";
+import * as signal from "./system/signal.mjs";
+import * as spawn from "./system/spawn.mjs";
+import * as subst from "./system/subst.mjs";
+import * as sysinfo from "./system/sysinfo.mjs";
+import * as term from "./system/term.mjs";
+import * as tail from "./system/tail.mjs";
+import * as truncate from "./system/truncate.mjs";
+import * as chunk from "./system/chunk.mjs";
+import * as cp from "./system/cp.mjs";
+import * as path from "./system/path.mjs";
+import * as unzip from "./system/unzip.mjs";
+import * as vars from "./system/vars.mjs";
+import * as worker from "./system/worker.mjs";
+import * as wrap from "./system/wrap.mjs";
 
 // A third field marks a case that reads the archive and is skipped without one.
 const ARCHIVE = true;
@@ -74,7 +74,7 @@ const CASES = [
     ["ls",         ls.check],         // after cwd: the fixture tree it lists
     ["sysinfo",    sysinfo.check],
     ["pkgcli",     pkgcli.check],
-    // The nine share test/smoke/pkgfix.mjs and one clock, and run in this
+    // The nine share test/system/pkgfix.mjs and one clock, and run in this
     // order because each leaves the /pkg the next one starts from.
     ["pkg-update",  pkgUpdate.check,  ARCHIVE],
     ["pkg-install", pkgInstall.check, ARCHIVE],
@@ -146,11 +146,11 @@ if (mode === "--kernel") {
             continue;
         surface = check(binaries) ?? surface;
         if (name === upto) {
-            console.log(`smoke ok: stopped after ${name}`);
+            console.log(`system ok: stopped after ${name}`);
             process.exit(0);
         }
     }
-    console.log(`smoke ok: ${surface.imports} imports, ${surface.exports} exports`);
+    console.log(`system ok: ${surface.imports} imports, ${surface.exports} exports`);
 } else {
     const failures = kernel().run_tests();
     if (failures !== 0)

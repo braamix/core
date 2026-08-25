@@ -273,7 +273,7 @@ host_random(ptr, len)                          // entropy, sync   (§2.2)
 host_svc(op, token, req, ref)                  // host services, async (§6)
 ```
 
-Seven, and the smoke test asserts exactly these.
+Seven, and the system suite asserts exactly these.
 
 Storage and services are **multiplexed rather than named per operation**: one
 import per *calling convention*, so a new operation is an enum value on each
@@ -1717,7 +1717,7 @@ it.
   while exporting `operator new`. Exports are named individually with
   `BRAAM_EXPORT` (`export_name`), imports with `BRAAM_IMPORT`
   (`import_module`/`import_name`) — never by linker flag. Either changes the
-  ABI, so the expected surface in [test/smoke/abi.mjs](../test/smoke/abi.mjs)
+  ABI, so the expected surface in [test/system/abi.mjs](../test/system/abi.mjs)
   changes in the same commit.
 - **`--allow-undefined` is absent**, so nothing is left to resolve and an
   accidental libc dependency is a link error instead of a runtime trap.

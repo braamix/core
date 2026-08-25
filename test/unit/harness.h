@@ -10,7 +10,7 @@
 
 // Runs a task that is known not to suspend and takes its value. Every
 // filesystem the unit tests mount is in memory, so nothing they call parks;
-// the asynchronous path is the smoke test's to prove, against a host.
+// the asynchronous path is the system suite's to prove, against a host.
 template <class T>
 T run_now(Task<T> t)
 {

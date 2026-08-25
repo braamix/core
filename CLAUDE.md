@@ -36,15 +36,15 @@ the three passing CTest cases.
   whether it moves `PROC_ABI`. It also records why the syscall table is *not*
   the gap, so that question is not re-derived.
 - **[doc/Testing.md](doc/Testing.md)** is how the two suites are organised, what
-  can be tested in which, and the rules the smoke suite's one cumulative session
-  runs by. Read it before adding a case or moving one.
+  can be tested in which, and the rules the system suite's one cumulative
+  session runs by. Read it before adding a case or moving one.
 - **[doc/Shell.md](doc/Shell.md)** is the `/bin/sh` manual,
   **[doc/Programming_Manual.md](doc/Programming_Manual.md)** the SDK guide, and
   **[doc/Package_Management.md](doc/Package_Management.md)** the policy a
   package manager must satisfy, with
   **[doc/Package_Formats.md](doc/Package_Formats.md)** the grammars written to
   satisfy it, whose §10 is the publisher's tutorial over `tools/`. `/bin/pkg` is
-  complete: twelve subcommands, and eight smoke cases over them.
+  complete: twelve subcommands, and eight system cases over them.
 
 ## Build
 
@@ -64,9 +64,9 @@ make clean
   **`make -jN` does not reach the compiler** (the jobserver does not survive the
   cmake process) — set `JOBS`. `CMAKE_ARGS` reaches only the configure step.
 - A single test: `ctest --test-dir build -R unit --output-on-failure`, with
-  `smoke`, `unit` and `size` the three names. The wasm suite has no filter of
+  `system`, `unit` and `size` the three names. The wasm suite has no filter of
   its own; run one case by building `tests` and reading the harness output.
-  `node test/run.mjs --list` names the smoke cases and `--upto=<case>` runs
+  `node test/run.mjs --list` names the system cases and `--upto=<case>` runs
   through one and stops — a prefix, not a filter (doc/Testing.md §7).
 - The always-run `web` target uses `copy_directory`, which never deletes — cut a
   release from a clean tree.
@@ -113,16 +113,16 @@ make clean
 
 ### Verification
 
-- `smoke` — `test/run.mjs --kernel` under Node, and it is the ordered `CASES`
-  table and nothing else: a case is one file in [test/smoke/](test/smoke/)
+- `system` — `test/run.mjs --kernel` under Node, and it is the ordered `CASES`
+  table and nothing else: a case is one file in [test/system/](test/system/)
   exporting `check()`, over the driver in
-  [test/smoke/harness.mjs](test/smoke/harness.mjs). **The order is
+  [test/system/harness.mjs](test/system/harness.mjs). **The order is
   load-bearing** — it is one cumulative session, so state crosses cases and an
   entry that depends on an earlier one says so beside it. The kernel's exact
   imports (`host.fs`, `host.fs_sync`, `host.log`, `host.now`, `host.present`,
   `host.svc`), its exports (`init`, `key`, `memory`, `ref`, `resize`, `sys`,
   `sys_async`, `tick`, `wake`) and every binary's surface and `braam` section
-  are [test/smoke/abi.mjs](test/smoke/abi.mjs); the boot to a prompt is
+  are [test/system/abi.mjs](test/system/abi.mjs); the boot to a prompt is
   `boot.mjs`; `rootfs/etc/help` against the builtin table and the archive's
   `bin/` is `help.mjs`.
 - `unit` — `test/run.mjs --tests` over `tests.wasm`, with `rootfs.zip` alongside
@@ -157,7 +157,7 @@ must be tested keeps out of the half that cannot be. `pkg/unzip.cpp`,
 `sh/condrun.cpp` with them, because they walk the store. `braam_math` is the one
 half that is *linked* instead: it links `braam_flags` alone and has no syscall
 to hide, as `braam_ui` does not. Anything needing a program to run belongs in
-`test/smoke/`, as a file and a line in `run.mjs`'s table.
+`test/system/`, as a file and a line in `run.mjs`'s table.
 [doc/Testing.md](doc/Testing.md) is the whole of both suites.
 
 ## Architecture invariants
@@ -221,7 +221,7 @@ Further constraints, easy to violate by habit:
   views. Route JS-side access through a `view()` accessor.
 - **A process binary shares headers with the kernel, not code.** `src/proc/`
   links `alloc.cpp`, `result.cpp`, `text.cpp`, `fs/path.cpp` and `braam_ui` and
-  nothing else from the kernel's trees; `test/smoke/abi.mjs` asserts each
+  nothing else from the kernel's trees; `test/system/abi.mjs` asserts each
   binary's import list. Hence `panic` is declared in `host.h`, defined once per
   binary, and takes `(ptr, len)` rather than a `Str`.
 
@@ -352,11 +352,11 @@ argue in Concept.md first.
   would be dropped silently.
 - **A new program or builtin updates `rootfs/etc/help` in the same commit.**
   That document is the whole of `help` (`/bin/help` is `#!/bin/sh` over `less
-  /etc/help`), nothing notices at run time when it goes stale, and `smoke` fails
-  on a forgotten line.
+  /etc/help`), nothing notices at run time when it goes stale, and `system`
+  fails on a forgotten line.
 - Exports are declared with `BRAAM_EXPORT("name")`, imports with
   `BRAAM_IMPORT("name")` — never by linker flag. Either changes the ABI: update
-  the expected surface in [test/smoke/abi.mjs](test/smoke/abi.mjs) in the same
+  the expected surface in [test/system/abi.mjs](test/system/abi.mjs) in the same
   commit.
 - `.clang-format` at the root is authoritative: 4-space indent, 100 columns.
   Types `PascalCase`, functions and variables `snake_case`, constants
