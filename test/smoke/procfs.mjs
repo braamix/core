@@ -142,6 +142,14 @@ export function check() {
             fail(`head -c 8 /dev/random | wc printed ${JSON.stringify(got)}, expected 8 bytes`);
     }
 
+    // Straight to the terminal, which is what the bytes are hardest on: every
+    // cell has to be a codepoint the renderer can draw, and rows() decodes them
+    // all. The prompt comes back after.
+    submit("clear", 1189.02);
+    const garbage = submit("head -c 64 /dev/random", 1189.03);
+    if (!rows(garbage).includes(prompt()))
+        fail(`64 random bytes on the screen left ${row(garbage, garbage.cursor_y)}`);
+
     // Through a redirection, which is the path an OPFS sync handle serves: the
     // file is the size asked for. And the device takes nothing back.
     submit("clear", 1189.04);

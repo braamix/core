@@ -102,6 +102,16 @@ Colours and styling are struct fields, cursor addressing is array indexing, a
 `curses`-style layout layer is trivial rather than a parser, and there is no
 escape sequence to mis-parse. The whole renderer is ~300 lines of JavaScript.
 
+**A cell's `ch` is always a codepoint the host can draw**, which is the one
+thing the renderer is entitled to assume: `String.fromCodePoint` *throws* on a
+surrogate or a value past U+10FFFF, and a throw there is a dead renderer rather
+than a wrong glyph. The invariant is held where cells are written, not where
+they are drawn — `rune_safe` in `src/kernel/text.h`, applied by `screen_put` and
+by `screen_touch`, which is the notice the grid gets that a writer filling cells
+directly has finished (§3.5). `utf8_decode` therefore never yields an invalid
+codepoint either: malformed input is U+FFFD, so `cat` of a binary file is
+garbage on the screen rather than a broken tab.
+
 ---
 
 ## 3. Architecture
@@ -282,9 +292,12 @@ struct Cell { char32_t ch; u8 fg, bg, attrs, reserved; };   // 8 bytes; fg and b
 ```
 
 The renderer holds a view over the cell array and blits monospace glyphs to the
-canvas, plus a cursor. Damage tracking is a dirty rectangle the kernel updates
-as it writes, passed to `host_present` once per `tick`. The cursor is drawn,
-never stored, so moving it dirties the cell it left as well as the one it
+canvas, plus a cursor. It trusts `ch` (§2.3) and nothing else about a cell: a
+palette index is masked, and `Sys::ScreenBlit` — a `memcpy` of whatever a
+process staged — is the reason the trust has to be earned by the kernel rather
+than assumed of the program. Damage tracking is a dirty rectangle the kernel
+updates as it writes, passed to `host_present` once per `tick`. The cursor is
+drawn, never stored, so moving it dirties the cell it left as well as the one it
 entered. The host finds all of it through a descriptor, whose address `resize`
 returns:
 

@@ -56,6 +56,19 @@ void test_screen()
     screen_flush();
     CHECK_EQ(screen_damage().w, 0);
 
+    // A blit is a memcpy of cells a process staged (src/user/syscall.cpp), and
+    // saying which ones it wrote is where they are made drawable. Nothing else
+    // stands between a program and a codepoint the renderer would throw on.
+    screen_reset();
+    screen_resize(4, 3);
+    screen_cells()[0].ch = 0x11b58c;
+    screen_cells()[1].ch = 0xd800;
+    screen_cells()[4].ch = 0x11b58c; // outside the rectangle below
+    screen_touch(0, 0, 2, 1);
+    CHECK_EQ(at(0, 0), 0xfffd);
+    CHECK_EQ(at(1, 0), 0xfffd);
+    CHECK_EQ(at(0, 1), 0x11b58c);
+
     // The wrap is deferred: the cursor parks past the last column, and only
     // the next character moves it down.
     screen_reset();

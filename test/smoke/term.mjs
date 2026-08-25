@@ -6,7 +6,7 @@ import { pasted } from "../../web/keys.js";
 import { Renderer } from "../../web/render.js";
 import {
     CTRL, KEY, cell, fail, gridAddr, kernel, mem, net, presented, press, prompt, regrid,
-    resetTicks, resize, row, rows, run, screen, submit, ticks, type,
+    resetTicks, resize, row, rows, run, screen, store, submit, ticks, type,
 } from "./harness.mjs";
 
 export function check() {
@@ -76,6 +76,50 @@ export function check() {
         r.select("end", 9, 9);
         if (r.text() !== "" || r.clear())
             fail("a click left a selection behind");
+    }
+
+    // Malformed UTF-8 must not reach a cell: `f4 9b 96 8c` is 0x11B58C, which
+    // String.fromCodePoint throws on, and a throw kills the renderer. One
+    // sequence per way of being wrong.
+    {
+        store.files.set("/home/bad", new Uint8Array([
+            0xf4, 0x9b, 0x96, 0x8c, // above U+10FFFF
+            0xf5, 0x80, 0x80, 0x80, // a lead that cannot start one
+            0xed, 0xa0, 0x80,       // a surrogate
+            0xc0, 0xaf,             // an overlong '/'
+            0x80,                   // a stray continuation byte
+            0xc3, 0x41,             // a lead without one
+            0x0a,
+        ]));
+        submit("clear", 1041);
+        // rows() decodes every cell, so reading the screen is half the check.
+        const bytes = submit("cat /home/bad", 1042);
+        const y = rows(bytes).findIndex((line) => line.includes("�"));
+        if (y < 0)
+            fail(`cat of malformed UTF-8 printed ${JSON.stringify(rows(bytes))}`);
+        if (!rows(bytes)[y].includes("A"))
+            fail(`the byte after a bad lead was eaten: ${JSON.stringify(rows(bytes)[y])}`);
+
+        // The other half: the real renderer over that row, which is where the
+        // browser died.
+        const ctx = {
+            measureText: (t) => ({
+                width: 8 * [...t].length,
+                fontBoundingBoxAscent: 12,
+                fontBoundingBoxDescent: 4,
+            }),
+            fillRect: () => {},
+            fillText: () => {},
+        };
+        const r = new Renderer({ getContext: () => ctx }, mem, {});
+        r.attach(gridAddr());
+        r.present(0, y, bytes.cols, 1);
+        r.select("start", 0, y * r.cellH);
+        r.select("end", bytes.cols * r.cellW, y * r.cellH);
+        if (!r.text().includes("�"))
+            fail(`the renderer copied ${JSON.stringify(r.text())}`);
+        r.clear();
+        submit("rm /home/bad", 1043);
     }
 
     // The other half of the page's clipboard: a paste is a run of keystrokes

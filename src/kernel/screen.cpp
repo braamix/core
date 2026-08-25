@@ -293,7 +293,7 @@ void screen_put(char32_t ch)
     if (!sized())
         return;
     wrap_pending();
-    g_cells[g.cursor_y * g.cols + g.cursor_x] = Cell{ ch, g_fg, g_bg, g_attrs, 0 };
+    g_cells[g.cursor_y * g.cols + g.cursor_x] = Cell{ rune_safe(ch), g_fg, g_bg, g_attrs, 0 };
     damage(g.cursor_x, g.cursor_y);
     g.cursor_x++;
 }
@@ -382,6 +382,15 @@ void screen_touch(u32 x, u32 y, u32 w, u32 h)
         return;
     u32 x1 = min(x + w, g.cols);
     u32 y1 = min(y + h, g.rows);
+
+    // A blit is a memcpy of whatever a process staged, and this call is the
+    // only notice the grid gets of it (Concept.md §2.3).
+    for (u32 row = y; row < y1; row++)
+        for (u32 col = x; col < x1; col++) {
+            Cell &c = g_cells[row * g.cols + col];
+            c.ch    = rune_safe(c.ch);
+        }
+
     damage(x, y);
     damage(x1 - 1, y1 - 1);
 }

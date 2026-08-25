@@ -19,6 +19,12 @@ const MAGIC = 0x42534352; // 'BSCR'
 // One Cell is {u32 ch, u32 fg|bg<<8|attrs<<16}, eight bytes.
 const CELL_U32 = 2;
 
+// The kernel clamps every cell it writes (rune_safe, src/kernel/text.h); this
+// is the second belt, since fromCodePoint throws and a throw here kills the
+// worker that draws the screen.
+const glyph = (ch) =>
+    String.fromCodePoint(ch > 0x10ffff || (ch >= 0xd800 && ch <= 0xdfff) ? 0xfffd : ch);
+
 const ATTR_BOLD = 1;
 const ATTR_UNDERLINE = 2;
 const ATTR_REVERSE = 4;
@@ -166,7 +172,7 @@ export class Renderer {
             return;
 
         ctx.fillStyle = this.palette[(attrs & ATTR_BOLD ? fg | 8 : fg) & 0x0f];
-        ctx.fillText(String.fromCodePoint(ch), px, py + this.baseline);
+        ctx.fillText(glyph(ch), px, py + this.baseline);
 
         if (attrs & ATTR_UNDERLINE)
             ctx.fillRect(px, py + this.cellH - 1, this.cellW, 1);
@@ -282,7 +288,7 @@ export class Renderer {
             let line = "";
             for (let col = first; col <= last; col++) {
                 const ch = u32[cells + (row * cols + col) * CELL_U32];
-                line += ch === 0 ? " " : String.fromCodePoint(ch);
+                line += ch === 0 ? " " : glyph(ch);
             }
             lines.push(line.replace(/\s+$/, ""));
         }

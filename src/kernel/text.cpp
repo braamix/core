@@ -2,9 +2,7 @@
 
 usize utf8_encode(char32_t ch, char *out)
 {
-    u32 v = u32(ch);
-    if (v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff))
-        v = 0xfffd;
+    u32 v = u32(rune_safe(ch));
 
     if (v < 0x80) {
         out[0] = char(v);
@@ -36,29 +34,43 @@ usize utf8_decode(Str s, usize at, char32_t &out)
     u8 c = u8(s[at]);
     char32_t ch;
     usize len;
+    char32_t least; // the smallest value this length may spell
     if (c < 0x80) {
-        ch  = c;
-        len = 1;
-    } else if ((c & 0xe0) == 0xc0) {
-        ch  = c & 0x1f;
-        len = 2;
+        out = c;
+        return 1;
+    } else if ((c & 0xe0) == 0xc0 && c >= 0xc2) { // c0 and c1 are overlong
+        ch    = c & 0x1f;
+        len   = 2;
+        least = 0x80;
     } else if ((c & 0xf0) == 0xe0) {
-        ch  = c & 0x0f;
-        len = 3;
-    } else if ((c & 0xf8) == 0xf0) {
-        ch  = c & 0x07;
-        len = 4;
+        ch    = c & 0x0f;
+        len   = 3;
+        least = 0x800;
+    } else if ((c & 0xf8) == 0xf0 && c <= 0xf4) { // f5 and up are past U+10FFFF
+        ch    = c & 0x07;
+        len   = 4;
+        least = 0x10000;
     } else {
+        // A stray continuation byte, or a lead that cannot start one. Before
+        // the length check: bad input, not short input.
         out = 0xfffd;
         return 1;
     }
 
     if (at + len > s.size())
         return 0;
-    for (usize k = 1; k < len; k++)
-        ch = (ch << 6) | (u8(s[at + k]) & 0x3f);
 
-    out = ch;
+    // One byte on a bad continuation, so the next lead byte resynchronises.
+    for (usize k = 1; k < len; k++) {
+        if ((u8(s[at + k]) & 0xc0) != 0x80) {
+            out = 0xfffd;
+            return 1;
+        }
+        ch = (ch << 6) | (u8(s[at + k]) & 0x3f);
+    }
+
+    // The shape was right, so all of it goes: one U+FFFD, not four.
+    out = ch < least ? char32_t(0xfffd) : rune_safe(ch);
     return len;
 }
 

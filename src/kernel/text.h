@@ -16,13 +16,24 @@ constexpr bool is_digit(char c)
     return c >= '0' && c <= '9';
 }
 
+// A codepoint the host can render, which is what a cell may hold: a surrogate
+// or a value past U+10FFFF becomes U+FFFD. Every writer to the grid goes
+// through this (Concept.md §2.3).
+constexpr char32_t rune_safe(char32_t c)
+{
+    u32 v = u32(c);
+    return (v > 0x10ffff || (v >= 0xd800 && v <= 0xdfff)) ? char32_t(0xfffd) : c;
+}
+
 // Encodes one codepoint into `out`, which must hold four bytes, and returns
-// the length. A surrogate or an out-of-range value becomes U+FFFD.
+// the length. rune_safe first.
 usize utf8_encode(char32_t ch, char *out);
 
 // Decodes the codepoint at s[at]. Returns the bytes consumed, or 0 when the
-// sequence runs past the end. A stray continuation byte consumes one byte and
-// yields U+FFFD, so bad input is visible rather than silently dropped.
+// sequence runs past the end. Every malformed sequence — a stray continuation
+// byte, a lead that cannot start one, a missing continuation, an overlong, a
+// surrogate, a value past U+10FFFF — yields U+FFFD, so bad input is visible
+// rather than silently dropped.
 usize utf8_decode(Str s, usize at, char32_t &out);
 
 // The other case of `c`, or `c` itself where there is none. ASCII, Latin-1,

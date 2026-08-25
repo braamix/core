@@ -49,6 +49,70 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The decoder let through what the encoder had refused for years
+
+`cat /dev/random` killed the renderer: `RangeError: Invalid code point 1160716`,
+out of `String.fromCodePoint` in `web/render.js`. The device was not at fault.
+1160716 is 0x11B58C, which is what the bytes `f4 9b 96 8c` decode to, and
+`utf8_decode` had been handing that straight to a cell since M2. `cat` of any
+binary file did it; a device that is nothing but bytes made it a one-liner.
+
+**The two halves of one file disagreed, and only one of them had a test.**
+`utf8_encode` has refused surrogates and values past U+10FFFF from the
+beginning, and `test_text.cpp` asserts it. `utf8_decode` checked nothing: not
+the continuation bytes — a lead byte swallowed whatever followed it, so `c3 41`
+ate the `A` — not the leads that cannot begin a sequence (`f5`–`f7` all match
+the four-byte test and every one of them decodes above U+10FFFF), not
+overlongs, not surrogates, and not the range. The header even *described* the
+behaviour that was missing: "a stray continuation byte consumes one byte and
+yields U+FFFD, so bad input is visible rather than silently dropped". One of
+the cases was implemented and the sentence was read as though all of them were.
+
+**The fix is four layers, because one of them was never going to be enough.**
+Fixing the decoder alone leaves `Sys::ScreenBlit`, which is a `memcpy` of
+whatever a process staged: **any program could put any `u32` in a cell** and
+kill the renderer, decoder or no decoder. So the rule is now stated as an
+invariant — no cell holds a codepoint the host cannot draw — with one
+definition of it, `rune_safe` in `src/kernel/text.h`, and every writer going
+through it. `utf8_decode` yields U+FFFD for every malformed sequence;
+`screen_put` clamps what it is handed; `screen_touch` clamps the rectangle it is
+told about; and `web/render.js` guards both its `fromCodePoint` calls anyway.
+
+**`screen_touch` is where the blit is caught, and that is not a coincidence.**
+`screen.h` already required every writer filling cells through `screen_cells()`
+to call it — it is how such a writer says what it changed. Putting the pass
+there makes the invariant structural rather than remembered: cells cannot be
+declared changed without being made drawable, and a direct writer added later is
+covered without knowing this note exists. Its callers are the blit and
+`FullScreen`'s restore, and nothing else: `Pane` writes a *program's* own `Grid`
+and reaches the screen through a blit like everything else. The cost is the
+clipped rectangle — 1,920 cells for a full 80×24 repaint, against the step round
+trip that carried them, and against the alternative of validating cell by cell
+on the way in, which would have replaced the row `memcpy` with a loop and still
+left the renderer one bad write from the same death.
+
+**A malformed sequence consumes one byte or all of itself, and the difference
+matters.** A bad continuation byte consumes *one*, so the next lead byte
+resynchronises rather than the parser eating the rest of a line. A sequence
+whose shape was right but whose value was not — a surrogate, an overlong,
+0x11B58C — consumes all of itself and emits one U+FFFD, because four
+replacement characters where one codepoint was meant is noise. And `return 0`
+still means "need more input" and nothing else: `FileBuf::take` reads it as
+`RuneStep::Need`, so the invalid-lead test has to come before the length test or
+a bad byte at the end of a buffer would look like a short read for ever.
+
+**C0 controls are left alone.** `0x07` or `0x1b` in a cell is a valid codepoint
+that draws as a box or as nothing, and there are no escape sequences here to
+misread (§2.3). They cannot throw, and this was about what throws.
+
+**The regression test is the crash, not a unit of it.** `test/smoke/term.mjs` is
+the only case that drives the real `Renderer`, over the live grid with a mocked
+2D context, so a file of malformed bytes is `cat`ted and that row is painted and
+copied — `fillText` is stubbed but `String.fromCodePoint` still runs, and the
+case threw `RangeError: Invalid code point 1160588` before the fix. The unit
+suite has the decoder's table and both grid writers, and the smoke suite prints
+64 random bytes at a prompt, which is the report as filed.
+
 ## The draw becomes a device, and §2.2 admits a third
 
 `/proc/random` was a decimal `u32` per `open`, one release old, and neither the
