@@ -1,14 +1,25 @@
 #include "kernel/fmt.h"
 #include "proc/file.h"
 
-// Mounting is not yet something a user does: the table is built at boot. What
-// the command means for now is listing it — and the kernel already publishes
-// that as text, so this reformats /proc/mounts rather than asking for an
-// operation of its own.
+// Listing the table is /proc/mounts, which the kernel publishes as text, so no
+// operand reformats that rather than asking for an operation. Two operands are
+// the operation: Sys::Mount, which refuses until §5.4 has an Fs to build.
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 3) {
+        Result<void> r = Err(Error::NoMemory);
+        if (Task<Result<void>> t = mount_at(args[1], args[2]))
+            r = co_await t;
+        if (r.is_ok())
+            co_return 0;
+        if (r.error() == Error::Cancelled)
+            co_return 130;
+        if (Task<void> e = errln("mount", args[1], r.error()))
+            co_await e;
+        co_return 1;
+    }
     if (args.size() > 1) {
-        co_await write_all(SYS_STDERR, "usage: mount\n");
+        co_await write_all(SYS_STDERR, "usage: mount [special mount_point]\n");
         co_return 2;
     }
 

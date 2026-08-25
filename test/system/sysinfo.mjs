@@ -64,6 +64,22 @@ export function check() {
     if (!want.some((l) => l.startsWith("/ — ")))
         fail(`/proc/mounts did not report the root: ${JSON.stringify(table)}`);
 
+    // Two operands are Sys::Mount, which refuses: §5.4 has no Fs to build from
+    // a special. One is neither form.
+    s = submit("clear", 1183.85);
+    s = submit("mount /dev/zero /tmp/m; echo $?", 1183.86);
+    if (!rows(s).includes("mount: /dev/zero: unsupported"))
+        fail(`mount of two printed ${JSON.stringify(rows(s))}`);
+    if (!rows(s).includes("1"))
+        fail(`mount of two exited ${JSON.stringify(rows(s))}, expected 1`);
+
+    s = submit("clear", 1183.87);
+    s = submit("mount /dev/zero; echo $?", 1183.88);
+    if (!rows(s).includes("usage: mount [special mount_point]"))
+        fail(`mount of one printed ${JSON.stringify(rows(s))}`);
+    if (!rows(s).includes("2"))
+        fail(`mount of one exited ${JSON.stringify(rows(s))}, expected 2`);
+
     // The default is the system name; -m is the one field neither the host nor
     // the version supplies.
     s = submit("clear", 1184.1);

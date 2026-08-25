@@ -919,7 +919,7 @@ builtins with it; each program also answers for itself.
 | `ln` | make a symbolic link |
 | `ls` | list directories, in columns on a terminal |
 | `mkdir` | create directories |
-| `mount` | list the mounted filesystems |
+| `mount` | list the mounted filesystems; mounting one is refused so far |
 | `mv` | move or rename files |
 | `pbcopy` / `pbpaste` | the system clipboard, in and out |
 | `ps` | list the tasks the kernel is running |

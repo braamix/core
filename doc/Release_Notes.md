@@ -49,6 +49,62 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## An operation that cannot succeed, on purpose
+
+§4.3's fourth rule is that what the kernel publishes as text needs no operation,
+and its own worked example is `mount`: `/proc` is a filesystem, so the mount
+table is `/proc/mounts` and `cat` is the tool. That is why `/bin/mount` has been
+a reformatter since M5 and why `src/cmd/mount.cpp` carried a comment saying it
+asks for no operation of its own.
+
+**The rule is about reading, and it was doing double duty.** Listing the table is
+a question a filesystem can answer, and it still answers it — `mount` with no
+operands is unchanged, and `sysinfo.mjs` still checks it row for row against
+`/proc/mounts`. Changing the table is a write, and a write has nowhere in a
+filesystem to go. The rule's text never covered that case; it was simply never
+asked, because nothing could mount anything. The shape it wants is the one the
+rule already carves out for `chdir`: the state is readable as a file, and the act
+is an operation because no file can be asked to perform one. §5.4 had written
+down both candidate shapes years before — "a syscall or a `/proc` write to reach
+it" — so choosing the syscall settles a question that was left open rather than
+overturning one that was closed.
+
+**What is new is that the operation refuses.** `Sys::Mount` is op 34, takes
+`Rename`'s two-path payload, resolves both paths against the caller's cwd, and
+answers `Err(Unsupported)`. It cannot do otherwise: §5.4 names three
+preconditions and this commit satisfies exactly one. There is no factory turning
+a special into an `Fs` — `vfs_mount` takes an `Fs *` and nothing builds one from
+a path — and §5.1 still records that there is no per-process root, so a mount
+would be global the instant it worked and nothing says whether it should be. The
+refusal is the honest answer to both, and it is what a user sees:
+`mount: /dev/zero: unsupported`.
+
+This is `Truncate`'s history read backwards, and worth naming as such rather
+than filed as the same thing. §4.3 tells that one as an operation "left unbuilt
+for four milestones with `vfs_truncate` wired beneath it precisely because no
+program wanted it" — wired beneath, unbuilt above, waiting for a caller. Here the
+caller is the part that exists and the filesystem is the part that does not.
+Both halves of §4.3's first rule are still met: the rule asks that an operation
+have a caller in `src/cmd/`, not that it have a backend, and `/bin/mount` issues
+the call on every run of the two-operand form. What the rule guards against is
+growing the table on speculation, and an opcode with a program behind it and a
+test asserting its answer is not that — though the honest way to hold it is that
+the table now has one entry whose only observable behaviour is a diagnostic, and
+that is a debt against §5.4 rather than a feature.
+
+Opcode 34 was taken inside `PROC_ABI` 19, for the third time running: no
+existing opcode, reply or flag changed, so nothing built against 19 can tell.
+The exposure is `FStat`'s and not `O_EXCL`'s — a program calling `mount_at` on a
+kernel predating op 34 gets `Err(Unsupported)` from the dispatcher's default
+seed, which is the same answer this kernel gives deliberately. That is the one
+case where the silent-masking hazard does not apply, because the fallback and
+the intent agree.
+
+One thing moved that is easy to miss: `rootfs/etc/help` gained the operand form,
+and `subst.mjs`'s byte count is three copies of that file. 19,836 became 19,944.
+The comment there already said a line added would move it; it now says a line
+reworded does too.
+
 ## The pid in the temp name was never uniqueness
 
 N4 shelved `O_EXCL` on two clauses, and they answer different questions. "`Open`

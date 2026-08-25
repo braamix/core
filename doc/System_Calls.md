@@ -36,6 +36,7 @@ memory management unit.
 | a trap into ring 0 | a call to an imported function | an instance can only call the imports it was given, which is the capability system (§4.1) |
 | `errno` | a negated `Error` in the reply's leading `i32` | `_resume` has room for a buffer and not for an errno (§4.3) |
 | `fstat` | `Sys::FStat`, and the size is all of it | OPFS has no modification time for an open handle, and a descriptor opens nothing but a file |
+| `mount` | reading is `/proc/mounts`; `Sys::Mount` is the act, and refuses | a filesystem can publish its table but cannot be asked to change it — `chdir`'s shape (§5.4) |
 | `SIGKILL` | `worker.terminate()` | wasm cannot be preempted; a thread can be ended (§4.2) |
 | a core dump | a wasm trap the host reports as exit 132 | a process has no import to log through |
 | the file descriptor table | a `Vec<Handle *>` on the kernel's process record | a number one process holds means nothing in another |
@@ -817,6 +818,7 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 31 | `Truncate` | fd | `u64 length` | 0 | — |
 | 32 | `Sleep` | — | `u32 ms` | 0 | — |
 | 33 | `FStat` | fd | — | 0 | `u32 kind` (always a file), `u64 size`, `u64 mtime` (always 0) |
+| 34 | `Mount` | — | `u32 special_len`, the special, the mount point | 0 | — (`Err(Unsupported)` so far) |
 | 48 | `Clock` | — | — | 0 | `u64 epoch_ms`, `i32 tz_min` |
 | 49 | `Storage` | — | — | 0 | `u64 quota`, `u64 usage`, `u32 flags` |
 | 50 | `Fetch` | — | `u32 url_len`, the url, the spec | the body's fd | `u32 http_status`, the headers |

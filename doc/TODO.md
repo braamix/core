@@ -9,7 +9,7 @@ operation has a caller in `src/cmd/`* — and whether it moves `PROC_ABI`. An AB
 bump invalidates every stamped binary and every installed package, so an entry
 that needs one says so and is batched with anything else that does.
 
-Every entry carries a tag — `A3`, `B2`, `N6` — so it can be named from a commit
+Every entry carries a tag — `A3`, `B2`, `N7` — so it can be named from a commit
 or a conversation. A tag belongs to its entry for good: amend one, never reuse
 or renumber it. A finished entry leaves this file, since what is left is the
 whole of what it is for, and the gap it leaves stays a gap: number a new entry
@@ -36,9 +36,11 @@ operations answer it, and what is left divides four ways:
 - **Deliberate.** `bg`/`^Z` with `Wait`'s `WNOHANG`, `chmod`/`access`/`umask`,
   `link`, CPU metering, per-process root, `Kill` restricted to children. Each is
   in CLAUDE.md's known gaps with its argument in Release_Notes.md.
-- **Missing, and waiting for a caller.** `mount`. See "Not scheduled" below — it
-  has none. `fstat` and `O_EXCL` were here too, until `/bin/unzip` and
-  `/bin/edit` turned out to be the callers; Release_Notes.md has both arguments.
+- **Missing, and waiting for a caller.** Nothing, now. `fstat`, `O_EXCL` and
+  `mount` were all here until a caller turned up for each — `/bin/unzip`,
+  `/bin/edit` and `/bin/mount` — and Release_Notes.md has the three arguments.
+  `Sys::Mount` is the one of them that answers `Err(Unsupported)`: it has its
+  caller and not its filesystem, and §5.4 carries what that still wants.
 
 The twelve missing *programs* were checked against the table one by one. None
 is blocked on a syscall. **The gap is the program layer**, which is what
@@ -137,7 +139,5 @@ where several writes coalesce into one syscall. None of the below moves
 
 Each needs an argument in Concept.md before any of it is built.
 
-- **N6. `Sys::Mount`.** §5.4 says it is unbuilt; it needs the `Fs` backend *and*
-  an answer to the namespace question §5.1 leaves open.
 - **N7. A batched step protocol.** Reconsider only if a workload survives
   `SYS_READ_MAX`.

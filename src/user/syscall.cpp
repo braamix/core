@@ -937,6 +937,33 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             break;
         }
 
+        // Rename's two-path payload. Both paths are checked and then refused:
+        // vfs_mount takes an Fs, and nothing builds one from a special (§5.4).
+        case Sys::Mount: {
+            if (payload.size() < 4) {
+                status = -i32(Error::Invalid);
+                break;
+            }
+            u32 special_len = sys_get_u32(c.stage);
+            if (usize(special_len) + 4 > payload.size()) {
+                status = -i32(Error::Invalid);
+                break;
+            }
+
+            String special, point;
+            if (Result<void> a = proc_path(p, payload.substr(4, special_len), special);
+                a.is_err()) {
+                status = -i32(a.error());
+                break;
+            }
+            if (Result<void> a = proc_path(p, payload.substr(4 + special_len), point); a.is_err()) {
+                status = -i32(a.error());
+                break;
+            }
+            status = -i32(Error::Unsupported);
+            break;
+        }
+
         // Get and set in one operation, as KeyClaim and ScreenEnter are: the
         // answer to both is the resulting cwd, and a program that has just
         // moved wants it as much as one that only asked.

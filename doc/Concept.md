@@ -864,8 +864,8 @@ The wire's conventions:
   and its own scheduler job, so a socket read that never completes cannot starve
   the keystroke behind it.
 
-**The table is forty-nine operations and `PROC_ABI` is 19**: five synchronous —
-`exit`, `getpid`, `now`, `stage`, `random` — and forty-four asynchronous.
+**The table is fifty operations and `PROC_ABI` is 19**: five synchronous —
+`exit`, `getpid`, `now`, `stage`, `random` — and forty-five asynchronous.
 `Random` is the newest and the first the synchronous half has taken since the
 wire was written: 32 bits out of the worker's own CSPRNG, which is the one value
 a kernel whose clock is a counter and whose pids are serial numbers cannot make
@@ -947,6 +947,25 @@ name provably the writer's own and an orphan a diagnostic. It is a flag and not
 an operation, so the table does not grow and `PROC_ABI` does not move; the cost
 of that is in §5.2, because a bit an older kernel does not know is one it
 silently drops.
+
+**`Mount` is the fourth rule's other half: reading the table is a file, changing
+it is not.** That rule retires an operation whose answer `/proc` can publish, and
+its own example is `mount` — but what it retires there is the *listing*, which
+stays `/proc/mounts` and which `/bin/mount` with no operands still reformats. A
+mount is a write, and a write has nowhere in a filesystem to go; the shape is
+`chdir`'s, where the state is readable as a file and the act is an operation
+because no file can be asked to perform one. §5.4 had already admitted the two
+candidate shapes — "a syscall or a `/proc` write" — and this is the first.
+
+What it cannot yet do is succeed. §5.4's other two preconditions are unmet:
+there is no factory turning a special into an `Fs`, and §5.1 still says there is
+no per-process root, so what a mount by one process should mean to every other
+has no answer. So `Mount` decodes its two paths, resolves them, and returns
+`Err(Unsupported)` — an operation wired above and unbuilt beneath, which is
+`Truncate`'s history read backwards: that one sat wired beneath and unbuilt above
+for four milestones because no program wanted it, and this one has the program
+and wants the filesystem. The refusal is the honest answer rather than a
+placeholder, and it is what `/bin/mount special mount_point` prints today.
 
 **A descriptor named in a spawn is moved, not duplicated.** The parent's slot is
 closed and the child owns it. POSIX duplicates and expects the parent to close
@@ -1536,11 +1555,15 @@ structured-cloneable, so one can be stashed in IndexedDB and the mount
 re-offered on the next visit, though permission must be re-requested each
 session.
 
-**This is unbuilt.** `mount` is an ordinary binary that reformats
-`/proc/mounts`, and mounting is not something a user does: `vfs_mount` is called
-from boot and nowhere else. Making it one needs the `Fs` above, a syscall or a
-`/proc` write to reach it, and an answer to what a second process should see —
-the namespace question §5.1 leaves open.
+**This is unbuilt, and one of its three pieces is now in.** Of the two shapes
+that could reach it — a syscall or a `/proc` write — the syscall is chosen and
+built: `Sys::Mount` is op 34, `/bin/mount special mount_point` is its caller, and
+§4.3 has the argument for why changing the table is an operation where listing it
+is a file. What the operation does is refuse. `vfs_mount` still runs from boot
+and nowhere else, because the two pieces left are the ones that matter: the `Fs`
+above, and an answer to what a second process should see — the namespace question
+§5.1 leaves open. A mount is global the moment it succeeds, and nothing yet says
+whether it should be.
 
 The universally available escape hatch is the boring one, and it is built:
 `<input type="file">` for import and a Blob download for export, as `/import`

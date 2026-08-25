@@ -63,7 +63,7 @@ Programs in /bin
   ln        -s [-f] <target> <name> — make a symbolic link
   ls        [-1CRSdhlrt] [<path>...] — list files, in columns on a terminal
   mkdir     [-p] <dir>... — make directories, with missing parents under -p
-  mount     list the mounted filesystems
+  mount     [<special> <dir>] — list the mounted filesystems, or mount one
   mv        [-fi] <src>... <dst> — move or rename files
   pbcopy    [<file>...] — copy the input to the clipboard
   pbpaste   print the clipboard

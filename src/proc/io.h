@@ -121,6 +121,10 @@ Task<Result<String>> read_link(Str path);
 // this — a different mount, or a directory — so copy and remove instead.
 Task<Result<void>> rename_path(Str from, Str to);
 
+// Mounts `special` onto `point`. Err(Unsupported) always for now: the table is
+// still boot's alone, and reading it is /proc/mounts (Concept.md §5.4).
+Task<Result<void>> mount_at(Str special, Str point);
+
 // This process's own working directory, which every relative path above
 // resolves against. Inherited from whoever spawned it — the shell, for a
 // command typed at the prompt — and moved by nobody else. Both report the

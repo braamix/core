@@ -109,6 +109,11 @@ enum class Sys : u32 {
     // kind is always a file and mtime is always 0.
     FStat = 33, // arg = fd;  data = u32 kind, u64 size, u64 mtime
 
+    // A filesystem onto a directory, in Symlink's two-path shape. Listing the
+    // table is /proc/mounts; this changes it. Err(Unsupported) for now — §5.4
+    // has no Fs to build from a special.
+    Mount = 34, // payload = u32 special_len, the special, the mount point
+
     // Host services. What the kernel publishes as text under /proc is read with
     // Open and Read instead. A stream of bytes comes back as a descriptor, so
     // Read, Write and Close serve it; a killed process drops them with its

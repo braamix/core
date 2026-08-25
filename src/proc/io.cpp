@@ -438,6 +438,22 @@ Task<Result<void>> rename_path(Str from, Str to)
     co_return {};
 }
 
+Task<Result<void>> mount_at(Str special, Str point)
+{
+    // Two paths in one payload, as rename_path's are.
+    String payload;
+    u8 head[4];
+    sys_put_u32(head, u32(special.size()));
+    if (!payload.append(Str(reinterpret_cast<const char *>(head), 4)) || !payload.append(special) ||
+        !payload.append(point))
+        co_return Err(Error::NoMemory);
+
+    Result<SysReply> r = co_await sys_call(Sys::Mount, 0, payload.str());
+    if (r.is_err())
+        co_return Err(r.error());
+    co_return {};
+}
+
 // One operation for both, so the kernel answers "where am I now" whichever was
 // asked. The reply is copied out: a Str into the waiter's buffer is only good
 // until that slot's next syscall.
