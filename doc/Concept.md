@@ -471,6 +471,22 @@ copy chord and the paste event is the hidden input's rather than the canvas's;
 the canvas carries a `braam-focus` class so a page can still draw a ring around
 it.
 
+**The browser's own Edit menu reaches all four, through the hidden input.** A
+menu command is not a keystroke, so none of the chords above can be its route:
+`Select All`, `Copy`, `Cut` and `Paste` act on whatever holds the focus, and
+what holds it here is that input. So it is not kept empty. It holds a sentinel —
+one no-break space — and behind it a mirror of what the grid has selected, with
+the selection range covering the mirror alone. Three things follow: the resting
+range never reaches column 0, so the browser's `Select All` always changes it
+and the `select` it fires is the command arriving; `Copy` and `Cut` are enabled,
+dispatch a `copy`/`cut` event and find the right text under it, which is what
+`web/braam.js` writes and then clears, as the chord does; and typing still
+works, because an insertion replaces the mirror it is selected over and the
+input path strips one known character. `Select All` from the menu means the
+visible screen, exactly as `Cmd+A` does. Nothing about this crosses the wasm
+boundary either — it is the same `selectall` message and the same
+`renderer.all()`.
+
 **The wheel is page-side in the same sense, and becomes the scrollback chord.**
 A `wheel` over the canvas is turned into the keystrokes above — one Shift+Up or
 Shift+Down per row, the half-screen chord for a page-mode delta — so the history

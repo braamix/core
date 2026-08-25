@@ -49,6 +49,100 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The Edit menu was talking to an empty box
+
+`Edit → Select All` in the browser's own menu selected nothing, and `Edit →
+Copy` beside it was greyed out. Everything those commands want had been built —
+a selection over the grid, `Cmd+A` to select all of it, `Cmd+C` to copy it — and
+none of it was reachable, because **every route into this terminal started at a
+keystroke and a menu command is not one**. There is no `selectall` event to
+listen for, and a `copy` event is dispatched only when the browser thinks
+something is selected.
+
+What those commands *do* act on is whatever holds the focus, and since M8 that
+is a hidden `<textarea>`, the sink. It was deliberately empty — its whole job
+was to hold what an input method had just produced and nothing else. An empty
+text control is exactly the thing `Select All` cannot select and `Copy` cannot
+copy, so the menu was operating correctly on a box with nothing in it.
+
+**So the sink stops being empty.** It holds a sentinel — one no-break space —
+and behind it a mirror of what the grid has selected, with the selection range
+covering the mirror alone:
+
+```
+value = "\u00a0" + selection     range = (1, value.length)
+```
+
+That one invariant answers all three commands at once, which is why it was
+preferred to three mechanisms:
+
+- **The resting range never reaches column 0.** So the browser's `Select All`
+  always changes it, and the `select` it fires is the command arriving —
+  including from the state where nothing is selected, which is the reported
+  bug. A range of exactly `(0, length)` is the menu and nothing else; the
+  handler collapses it back, which makes a duplicate from an engine that fires
+  `select` and `selectionchange` both fail the same guard.
+- **`Copy` and `Cut` become enabled**, dispatch their event, and have the right
+  text under them. The page still writes the clipboard itself
+  (`clipboardData.setData`) and clears the selection after, so the menu and the
+  chord leave the terminal in the same state — the invariant that keeps the
+  *next* `^C` an interrupt rather than a second copy.
+- **Typing is unaffected**, because the mirror is *selected*: an insertion
+  replaces it, and what is left in front of the typed text is the sentinel,
+  which `drain()` strips. The mirror cannot be typed into the shell by accident
+  the way a merely-prefilled field could.
+
+`Paste` needed nothing. The `paste` event is dispatched from the menu exactly as
+it is from `Cmd+V`, and `web/braam.js` has handled it since M6 — it was included
+in the request and verified rather than changed.
+
+### The event this file ruled out is now the right one
+
+"Ctrl+C, twice overloaded" below rejected the `copy` event outright: it "is not
+reliably dispatched to a focused canvas with no document selection behind it,
+and when it is not, the chord would be swallowed with nothing copied and no
+interrupt sent". Both halves of that premise are gone — the focus is a text
+control, not a canvas, and there is now a document selection behind it. The
+chord's own path is untouched all the same: it prevents its default, so no
+`copy` event follows a `Cmd+C`, and the two routes cannot both write. `Cut`
+shares the copy handler, because a terminal has nothing to cut and the native
+one would take the mirror out of the sink.
+
+### The sentinel is the contingency M8 already costed
+
+"Three things left uncertain on purpose" named this exact trick as the fix for a
+soft keyboard that suppresses `beforeinput` on an empty field — "seed the sink
+with two no-break spaces, keep the caret between them, and diff on drain — which
+costs autocorrect context and makes a screen reader read the sentinel". It
+arrives here for a different reason and pays those listed costs, and it is
+installed **on every platform** rather than only where there is a menu bar: one
+input path is worth more than sparing a character from a screen reader, and the
+capability query that would have split them (`any-pointer: coarse`) is wrong for
+a tablet with a keyboard attached. One sentinel, not two, since the range rather
+than a caret position is what is being read; and a no-break space rather than a
+zero-width one, because it is a word boundary an input method composing a word
+cannot absorb.
+
+It pays a debt on the way past: a backspace on an empty line now deletes a real
+character, so a UA that fires no `beforeinput` for an edit that changes nothing
+has something to change.
+
+Two rules keep the sink and the grid in step. `dropSelection()` runs at the top
+of `sendKey()` and `typeCodes()` — every route by which input leaves the page —
+so the mirror goes when the worker's own `deselect()` goes, rather than a
+message turn later; and `resetSink()` refuses to touch the field while an input
+method is composing, since a write to `value` mid-word is how an IME is broken.
+
+**Nothing crosses the wasm boundary.** No import, no export, no syscall, no
+`Screen` field, no worker message that did not exist: `Select All` from the menu
+posts the same `{kind:"selectall"}` the chord does and means the same thing —
+the visible screen. The unedited exact-surface assertion in
+[test/system/abi.mjs](../test/system/abi.mjs) is the evidence, as it was for M8:
+there is still no browser harness in this tree, so the three CTest cases prove
+only that this stayed on the page, and the behaviour was checked by hand in a
+browser — both menu and chord, both terminals in `embed.html`, and typing after
+each.
+
 ## `null` and `zero`, and the two rules `writable()` was keeping at once
 
 `/dev` holds four entries now. `zero` cost what §5.1 said it would — a row in

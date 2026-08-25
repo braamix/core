@@ -153,6 +153,11 @@ export function mount(options = {}) {
     // raised by a focused editable element and a canvas is not one
     // (Concept.md §3.5). Every declaration below is load-bearing — see
     // Release_Notes.md before changing one.
+    //
+    // It holds a sentinel and, behind it, the grid's selection: that is what
+    // the browser's Edit menu acts on (§3.5). A no-break space, not a
+    // zero-width one, so a composing input method cannot absorb it.
+    const SENTINEL = "\u00a0";
     const sink = document.createElement("textarea");
     sink.setAttribute("aria-label", "Terminal input");
     sink.setAttribute("autocapitalize", "none");
@@ -200,6 +205,48 @@ export function mount(options = {}) {
     // back as text (Concept.md §3.5). It costs no keystroke and no syscall.
     let selection = "";
     let dragging = null; // the pointer id of the drag in progress
+
+    // An input method is mid-word; nothing may touch the sink until it is done.
+    let composing = false;
+
+    // The sink's value is the sentinel and the selection behind it, with the
+    // range over the selection alone — so the resting range never starts at 0,
+    // a browser Select All always changes it, and a browser Copy has the right
+    // text under it (Concept.md §3.5).
+    function resetSink() {
+        if (composing)
+            return;
+        sink.value = SENTINEL + selection;
+        sink.setSelectionRange(SENTINEL.length, sink.value.length);
+    }
+
+    // Any input drops the selection, here as in the worker.
+    function dropSelection() {
+        if (!selection)
+            return;
+        selection = "";
+        resetSink();
+    }
+
+    resetSink();
+
+    // Select All off the browser's Edit menu: the one range that reaches column
+    // 0. Collapsing it back rejects the duplicate an engine firing more than
+    // one of these sends; the worker's reply installs the mirror.
+    function onSelectAll() {
+        if (document.activeElement !== sink || !sink.value.length)
+            return;
+        if (sink.selectionStart !== 0 || sink.selectionEnd !== sink.value.length)
+            return;
+        sink.setSelectionRange(SENTINEL.length, sink.value.length);
+        worker.postMessage({ kind: "selectall" });
+    }
+
+    // Which of the three an engine fires for a text control differs; the guard
+    // above makes taking all of them safe.
+    sink.addEventListener("select", onSelectAll);
+    sink.addEventListener("selectionchange", onSelectAll);
+    document.addEventListener("selectionchange", onSelectAll);
 
     function device(event) {
         const rect = canvas.getBoundingClientRect();
@@ -266,10 +313,17 @@ export function mount(options = {}) {
 
     canvas.addEventListener("wheel", onWheel, { passive: false });
 
+    // What both copy routes owe the selection: ^C interrupts again from here,
+    // without waiting for a reply.
+    function copied() {
+        selection = "";
+        resetSink();
+        worker.postMessage({ kind: "deselect" });
+    }
+
     function copy() {
         const text = selection;
-        selection = ""; // ^C interrupts again from here, without waiting for a reply
-        worker.postMessage({ kind: "deselect" });
+        copied();
         if (!navigator.clipboard) {
             onError("braam: this origin has no clipboard");
             return;
@@ -281,6 +335,22 @@ export function mount(options = {}) {
         navigator.clipboard.writeText(text)
             .catch((e) => onError(`braam: copy refused: ${e.message}`));
     }
+
+    // Copy and Cut off the browser's Edit menu, which the chord above never
+    // reaches: it prevents its own default, so no copy event follows it. Cut
+    // shares this — a terminal has nothing to cut, and the native one would
+    // take the mirror out of the sink. The event is the document's, so an
+    // embedded terminal claims one only while it holds the focus.
+    function onCopy(event) {
+        if (document.activeElement !== sink || !selection || !event.clipboardData)
+            return;
+        event.preventDefault();
+        event.clipboardData.setData("text/plain", selection);
+        copied();
+    }
+
+    addEventListener("copy", onCopy);
+    addEventListener("cut", onCopy);
 
     const letter = (event, c) =>
         !event.altKey && (event.key === c || event.key === c.toUpperCase());
@@ -301,6 +371,7 @@ export function mount(options = {}) {
 
     // The one way a keystroke leaves for the kernel.
     function sendKey(code, mods) {
+        dropSelection();
         worker.postMessage({ kind: "key", code, mods: mods | sticky });
         setSticky(0);
     }
@@ -309,6 +380,7 @@ export function mount(options = {}) {
     // is paced against the key ring, and worker.js dispatches a key ahead of a
     // run still being fed, which would reorder a backspace against its word.
     function typeCodes(codes) {
+        dropSelection();
         if (codes.length)
             worker.postMessage({ kind: "paste", codes });
     }
@@ -353,16 +425,18 @@ export function mount(options = {}) {
     // predictive text and every IME. It runs exactly when onKeyDown did not
     // prevent the default, which is what keeps a keystroke from arriving twice.
     //
-    // The sink is kept empty, so its value is whatever the input method has
-    // just produced. Reading it rather than event.data makes the order of
-    // input and compositionend, which differs between engines, not matter.
-    let composing = false;
+    // What follows the sentinel is whatever the input method has just produced:
+    // an insertion replaces the mirror, which is what the range covers. Reading
+    // the value rather than event.data makes the order of input and
+    // compositionend, which differs between engines, not matter.
 
     function drain() {
-        const text = sink.value;
+        const raw = sink.value;
+        const text = raw.startsWith(SENTINEL) ? raw.slice(SENTINEL.length) : raw;
+        dropSelection();
+        resetSink();
         if (!text)
             return;
-        sink.value = "";
         let codes = pasted(text);
         // Ctrl latched on the bar, then "c" on the soft keyboard, is ^C. It
         // goes as a key precisely because that jumps the paste queue.
@@ -373,9 +447,8 @@ export function mount(options = {}) {
         typeCodes(codes);
     }
 
-    // A delete on an empty field changes nothing, and a UA that changes nothing
-    // fires no input event — so deletion is taken here, where it is announced
-    // before the fact.
+    // A delete against a field the sentinel keeps non-empty is a real edit, but
+    // it is still taken here, where it is announced before the fact.
     const DELETES = { deleteContentBackward: "Backspace", deleteContentForward: "Delete" };
 
     function onBeforeInput(event) {
@@ -392,12 +465,12 @@ export function mount(options = {}) {
         if (composing)
             return; // still being edited; compositionend drains it
         if (event.inputType === "insertLineBreak" || event.inputType === "insertParagraph") {
-            sink.value = "";
             typeCodes([named("Enter")]);
+            resetSink();
             return;
         }
         if (IGNORED.test(event.inputType || "")) {
-            sink.value = "";
+            resetSink();
             return;
         }
         drain();
@@ -580,6 +653,7 @@ export function mount(options = {}) {
         }
         if (data.kind === "selection") {
             selection = data.text;
+            resetSink(); // the menu's Copy acts on this, so it follows the grid
             return;
         }
         if (data.kind === "svc") {
@@ -634,6 +708,9 @@ export function mount(options = {}) {
             canvas.removeEventListener("wheel", onWheel);
             canvas.classList.remove("braam-focus");
             removeEventListener("paste", onPaste);
+            removeEventListener("copy", onCopy);
+            removeEventListener("cut", onCopy);
+            document.removeEventListener("selectionchange", onSelectAll);
             // The sink and the buttons go with their listeners; the container
             // is the page's and stays.
             sink.remove();
