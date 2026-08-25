@@ -77,10 +77,15 @@ point:
 3. `host_random(ptr, len)` — `crypto.getRandomValues` fills the array it is
    given and returns, so entropy is exactly as synchronous as the clock. It is
    here rather than on `host_svc` because its caller cannot await: `/dev/random`
-   is served by `Fs::read`, which is not a coroutine (§5.1, §5.2). The
-   alternative — seeding a generator in the kernel from one asynchronous
-   draw — would mean the bytes handed out are the kernel's invention rather
-   than the host's.
+   is served by `Fs::read`, which is not a coroutine (§5.1, §5.2). What was
+   rejected was a generator in the kernel *in place of* this import, on two
+   counts: every byte in `/dev` would then be the kernel's invention rather
+   than the host's, and the one draw seeding it would still have to be awaited
+   from the one place that cannot. `/dev/urandom` later put a generator in the
+   kernel anyway, and neither count applies to it — `/dev/random` still hands
+   out the host's own bytes per read, and the seed is one *synchronous*
+   `host_random` from inside `Fs::read`. It went in on top of this exception,
+   which is what the exception made possible, not what it forbade.
 
 Each of the three fails a promise test the ordinary imports pass, and none of
 them carries a reply large enough or late enough to need a token. A fourth needs
@@ -1126,7 +1131,7 @@ caveats.
 ```
 OpfsFs     → OPFS                (/, and therefore everything — the store)
 ProcFs     → the scheduler       (/proc, generated at open)
-DevFs      → host_random         (/dev, generated at read)
+DevFs      → host_random, ChaCha20 (/dev, generated at read)
 
 unbuilt:
   a File System Access Fs        (a real local directory, Chromium only, opt-in — §5.4)
@@ -1195,26 +1200,44 @@ itself: a `WebAssembly.Memory` reports its own size and only the worker holds
 one, so it comes back in every step's reply (§4.3) rather than in an operation
 of its own.
 
-`/dev` is `DevFs`, and it holds `random`: raw bytes, as many as are read, for as
-long as anything reads. A read is one `host_random` and the bytes are the
-host's own; nothing is generated here and nothing is held between reads, which
-is why the offset is ignored and two descriptors on the one shared handle
-(§5.2) still never see the same byte twice. It is a *device* rather than a
-`/proc` entry because what it publishes is not state the kernel is holding —
-`/proc` files are snapshots taken at `open`, and this is a stream.
+`/dev` is `DevFs`, and it holds `random` and `urandom`: raw bytes, as many as
+are read, for as long as anything reads. They are *devices* rather than `/proc`
+entries because what they publish is not state the kernel is holding — `/proc`
+files are snapshots taken at `open`, and these are streams.
 
-Two consequences are deliberate. `stat` says 0, as Linux does for a character
-device, and `size` on an open descriptor says *nothing at all* —
-`Err(Unsupported)` rather than a number — because the read path clamps a
-request to what a file has left only when a size is given, and a device never
-ends. `SEEK_END` is the price: it is the one operation that needs a size, and
-it fails.
+The two names carry Linux's two promises rather than one pool under two
+spellings. A read of `random` is one `host_random` and the bytes are the host's
+own; nothing is generated and nothing is held between reads. A read of
+`urandom` comes from a generator in the kernel — ChaCha20 with fast key
+erasure, in [src/fs/chacha.h](../src/fs/chacha.h) — seeded by a single
+`host_random` of 32 bytes taken lazily on its first read and never taken again.
+So a program reading a long stream pays one host call ever rather than one per
+read, and a caller who wants the host's own bytes has `random` one path
+component away.
+
+The offset is ignored on both, which is why two descriptors on the one shared
+handle (§5.2) still never see the same byte twice: on `random` because each
+read is its own draw, on `urandom` because the generator advances whoever
+asked. Each 64-byte block's first half replaces the key and only its second
+half leaves, so nothing the kernel is holding can reproduce a byte already
+handed out; the unused tail of a read's last block is dropped rather than kept
+for the next, since keeping it would leave un-emitted keystream resident and
+void exactly that.
+
+Two consequences are deliberate, and they hold for both. `stat` says 0, as
+Linux does for a character device, and `size` on an open descriptor says
+*nothing at all* — `Err(Unsupported)` rather than a number — because the read
+path clamps a request to what a file has left only when a size is given, and a
+device never ends. `SEEK_END` is the price: it is the one operation that needs
+a size, and it fails.
 
 `DevFs` is in `src/fs/` rather than `src/user/`, where `ProcFs` is, because it
-reads no scheduler and no screen; its entries are a table, so `urandom`, `null`
-and `zero` are a row each. `null` will cost more than a row: it is a writer, and
-the open-file table refuses a writer any other descriptor holds (§5.2), so two
-stages redirecting to it would collide. That exemption is not made here.
+reads no scheduler and no screen; its entries are a table, so `zero` is a row.
+`urandom` was a row and a generator behind it, since a device that expands one
+draw is not a device that repeats a call. `null` will cost more again: it is a
+writer, and the open-file table refuses a writer any other descriptor holds
+(§5.2), so two stages redirecting to it would collide. That exemption is not
+made here.
 
 `/proc/stat` is what the kernel has *done* rather than what it is holding: one
 `name value` line per counter, cumulative since boot, and the reader does the
@@ -1482,7 +1505,8 @@ the invariant.
 `crypto.getRandomValues` is not a near miss but a hit, and it is §2.2's third
 exception: it fills the array it is given and returns, and `/dev/random`'s
 reader cannot await, so it is `host_random` — the seventh import — rather than
-an operation on `host_svc`. A process draws separately, in its own worker,
+an operation on `host_svc`. It serves `/dev/random` per read and seeds
+`/dev/urandom` once. A process draws separately, in its own worker,
 through [web/proc.js](../web/proc.js), which `kernel.wasm` never sees. Two
 realms drawing separately is not two answers to one question: any bits are a
 valid draw, so there is nothing to disagree about. The wall clock cannot take
@@ -1538,7 +1562,7 @@ src/cmd/pkg/            the package manager (Package_Management.md), and the mai
 src/cmd/sh/             the shell (§4.5): grammar, word expander, pattern matcher, condition
                         evaluator, variables, LineEditor, job runtime, builtins, and the
                         main.cpp that makes them a binary like any other
-src/fs/                 Fs interface, path, VFS, OpfsFs, DevFs, storage ABI
+src/fs/                 Fs interface, path, VFS, OpfsFs, DevFs, ChaCha20, storage ABI
 src/math/               musl's libm, vendored (§3.2); a program links braam::math for it
 src/math/musl/          the vendored sources, byte-identical, with a private header shim
 src/math/cvt/           musl's strtod and printf float engines, derived rather than verbatim

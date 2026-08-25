@@ -1,11 +1,12 @@
 #include "devfs.h"
 
+#include "chacha.h"
 #include "kernel/alloc.h"
 #include "kernel/host.h"
 
 namespace {
 
-enum class DevKind : u8 { Random };
+enum class DevKind : u8 { Random, Urandom };
 
 struct DevNode {
     Str name;
@@ -13,7 +14,10 @@ struct DevNode {
 };
 
 // A name is a row; two names for one kind would be two rows.
-constexpr DevNode DEVICES[] = { { "random", DevKind::Random } };
+constexpr DevNode DEVICES[] = {
+    { "random", DevKind::Random },
+    { "urandom", DevKind::Urandom },
+};
 
 const DevNode *node_of(Str name)
 {
@@ -82,8 +86,8 @@ struct DevFs final : Fs {
 
     Task<Result<void>> remove(Str, bool) override { co_return Err(Error::Perm); }
 
-    // The offset is ignored and the count is always met: a device is a stream,
-    // and every byte of it is one the host just drew.
+    // The offset is ignored and the count is always met: a device is a stream.
+    // random is a host draw per read; urandom is one draw ever, expanded.
     Result<usize> read(u32 h, u64, u8 *buf, usize n) override
     {
         if (h >= open_.size() || !open_[h])
@@ -92,6 +96,15 @@ struct DevFs final : Fs {
         case DevKind::Random:
             host_random(u32(reinterpret_cast<usize>(buf)), u32(n));
             return n;
+        case DevKind::Urandom: {
+            if (!prng_.seeded()) {
+                u8 key[CHACHA_KEY];
+                host_random(u32(reinterpret_cast<usize>(key)), u32(sizeof key));
+                prng_.seed(key);
+            }
+            prng_.fill(buf, n);
+            return n;
+        }
         }
         return Err(Error::Invalid);
     }
@@ -112,6 +125,9 @@ struct DevFs final : Fs {
 
 private:
     Vec<u8> open_;
+
+    // The mount's, not a handle's: two descriptors share one backend handle.
+    ChaCha prng_;
 };
 
 } // namespace

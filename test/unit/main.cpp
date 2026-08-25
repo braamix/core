@@ -40,6 +40,7 @@ void test_solve();
 void test_plan();
 void test_text();
 void test_procfs();
+void test_chacha();
 void test_devfs();
 void test_pane();
 void test_textbuf();
@@ -137,7 +138,8 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_trigger(); // after db and dep: a changeset says which triggers fire
     test_zip();     // after sha256 and svc: rootfs.zip is compared by digest
     test_procfs();
-    test_devfs();
+    test_chacha();
+    test_devfs(); // after chacha: /dev/urandom is that generator
 
     u32 failures = test_failures();
     HeapStats s  = heap_stats();

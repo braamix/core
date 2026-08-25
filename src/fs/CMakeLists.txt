@@ -1,4 +1,5 @@
 add_library(braam_fs STATIC
+    chacha.cpp
     devfs.cpp
     hostfs.cpp
     opfsfs.cpp

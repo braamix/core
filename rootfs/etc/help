@@ -120,5 +120,6 @@ More
   /etc/anchor       the keys a repository's index is checked against
   /proc             the system as text — try cat /proc/host
   /dev/random       raw random bytes, for as long as anything reads
+  /dev/urandom      the same, out of a generator seeded once
 
   help | grep ls    off a terminal `less` copies, so this list pipes

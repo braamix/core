@@ -3,7 +3,7 @@
 // answered rather than fetched.
 //
 // It lives in src/fs/ rather than src/user/, as ProcFs does not: it reads no
-// scheduler and no screen, only host_random.
+// scheduler and no screen, only host_random and the generator in chacha.h.
 #pragma once
 
 #include "fs.h"

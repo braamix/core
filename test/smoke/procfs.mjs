@@ -165,11 +165,23 @@ export function check() {
     if (!wrt.includes("permission"))
         fail(`echo into /dev/random printed ${JSON.stringify(wrt)}, expected a refusal`);
 
-    // A device measures 0, as it does on Linux, and the draw has left /proc.
+    // /dev/urandom is one draw the kernel expands rather than a draw per read,
+    // and ends no sooner for it: the count asked for is the count that arrives.
+    for (let i = 0; i < 2; i++) {
+        submit("clear", 1189.046 + i * 0.002);
+        const got = rows(submit("head -c 8 /dev/urandom | wc", 1189.047 + i * 0.002))
+            .filter((line) => line && !line.includes("$")).join("|");
+        if (got.trim().split(/\s+/)[2] !== "8")
+            fail(`head -c 8 /dev/urandom | wc printed ${JSON.stringify(got)}, expected 8 bytes`);
+    }
+
+    // Both devices measure 0, as they do on Linux, and the draw has left /proc.
     submit("clear", 1189.05);
     const dev = rows(submit("ls -l /dev", 1189.06)).filter((line) => line && !line.includes("$"));
     if (!dev.some((line) => /^file\s+0\s.*\brandom$/.test(line)))
         fail(`ls -l /dev printed ${JSON.stringify(dev)}, expected random at 0`);
+    if (!dev.some((line) => /^file\s+0\s.*\surandom$/.test(line)))
+        fail(`ls -l /dev printed ${JSON.stringify(dev)}, expected urandom at 0`);
 
     submit("clear", 1189.07);
     const gone = rows(submit("cat /proc/random", 1189.08))

@@ -376,13 +376,13 @@ asynchronous, whatever it costs.
 
 **`Random` is the one operation the kernel does not answer.** `exec_sys` has no
 case for it, and refuses. The kernel is not short of entropy — `host_random`
-serves `/dev/random` from the same `crypto.getRandomValues` — but answering
-would give one operation two servers, and a refusal is the diagnosable end of
-an unreachable path. Nothing is lost: the host relays only `Exit` and `Stage`
-through `exec_sys`, so a program's `GetPid`, `Now` and `Random` never arrive
-there. `Stage` is already answered two ways —
-refused in the worker, served by the kernel — and `Random` is the same split
-reversed.
+serves `/dev/random`, and seeds `/dev/urandom`, from the same
+`crypto.getRandomValues` — but answering would give one operation two servers,
+and a refusal is the diagnosable end of an unreachable path. Nothing is lost:
+the host relays only `Exit` and `Stage` through `exec_sys`, so a program's
+`GetPid`, `Now` and `Random` never arrive there. `Stage` is already answered two
+ways — refused in the worker, served by the kernel — and `Random` is the same
+split reversed.
 
 `Random` is also the only operation here whose return is not a status. A draw of
 `0xffffffff` comes back as `-1` and is a number, not an error; there is no error

@@ -30,15 +30,21 @@ void test_devfs()
     CHECK(dev != nullptr);
     CHECK(vfs_mount("/dev", dev).is_ok());
 
-    // The table is the whole directory, and a device measures 0 as it does on
-    // Linux.
+    // The table is the whole directory, in vfs_list's byte order rather than
+    // the table's, and a device measures 0 as it does on Linux.
     Result<Vec<Entry>> ls = run_now(vfs_list("/dev"));
     CHECK(ls.is_ok());
-    CHECK_EQ(ls.value().size(), 1u);
+    CHECK_EQ(ls.value().size(), 2u);
     CHECK(ls.value()[0].name.str() == "random");
     CHECK_EQ(ls.value()[0].size, 0u);
+    CHECK(ls.value()[1].name.str() == "urandom");
+    CHECK_EQ(ls.value()[1].size, 0u);
 
     Result<Stat> st = run_now(vfs_stat("/dev/random"));
+    CHECK(st.is_ok());
+    CHECK(st.value().kind == NodeKind::File);
+    CHECK_EQ(st.value().size, 0u);
+    st = run_now(vfs_stat("/dev/urandom"));
     CHECK(st.is_ok());
     CHECK(st.value().kind == NodeKind::File);
     CHECK_EQ(st.value().size, 0u);
@@ -47,10 +53,12 @@ void test_devfs()
 
     // Read-only, and not a directory anyone may add to.
     CHECK(run_now(vfs_open("/dev/random", O_READ | O_WRITE)).error() == Error::Perm);
+    CHECK(run_now(vfs_open("/dev/urandom", O_READ | O_WRITE)).error() == Error::Perm);
     CHECK(run_now(vfs_open("/dev/nosuch", O_READ)).error() == Error::NotFound);
     CHECK(run_now(vfs_open("/dev", O_READ)).error() == Error::IsDir);
     CHECK(run_now(vfs_mkdir("/dev/sub")).error() == Error::Perm);
     CHECK(run_now(vfs_remove("/dev/random", false)).error() == Error::Perm);
+    CHECK(run_now(vfs_remove("/dev/urandom", false)).error() == Error::Perm);
 
     Result<i32> fd = run_now(vfs_open("/dev/random", O_READ));
     CHECK(fd.is_ok());
@@ -79,7 +87,54 @@ void test_devfs()
 
     vfs_close(other.value());
     CHECK_EQ(draw(fd.value(), 0, a, 16), 16u);
+
+    // urandom answers the same way, out of a generator seeded on its first
+    // read rather than a draw per read.
+    Result<i32> u = run_now(vfs_open("/dev/urandom", O_READ));
+    CHECK(u.is_ok());
+    CHECK_EQ(draw(u.value(), 0, a, sizeof a), sizeof a);
+    CHECK_EQ(draw(u.value(), sizeof a, b, sizeof b), sizeof b);
+    CHECK(!same(a, b, sizeof a));
+    CHECK_EQ(draw(u.value(), 1u << 30, a, 1u), 1u);
+    CHECK_EQ(draw(u.value(), 0, a, 0), 0u);
+
+    CHECK(vfs_size(u.value()).error() == Error::Unsupported);
+    CHECK(vfs_write(u.value(), 0, a, sizeof a).error() == Error::Perm);
+    CHECK(vfs_truncate(u.value(), 0).error() == Error::Perm);
+
+    // A second descriptor on the one shared handle advances the same
+    // generator, so it sees the stream go on rather than repeat.
+    Result<i32> u2 = run_now(vfs_open("/dev/urandom", O_READ));
+    CHECK(u2.is_ok());
+    CHECK_EQ(draw(u2.value(), 0, a, sizeof a), sizeof a);
+    CHECK_EQ(draw(u.value(), 0, b, sizeof b), sizeof b);
+    CHECK(!same(a, b, sizeof a));
+    vfs_close(u2.value());
+
+    // Two devices, two streams.
+    CHECK_EQ(draw(fd.value(), 0, a, 64), 64u);
+    CHECK_EQ(draw(u.value(), 0, b, 64), 64u);
+    CHECK(!same(a, b, 64));
+
+    vfs_close(u.value());
     vfs_close(fd.value());
+
+    // A fresh mount is a fresh seed: the generator belongs to the DevFs the
+    // mount holds, and nothing of it outlives one.
+    vfs_reset();
+    CHECK(vfs_mount("/dev", devfs_create()).is_ok());
+    Result<i32> again = run_now(vfs_open("/dev/urandom", O_READ));
+    CHECK(again.is_ok());
+    CHECK_EQ(draw(again.value(), 0, a, 32), 32u);
+    vfs_close(again.value());
+
+    vfs_reset();
+    CHECK(vfs_mount("/dev", devfs_create()).is_ok());
+    Result<i32> once_more = run_now(vfs_open("/dev/urandom", O_READ));
+    CHECK(once_more.is_ok());
+    CHECK_EQ(draw(once_more.value(), 0, b, 32), 32u);
+    vfs_close(once_more.value());
+    CHECK(!same(a, b, 32));
 
     vfs_reset();
 }

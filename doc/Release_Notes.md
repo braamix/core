@@ -49,6 +49,86 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The second device is the one the kernel makes itself
+
+The note two below this one said `urandom` was coming and would be "a row". It
+was a row and about fifteen hundred bytes of cipher behind it, and correcting
+that is the point of this note. A row would have been `urandom` as a second
+spelling of `random` — the same `host_random` per read under a name Linux uses
+for something else. That is not what the name means anywhere a person has met
+it before: on Linux `/dev/random` is the entropy source and `/dev/urandom` is a
+generator seeded from it, and a system that ships both names owes the second
+one a generator. So `/dev/urandom` has one, in
+[src/fs/chacha.h](../src/fs/chacha.h), and `/dev/random` did not change by a
+line.
+
+**ChaCha20 with fast key erasure, because it is what Linux's own CRNG is.** The
+name on the device and the thing behind it agree, which is the whole argument
+for not reaching for something a tenth the size. A xorshift would have been a
+hundred bytes and would have made `urandom` a weaker promise than the one its
+name carries everywhere else — and the property that matters here is one no
+small non-cryptographic generator offers: after a block is handed out, nothing
+the kernel is still holding can reproduce it. Each 64-byte block's first half
+replaces the key and only its second half leaves. The old key is gone, and
+there is no pool, no entropy accounting and no state to steal but the next 32
+bytes.
+
+**Seeded once, lazily, and never reseeded, because there is nothing to reseed
+*from*.** Linux reseeds its CRNG from an entropy pool that keeps improving;
+this kernel has no pool, only `host_random`, and a caller who wants the host's
+bytes has `random` one path component away rather than a reseed policy nobody
+can observe. Lazily rather than at mount, so a boot that never touches
+`/dev/urandom` never draws: the seed is 32 bytes taken on the first read and
+that is the device's entire cost to a system that does not use it.
+
+**The tail of a read's last block is discarded rather than buffered**, which
+reads like a shortcut and is the opposite. Keeping the remainder would leave
+un-emitted keystream resident in kernel memory between reads, which is the
+precise thing key erasure exists to prevent; discarding is the construction. It
+costs at most 31 bytes a read, and it buys something testable: output bytes
+`[32i, 32i+32)` always come from block *i*, so the stream does not depend on
+where the reads were cut, and the unit suite can assert that.
+
+**§2.2 did not have to move, and its third exception got narrower instead.**
+That exception's justification said the rejected alternative was "seeding a
+generator in the kernel from one asynchronous draw", which now reads as a
+prohibition on the thing this release built. It was never that. Both halves of
+the objection were about the generator as a *replacement* for the import:
+without `host_random` every byte in `/dev` would have been the kernel's
+invention, and the seed would still have had to be awaited from `Fs::read`,
+which cannot await. Neither survives contact with what went in. `/dev/random`
+still hands out the host's own bytes per read, and `urandom`'s seed is one
+*synchronous* `host_random` from inside `Fs::read` — the import is what made
+the generator possible, not what forbade it. No import, no export and no
+`PROC_ABI` moved; `test/smoke/abi.mjs` is untouched, and the kernel grew 1,539
+bytes, leaving 75 KiB of its budget free.
+
+**The cipher is a file of its own so that it can be wrong out loud.** The note
+below says "a generator in the kernel is a thing to get wrong in a way
+`crypto.getRandomValues` is not", and that is still true — the answer to it is
+a known-answer test, which needs the primitive reachable from `test/unit/`.
+`src/fs/chacha.cpp` is in `braam_fs`, which the suite already links, so RFC
+8439 §2.3.2 and §A.1's vectors are checked on every run along with the erasure
+construction over them. Buried in `devfs.cpp`'s anonymous namespace there would
+have been nothing to check but an opaque stream, which is another way of saying
+nothing.
+
+**The generator belongs to the mount, not to a descriptor.** §5.2 keys one
+backend handle per physical path, so two `cat /dev/urandom` readers share one,
+and a generator that advanced per read serves them both without either seeing
+the other's bytes — the same guarantee `random` gets from drawing per read,
+arrived at differently. A namespace-scope global would have been the obvious
+place and is the wrong one twice over: it breaks §3.2's trivially-destructible
+rule, and it would carry a seeded key across a `vfs_reset()` into the next
+mount. It is a member of the `DevFs` the mount owns, and the unit suite asserts
+that a fresh mount draws a fresh stream.
+
+**`null` and `zero` are still not here.** `null`'s §5.2 exemption — the
+open-file table refuses a writer any other descriptor holds, so two stages
+redirecting there would collide — is unchanged and still to be argued on its
+own, and it would have been just as wrong to smuggle it in behind `urandom` as
+behind `random`.
+
 ## The decoder let through what the encoder had refused for years
 
 `cat /dev/random` killed the renderer: `RangeError: Invalid code point 1160716`,
