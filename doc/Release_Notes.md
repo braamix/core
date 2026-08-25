@@ -49,6 +49,48 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## Three entries that were questions, not work
+
+`C1`, `C2` and `N7` leave TODO.md, and with them its last two sections. None of
+the three named something to build: two were measurements nobody had taken and
+one was a decision already made, waiting on a condition that turned out to be
+the wrong test. A file whose whole job is "what is left, in the order it earns
+its place" was carrying three items that had not earned one.
+
+**`N7`, a batched step protocol, was already decided.** Concept.md §4.4 says so
+normatively — *"a batched step protocol stays decided against"* — and it was
+decided twice over: T5 measured a round trip at 34–45 µs against an estimate of
+"order 0.1 ms" and answered no, and then `SYS_READ_MAX` removed the workload
+that had prompted the question at all. Its reopen condition was "a workload
+survives `SYS_READ_MAX`", and that is the part worth writing down, because the
+condition is mis-specified. What survives a 64 KiB read span is not per-*read*
+cost but per-*object* cost: a file costs an open, a read, the empty read that
+discovers the end, and a close, whatever the span is, and a directory costs a
+`List`. Coalescing the replies the kernel owes one process does nothing about a
+floor that is four calls per file. Anyone reaching for the wire should look
+first at that floor, at the trailing EOF probe, and at a `List` that recurses.
+The upward direction of the protocol is already batched — one step carries a
+list of parked calls up and exactly one reply down — so half the theoretical win
+was never there to take.
+
+**`C1` and `C2` were measurements, and measurements are not a backlog.** C1
+asked for `pkg verify` over a megabyte; C2 for a deep pipeline against the
+64 KiB channel slots. Both are worth doing the day someone has a reason to care
+what the number is, and neither blocks anything today. The tree keeps what they
+would need: `/proc/stat` publishes `syscalls` and `steps`, `net.proc.stats()`
+counts round trips on the host, and `test/system/chunk.mjs` already has the
+difference-of-two-commands harness that would answer either of them.
+
+One thing C1 was right about and it should not be lost with the entry. The
+figure above at "A read is a span, not half a kilobyte" — `pkg verify` going
+from some 2,210 reads to "about eighteen" — is derived, and the derivation is
+wrong: eighteen is 1.1 MB ÷ 64 KiB, which treats the workload as one contiguous
+stream. It is not; it is some thirty files, each paying the four-call floor
+above. The true number was never measured and is not measured here either, so
+no figure replaces it — only the warning that the old one is arithmetic rather
+than observation. That is exactly why `C1` existed, and removing the entry does
+not make its point wrong.
+
 ## An operation that cannot succeed, on purpose
 
 §4.3's fourth rule is that what the kernel publishes as text needs no operation,
@@ -57,17 +99,17 @@ table is `/proc/mounts` and `cat` is the tool. That is why `/bin/mount` has been
 a reformatter since M5 and why `src/cmd/mount.cpp` carried a comment saying it
 asks for no operation of its own.
 
-**The rule is about reading, and it was doing double duty.** Listing the table is
-a question a filesystem can answer, and it still answers it — `mount` with no
+**The rule is about reading, and it was doing double duty.** Listing the table
+is a question a filesystem can answer, and it still answers it — `mount` with no
 operands is unchanged, and `sysinfo.mjs` still checks it row for row against
 `/proc/mounts`. Changing the table is a write, and a write has nowhere in a
 filesystem to go. The rule's text never covered that case; it was simply never
 asked, because nothing could mount anything. The shape it wants is the one the
-rule already carves out for `chdir`: the state is readable as a file, and the act
-is an operation because no file can be asked to perform one. §5.4 had written
-down both candidate shapes years before — "a syscall or a `/proc` write to reach
-it" — so choosing the syscall settles a question that was left open rather than
-overturning one that was closed.
+rule already carves out for `chdir`: the state is readable as a file, and the
+act is an operation because no file can be asked to perform one. §5.4 had
+written down both candidate shapes years before — "a syscall or a `/proc` write
+to reach it" — so choosing the syscall settles a question that was left open
+rather than overturning one that was closed.
 
 **What is new is that the operation refuses.** `Sys::Mount` is op 34, takes
 `Rename`'s two-path payload, resolves both paths against the caller's cwd, and
@@ -82,8 +124,8 @@ refusal is the honest answer to both, and it is what a user sees:
 This is `Truncate`'s history read backwards, and worth naming as such rather
 than filed as the same thing. §4.3 tells that one as an operation "left unbuilt
 for four milestones with `vfs_truncate` wired beneath it precisely because no
-program wanted it" — wired beneath, unbuilt above, waiting for a caller. Here the
-caller is the part that exists and the filesystem is the part that does not.
+program wanted it" — wired beneath, unbuilt above, waiting for a caller. Here
+the caller is the part that exists and the filesystem is the part that does not.
 Both halves of §4.3's first rule are still met: the rule asks that an operation
 have a caller in `src/cmd/`, not that it have a backend, and `/bin/mount` issues
 the call on every run of the two-operand form. What the rule guards against is
@@ -199,14 +241,15 @@ let it pass.
 **It took an op without moving `PROC_ABI`, which stays at 19.** `Sys::Truncate`
 established that in 0.6 and this is the second time: an operation purely added
 changes no opcode, no reply and no flag, so no binary built against 19 can tell
-the difference, and the number's job is to refuse a *stale* binary rather than to
-count the table. Nothing is invalidated — no package in the store, no installed
-SDK. The one exposure runs the other way and is worth naming: a program built
-against the new `sysabi.h` that called `stat_fd` on a kernel predating `FStat`
-would load cleanly and fail at runtime with `Err(Unsupported)` instead of being
-refused at `exec` with the message that names the number. No such program
-exists — `/bin/unzip` ships inside `rootfs.zip` alongside the kernel that serves
-it — and the first out-of-tree caller is what would change that.
+the difference, and the number's job is to refuse a *stale* binary rather than
+to count the table. Nothing is invalidated — no package in the store, no
+installed SDK. The one exposure runs the other way and is worth naming: a
+program built against the new `sysabi.h` that called `stat_fd` on a kernel
+predating `FStat` would load cleanly and fail at runtime with
+`Err(Unsupported)` instead of being refused at `exec` with the message that
+names the number. No such program exists — `/bin/unzip` ships inside
+`rootfs.zip` alongside the kernel that serves it — and the first out-of-tree
+caller is what would change that.
 
 **`vfs_open` refuses a directory now.** Converting unzip to open-then-fstat
 would otherwise have cost it a diagnostic: the kind check it did by path was the

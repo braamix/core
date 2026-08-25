@@ -9,12 +9,16 @@ operation has a caller in `src/cmd/`* — and whether it moves `PROC_ABI`. An AB
 bump invalidates every stamped binary and every installed package, so an entry
 that needs one says so and is batched with anything else that does.
 
-Every entry carries a tag — `A3`, `B2`, `N7` — so it can be named from a commit
+Every entry carries a tag — `A3`, `B2`, `D1` — so it can be named from a commit
 or a conversation. A tag belongs to its entry for good: amend one, never reuse
 or renumber it. A finished entry leaves this file, since what is left is the
 whole of what it is for, and the gap it leaves stays a gap: number a new entry
 past its section's highest, never into a hole. The tags missing below are spent,
 not free, and Release_Notes.md is where each of them went.
+
+Nothing here is a licence to build it. An entry that changes what the system
+*is* — an operation, a flag, a rule — wants its argument in Concept.md first,
+and the argument lands in the same commit as the code.
 
 ---
 
@@ -123,21 +127,3 @@ where several writes coalesce into one syscall. None of the below moves
       at once. `term.mjs`'s two round-trip counts survived the experiment
       untouched, so §4.4 is not what stands in the way — there is simply no
       syscall to save.
-
-## C — measured, not guessed
-
-- [ ] **C1. `pkg verify` over a megabyte.** `SYS_READ_MAX` should have taken it
-      from ~2,210 reads to ~18. `test/system/chunk.mjs` asserts the invariant on
-      `wc`; the megabyte workload has not been measured since, and the figure in
-      the release note is derived rather than observed.
-- [ ] **C2. The pipe now carries more.** Eight `Channel` slots at 64 KiB is
-      512 KiB per pipe against 4 KiB before, and `BRAAM_BIN_INITIAL_PAGES` is
-      four, so a 64 KiB `_alloc` puts `memory.grow` on the read path. Neither
-      has been measured under a deep pipeline.
-
-## Not scheduled
-
-Each needs an argument in Concept.md before any of it is built.
-
-- **N7. A batched step protocol.** Reconsider only if a workload survives
-  `SYS_READ_MAX`.
