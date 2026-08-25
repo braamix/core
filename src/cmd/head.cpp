@@ -1,5 +1,5 @@
 #include "kernel/text.h"
-#include "proc/io.h"
+#include "proc/file.h"
 
 // Returning early is what stops the producer upstream: the stage runner hangs
 // up this program's input, and the next write on the other side reports Closed.
@@ -22,19 +22,21 @@ Task<i32> proc_main(Args args)
 
     Input files(Args{ args.v.subspan(first) }, SYS_STDIN, "head");
 
-    LineReader in(files);
+    File in(files);
     String line;
     for (u32 seen = 0; seen < want; seen++) {
-        Result<bool> r = co_await in.next(line);
+        Result<bool> r = co_await in.getline(line);
         if (r.is_err())
             co_return r.error() == Error::Cancelled ? 130 : 1;
         if (!r.value())
             break;
         if (!line.push('\n'))
             co_return 1;
-        if ((co_await write_all(SYS_STDOUT, line.str())).is_err())
+        if ((co_await File::stdout().write(line.str())).is_err())
             co_return 1;
     }
 
+    if ((co_await File::stdout().flush()).is_err())
+        co_return 1;
     co_return 0;
 }

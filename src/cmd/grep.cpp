@@ -1,4 +1,4 @@
-#include "proc/io.h"
+#include "proc/file.h"
 
 namespace {
 
@@ -53,12 +53,12 @@ Task<i32> proc_main(Args args)
     Str pattern = args[i];
     Input files(Args{ args.v.subspan(i + 1) }, SYS_STDIN, "grep");
 
-    LineReader in(files);
+    File in(files);
     String line;
     bool matched = false;
 
     for (;;) {
-        Result<bool> r = co_await in.next(line);
+        Result<bool> r = co_await in.getline(line);
         if (r.is_err())
             co_return r.error() == Error::Cancelled ? 130 : 1;
         if (!r.value())
@@ -69,9 +69,11 @@ Task<i32> proc_main(Args args)
         matched = true;
         if (!line.push('\n'))
             co_return 1;
-        if ((co_await write_all(SYS_STDOUT, line.str())).is_err())
+        if ((co_await File::stdout().write(line.str())).is_err())
             co_return 1;
     }
 
+    if ((co_await File::stdout().flush()).is_err())
+        co_return 1;
     co_return matched ? 0 : 1;
 }

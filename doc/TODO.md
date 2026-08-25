@@ -72,8 +72,9 @@ Adding a program also moves two counts that are written down: `compared` in
 - [ ] **A7. `xargs`** — `Spawn`/`Wait`; watch `SYS_CHILD_MAX` (16).
 - [ ] **A8. `cmp`, `diff`** — `diff` last, the only one needing an algorithm.
 
-Size is not the constraint: `rootfs/` is around 1.2 MB of the 2 MB in
-`tools/size_budget.txt`, at 13–19 KB a program.
+Size is not the constraint: `rootfs/` is around 1.3 MB of the 2 MB in
+`tools/size_budget.txt`, at 13–19 KB a program, or 20–27 KB for one carrying a
+`File`.
 
 ## B — program-layer correctness
 
@@ -95,8 +96,11 @@ Size is not the constraint: `rootfs/` is around 1.2 MB of the 2 MB in
 
 ## D — the port layer
 
-`src/proc/file.h` is in; none of the below moves `PROC_ABI` or adds an
-operation, and each names the caller that would satisfy §4.3's first rule.
+`src/proc/file.h` is in, and the ten programs in `src/cmd/` that write a row at
+a time go through it. The rest keep `write_all`: a `File` earns its ~7 KB only
+where several writes coalesce into one syscall. None of the below moves
+`PROC_ABI` or adds an operation, and each names the caller that would satisfy
+§4.3's first rule.
 
 - [ ] **D1. `/bin/tr`.** A6 already names it, and it is the rune path's first
       real caller: `File::get`, `File::put` and `rune_lower` have no caller in
@@ -106,12 +110,30 @@ operation, and each names the caller that would satisfy §4.3's first rule.
       `subst.mjs` as any new program does.
 - [ ] **D2. Formatted output over a `File`.** "A write per field is a syscall
       per field" stopped being true the moment the stream buffered, so `Buf<N>`
-      is no longer the only way to put a number on the screen. What replaces it
-      has not been designed; `math/ftoa.h`'s `put_f64` is the shape to match.
-- [ ] **D3. `Input` and `LineReader` onto `File`.** Two line readers now exist
-      and one of them cannot be unwound. Merging them touches every stdin filter
-      and several smoke cases at once, so it wants doing deliberately and not as
-      part of something else.
+      is no longer the only way to put a number on the screen. Ten callers now
+      build a `Buf` and write it to a `File`; what they want is
+      `out.put(pid)` with the padding, and the hard part is that a `put`
+      which may have to flush cannot be the synchronous chainable call
+      `Buf::put` is.
+      `math/ftoa.h`'s `put_f64` is the shape to match.
+- [ ] **D2a. The `String` accumulators.** `pkg/query.cpp`'s `emit`, `unzip`'s
+      listing and the sh builtins build every row into one heap `String` and
+      write it once, because a write per row is a syscall per row. A `File`
+      does that without the allocation — but only pays for itself where the
+      program has other rows to write, which is the same test D applies
+      everywhere.
+- [ ] **D3. `Input` and `LineReader` onto `File`.** `File::getline` replaced
+      the `LineReader` in `grep`, `head` and `tail`; `cp` and `mv` still have
+      one, so two line readers exist and one of them cannot be unwound. `Input`
+      stays either way: it is the files-or-stdin decision, which `File` takes
+      rather than makes.
+- [ ] **D4. Nothing, for `/bin/sh`.** Recorded so it is not re-derived: the
+      shell was converted and reverted. Its builtins already write once
+      (`builtin.h`), `job.cpp` writes to descriptors that are often a pipe or a
+      redirect and must not be buffered, and the per-prompt newline must flush
+      at once. `term.mjs`'s two round-trip counts survived the experiment
+      untouched, so §4.4 is not what stands in the way — there is simply no
+      syscall to save.
 
 ## C — measured, not guessed
 

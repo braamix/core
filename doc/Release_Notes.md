@@ -49,6 +49,85 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## Ten programs stopped paying a syscall a row
+
+`/bin/cat` was `proc/file.h`'s only caller. What every other program wrote
+through `write_all` was *rows*, one syscall each: `ls` one per listing line
+twice over, `ps` one per process, `df` and `mount` one per filesystem, `vmstat`
+one per counter and one per sampled row, `grep`, `head` and `tail` one per line,
+`uname -a` one per line of `/proc/host`. `/bin/echo` was the worst in
+proportion, at **2n+1 syscalls for n words** — the shell's `echo` builtin had
+fixed exactly that years earlier by accumulating into a `String`, and the
+program never did.
+
+Those ten are converted, for **+84,677 bytes**; the `rootfs/` tree goes
+1,250,874 → 1,335,551, which is 64% of the 2 MB in `tools/size_budget.txt`. The
+bound does not move.
+
+**The first attempt converted thirty-eight programs and most of it was wrong.**
+It cost +245,231 bytes, and the criterion it failed to apply is one sentence
+long: *a `File` earns its ~7 KB only where several writes coalesce into one
+syscall.* A program that writes once already costs one syscall, and buffering it
+costs one syscall — plus a `tty_of` probe, which made several of them
+fractionally **worse**. `wc` was the clearest case at +12,471 bytes for a
+program whose I/O was already one read per 64 KiB and one write at the end.
+`basename`, `dirname`, `pwd`, `date`, `pbpaste`, `hog` and `spin` were the same
+mistake more cheaply. Those reverted.
+
+So did four where the conversion was not merely idle but actively worse:
+
+- **`wc`, `pbcopy`, `fexport`** read a whole stream. `Input::read()` hands over
+  a 64 KiB `String` per syscall; a `File` copies it out through the caller's
+  span instead. Same round trips, an extra copy, +9–12 KB each.
+- **`chat`** has two tasks writing one stdout, so they would share one
+  `FileBuf`. Each message already costs one syscall and would still, so the
+  reward for taking on a concurrency hazard was nothing at all.
+- **`watch`** flushes per round by necessity — its loop never returns — so
+  nothing coalesced.
+- **`env`, `timeout`, `/bin/pkg`** spawn a child that inherits stdout, which
+  means a flush before every spawn. `pkg`'s only loop-write is its usage table.
+
+**`/bin/sh` was converted and then reverted, and the measurement is the reason
+to record it.** `test/smoke/term.mjs` asserts with `!==` that a keystroke is two
+round trips and Enter to the next prompt is five — Concept.md §4.4's cost model.
+It passed unchanged: `Buffering::Auto`'s probe fires on the first flush, which
+happens while the shell is starting, long before the keystroke term.mjs
+measures. **§4.4's numbers were never at risk.** What killed the conversion was
+the other half: sh's builtins already accumulate into a `String` and write once
+(`builtin.h`'s rule), `job.cpp` writes to descriptors that are often a pipe or a
+redirect and must not be buffered at all, and `shell.cpp`'s per-prompt newline
+has to be flushed immediately because the prompt follows it. There was no
+syscall anywhere in the shell to save, so the tree's most-used program keeps
+`write_all` and its `read` builtin keeps the hand-rolled wind-back that
+`redirect.mjs` asserts.
+
+### What the ten needed beyond a search and replace
+
+- **`ls` sets its own buffering.** It already calls `tty_of(SYS_STDOUT)` to
+  choose columns, so it answers `Buffering::Auto`'s question from what it knows
+  and skips the probe.
+- **`echo` says `Buffering::Full`** for the opposite reason: its whole output is
+  one flush, so the buffering question is not worth a `tty_of` to answer. It is
+  also the most-invoked program in the system, and the probe would have been
+  half its cost.
+- **`vmstat` flushes per sampled row.** With an interval and no count its loop
+  never returns, so `proc_at_exit` never runs; what coalesces there is the
+  header with the row beneath it, and `-s`'s fifteen counter lines into one.
+- Everything else is `write_all(SYS_STDOUT, x)` becoming
+  `File::stdout().write(x)` and one checked `flush()` on the way out.
+
+`File::getline` replaced the `LineReader` in `grep`, `head` and `tail`;
+`LineReader` still has callers in `cp` and `mv`, so it stays.
+
+### `/bin/mount` had no test at all
+
+It was the one program in the tree **no smoke case ran** — it appeared only
+inside a comment. Rather than a case of its own it went into `sysinfo.mjs`,
+whose opening comment already described `mount` as the arrangement over
+`/proc/mounts` that `uname` has over `/proc/host`. Its output is asserted row
+for row against `/proc/mounts` itself, so what is checked is the reformatting
+rather than a fixed string.
+
 ## A buffer in the program, which §4.4 says not to write
 
 `src/proc/file.h` is a buffered stream — `File`, with `get()` a rune, `put()`,

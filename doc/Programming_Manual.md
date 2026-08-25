@@ -323,8 +323,11 @@ Four conventions there, and every program in `src/cmd/` follows them:
   any output.
 - **`Error::Closed` is a normal end of input**, not a failure.
 - **`Error::Cancelled` is `^C`**, and the exit status for it is 130.
-- Output is formatted into a stack `Buf<N>` and written once. A write per field
-  is a syscall per field.
+- Output is formatted into a stack `Buf<N>`, which never allocates. Where a
+  program writes *rows* — a line per entry, a row per process — the `Buf` goes
+  to a `File` (`proc/file.h`), which is what stops each one costing a syscall.
+  Where the whole output is one write, `write_all` is already that, and a
+  `File` would only add a buffer to flush.
 
 There is no `main`, no `argc`/`argv`, no `printf`, no `errno` and no exceptions.
 `args[0]` is the name the program was invoked by; `args.tail()` is everything

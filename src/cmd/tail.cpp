@@ -1,6 +1,6 @@
 #include "kernel/text.h"
 #include "kernel/vec.h"
-#include "proc/io.h"
+#include "proc/file.h"
 
 // A ring of the last `want` lines, so the input is read once and only the
 // answer is held.
@@ -161,11 +161,11 @@ Task<i32> proc_main(Args args)
 
     if (!windowed) {
         Input files(paths, SYS_STDIN, "tail");
-        LineReader in(files);
+        File in(files);
         String line;
 
         while (want > 0) {
-            Result<bool> r = co_await in.next(line);
+            Result<bool> r = co_await in.getline(line);
             if (r.is_err())
                 co_return r.error() == Error::Cancelled ? 130 : 1;
             if (!r.value())
@@ -179,9 +179,11 @@ Task<i32> proc_main(Args args)
         String &s = ring[(head + i) % ring.size()];
         if (!s.push('\n'))
             co_return 1;
-        if ((co_await write_all(SYS_STDOUT, s.str())).is_err())
+        if ((co_await File::stdout().write(s.str())).is_err())
             co_return 1;
     }
 
+    if ((co_await File::stdout().flush()).is_err())
+        co_return 1;
     co_return 0;
 }

@@ -3,7 +3,7 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
 #include "kernel/traits.h"
-#include "proc/io.h"
+#include "proc/file.h"
 #include "proc/opt.h"
 #include "proc/time.h"
 
@@ -225,7 +225,7 @@ Task<i32> emit_short(Lister &st)
         }
         if (!st.row.push('\n'))
             co_return 1;
-        if (Result<void> w = co_await write_all(SYS_STDOUT, st.row.str()); w.is_err())
+        if (Result<void> w = co_await File::stdout().write(st.row.str()); w.is_err())
             co_return write_bad(w.error());
     }
     co_return 0;
@@ -248,7 +248,7 @@ Task<i32> emit_long(Lister &st, bool with_total)
     if (with_total) {
         Buf<32> t;
         t.put("total ").put(total).put('\n');
-        if (Result<void> x = co_await write_all(SYS_STDOUT, t.str()); x.is_err())
+        if (Result<void> x = co_await File::stdout().write(t.str()); x.is_err())
             co_return write_bad(x.error());
     }
 
@@ -286,7 +286,7 @@ Task<i32> emit_long(Lister &st, bool with_total)
         }
         if (!st.row.push('\n'))
             co_return 1;
-        if (Result<void> x = co_await write_all(SYS_STDOUT, st.row.str()); x.is_err())
+        if (Result<void> x = co_await File::stdout().write(st.row.str()); x.is_err())
             co_return write_bad(x.error());
     }
     co_return 0;
@@ -312,7 +312,7 @@ Task<i32> emit_head(Lister &st, Str path)
         co_return 1;
     if (!st.row.append(path) || !st.row.append(":\n"))
         co_return 1;
-    if (Result<void> w = co_await write_all(SYS_STDOUT, st.row.str()); w.is_err())
+    if (Result<void> w = co_await File::stdout().write(st.row.str()); w.is_err())
         co_return write_bad(w.error());
     st.wrote = true;
     co_return 0;
@@ -501,8 +501,13 @@ Task<i32> proc_main(Args args)
         co_return 130;
 
     bool console = tty.is_ok() && tty.value().console;
-    st->detail   = layout == 'l';
-    st->columns  = layout == 'C' || (!layout && console);
+
+    // The buffering ls would otherwise make File probe for a second time.
+    File &out = File::stdout();
+    out.set_buffering(console ? Buffering::Line : Buffering::Full);
+
+    st->detail  = layout == 'l';
+    st->columns = layout == 'C' || (!layout && console);
     if (console && tty.value().at.cols)
         st->width = tty.value().at.cols;
 
@@ -523,5 +528,9 @@ Task<i32> proc_main(Args args)
     Task<i32> t = run(*st, opts.rest());
     if (!t)
         co_return 1;
-    co_return co_await t;
+    i32 status = co_await t;
+
+    if (Result<void> w = co_await out.flush(); w.is_err())
+        co_return write_bad(w.error());
+    co_return status;
 }

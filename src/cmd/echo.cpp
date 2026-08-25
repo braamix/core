@@ -1,7 +1,11 @@
-#include "proc/io.h"
+#include "proc/file.h"
 
 Task<i32> proc_main(Args args)
 {
+    // Full rather than Auto: the whole output is one flush, so the buffering
+    // question is not worth a tty_of to answer.
+    File::stdout().set_buffering(Buffering::Full);
+
     usize i      = 1;
     bool newline = true;
     if (i < args.size() && args[i] == "-n") {
@@ -10,13 +14,13 @@ Task<i32> proc_main(Args args)
     }
 
     for (bool first = true; i < args.size(); i++, first = false) {
-        if (!first && (co_await write_all(SYS_STDOUT, " ")).is_err())
+        if (!first && (co_await File::stdout().write(" ")).is_err())
             co_return 1;
-        if ((co_await write_all(SYS_STDOUT, args[i])).is_err())
+        if ((co_await File::stdout().write(args[i])).is_err())
             co_return 1;
     }
-    if (newline && (co_await write_all(SYS_STDOUT, "\n")).is_err())
+    if (newline && (co_await File::stdout().write("\n")).is_err())
         co_return 1;
 
-    co_return 0;
+    co_return (co_await File::stdout().flush()).is_err() ? 1 : 0;
 }

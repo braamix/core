@@ -1,6 +1,6 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
-#include "proc/io.h"
+#include "proc/file.h"
 
 // The mount table (Concept.md §5.3), as BSD prints it. The mounts come from
 // /proc, which is text; the quota and the usage are a syscall, because ProcFs
@@ -86,7 +86,7 @@ Task<i32> proc_main(Args args)
     head.put_right(human_sizes ? Str("Size") : Str("1K-blocks"), W_FIRST);
     head.put_right("Used", W_SIZE).put_right("Avail", W_SIZE);
     head.put_right("Capacity", W_CAP + 2).put("  Mounted on\n");
-    if ((co_await write_all(SYS_STDOUT, head.str())).is_err())
+    if ((co_await File::stdout().write(head.str())).is_err())
         co_return 1;
 
     Str rest = mounts.value().str(), line;
@@ -139,8 +139,10 @@ Task<i32> proc_main(Args args)
             out.put_right(cap.str(), W_CAP);
         }
         out.put("    ").put(prefix).put('\n');
-        if ((co_await write_all(SYS_STDOUT, out.str())).is_err())
+        if ((co_await File::stdout().write(out.str())).is_err())
             co_return 1;
     }
+    if ((co_await File::stdout().flush()).is_err())
+        co_return 1;
     co_return 0;
 }

@@ -1,6 +1,6 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
-#include "proc/io.h"
+#include "proc/file.h"
 
 // The tasks the scheduler is running that have a pid, from /proc/tasks — one
 // open, so every row describes the same moment. A worker is exactly a process,
@@ -147,7 +147,7 @@ Task<i32> proc_main(Args args)
     head.put_left("WAIT", W_WAIT);
     head.put_right("CALLS", W_CALLS).put_right("FDS", W_FDS);
     head.put_right("MEM", W_MEM).put_right("ELAPSED", W_AGE).put("  CWD\n");
-    if ((co_await write_all(SYS_STDOUT, head.str())).is_err())
+    if ((co_await File::stdout().write(head.str())).is_err())
         co_return 1;
 
     // The fields /proc/tasks puts in order. The cwd is the rest of the line,
@@ -186,8 +186,10 @@ Task<i32> proc_main(Args args)
         put_mem(out, mem, W_MEM);
         put_age(out, age, W_AGE);
         out.put("  ").put(cwd).put('\n');
-        if ((co_await write_all(SYS_STDOUT, out.str())).is_err())
+        if ((co_await File::stdout().write(out.str())).is_err())
             co_return 1;
     }
+    if ((co_await File::stdout().flush()).is_err())
+        co_return 1;
     co_return 0;
 }

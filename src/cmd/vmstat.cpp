@@ -1,6 +1,6 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
-#include "proc/io.h"
+#include "proc/file.h"
 
 // The counters in /proc/stat as rates, the way BSD's vmstat prints them: one
 // open per row, the first row averaged over uptime and each later one over the
@@ -232,8 +232,9 @@ Task<Result<void>> summary(Str text)
             continue;
         Buf<128> out;
         out.put_right(value_of(text, name), 9).put(' ').put(meaning_of(name)).put('\n');
-        CO_TRY_VOID(co_await write_all(SYS_STDOUT, out.str()));
+        CO_TRY_VOID(co_await File::stdout().write(out.str()));
     }
+    CO_TRY_VOID(co_await File::stdout().flush());
     co_return {};
 }
 
@@ -381,14 +382,17 @@ Task<i32> proc_main(Args args)
         if (!left) {
             Buf<192> head;
             put_header(head);
-            if ((co_await write_all(SYS_STDOUT, head.str())).is_err())
+            if ((co_await File::stdout().write(head.str())).is_err())
                 co_return 1;
             left = rows - 2;
         }
 
         Buf<128> line;
         put_row(line, now, was, ms);
-        if ((co_await write_all(SYS_STDOUT, line.str())).is_err())
+        if ((co_await File::stdout().write(line.str())).is_err())
+            co_return 1;
+        // Flushed per row: an open interval never returns to the exit hook.
+        if ((co_await File::stdout().flush()).is_err())
             co_return 1;
         left--;
 

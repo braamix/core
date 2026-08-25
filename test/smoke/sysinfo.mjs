@@ -1,8 +1,8 @@
-// df, /proc/host and uname.
+// df, /proc/host, mount and uname.
 // Part of the smoke suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, names, prompt, row, rows, screen, store, submit } from "./harness.mjs";
+import { fail, names, output, prompt, row, rows, screen, store, submit } from "./harness.mjs";
 
 export function check() {
     let s = screen();
@@ -48,6 +48,21 @@ export function check() {
         fail(`/proc/host did not report the release: ${JSON.stringify(host)}`);
     if (!host.includes(`screen   ${s.cols}x${s.rows}`))
         fail(`/proc/host did not report the geometry: ${JSON.stringify(host)}`);
+
+    // `mount` is the same arrangement over /proc/mounts, and until now nothing
+    // ran it. Every row the table publishes comes back reformatted.
+    s = submit("clear", 1183.5);
+    const table = output(submit("cat /proc/mounts", 1183.6));
+    s = submit("clear", 1183.7);
+    const mounted = output(submit("mount", 1183.8));
+    const want = table.map((line) => {
+        const [prefix, kind, mode] = line.split(/\s+/);
+        return `${prefix} — ${kind} (${mode})`;
+    });
+    if (mounted.join("|") !== want.join("|"))
+        fail(`mount printed ${JSON.stringify(mounted)}, expected ${JSON.stringify(want)}`);
+    if (!want.some((l) => l.startsWith("/ — ")))
+        fail(`/proc/mounts did not report the root: ${JSON.stringify(table)}`);
 
     // The default is the system name; -m is the one field neither the host nor
     // the version supplies.

@@ -1,5 +1,5 @@
 #include "kernel/fmt.h"
-#include "proc/io.h"
+#include "proc/file.h"
 
 // The kernel publishes what the system is and what it runs on as /proc/host,
 // so this reformats that file rather than asking for an operation of its own —
@@ -40,7 +40,9 @@ Task<i32> one(Str text, Str key)
 
     Buf<96> b;
     b.put(value).put('\n');
-    co_return (co_await write_all(SYS_STDOUT, b.str())).is_err() ? 1 : 0;
+    if ((co_await File::stdout().write(b.str())).is_err())
+        co_return 1;
+    co_return (co_await File::stdout().flush()).is_err() ? 1 : 0;
 }
 
 } // namespace
@@ -89,8 +91,10 @@ Task<i32> proc_main(Args args)
 
         Buf<160> b;
         b.put(line).put('\n');
-        if ((co_await write_all(SYS_STDOUT, b.str())).is_err())
+        if ((co_await File::stdout().write(b.str())).is_err())
             co_return 1;
     }
+    if ((co_await File::stdout().flush()).is_err())
+        co_return 1;
     co_return 0;
 }

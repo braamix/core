@@ -1,5 +1,5 @@
 #include "kernel/fmt.h"
-#include "proc/io.h"
+#include "proc/file.h"
 
 // Mounting is not yet something a user does: the table is built at boot. What
 // the command means for now is listing it — and the kernel already publishes
@@ -34,8 +34,10 @@ Task<i32> proc_main(Args args)
         Buf<96> b;
         b.put(prefix).put(" — ").put(kind);
         b.put(mode == "rw" ? Str(" (rw)\n") : Str(" (ro)\n"));
-        if ((co_await write_all(SYS_STDOUT, b.str())).is_err())
+        if ((co_await File::stdout().write(b.str())).is_err())
             co_return 1;
     }
+    if ((co_await File::stdout().flush()).is_err())
+        co_return 1;
     co_return 0;
 }
