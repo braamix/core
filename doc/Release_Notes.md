@@ -90,6 +90,18 @@ default some engines derive the platform menu from rather than the DOM event,
 the second assumes menu contents are read after dispatch. Together they have no
 engine left to fall through.
 
+**And the caret is not all a press moves.** Where it does not land on a
+selection, an engine selects the *word* under it — and the sink is one line
+holding a sentinel and a mirror, so the word under a press anywhere over the
+terminal is the whole value: a range of exactly `(0, length)`. Which is the one
+range that means `Select All` from the menu. So a right-click selected the
+entire screen before the menu had even been drawn, on a terminal with nothing
+selected at all. The invariant is sound and the reading of it was too narrow:
+that range is the command *when it arrives from outside a press*, and the press
+is already a state this code holds — the sink is armed for exactly its
+duration. So `onSelectAll` declines while armed, and the restore puts the
+resting range back along with the geometry, whatever the engine left behind.
+
 **Restoring is a `setTimeout(0)`, and a timer behind it.** Not synchronous,
 because the menu is anchored and its commands route to the *focused* element —
 which the sink still is, whatever size it has — so one turn later is soon enough

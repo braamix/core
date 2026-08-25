@@ -211,6 +211,7 @@ export function mount(options = {}) {
         sink.style.height = "1px";
         sink.style.pointerEvents = "none";
         sink.style.zIndex = "-1";
+        resetSink(); // whatever the press selected, the mirror is the range
     }
 
     // A secondary press that moved the caret would collapse the range the
@@ -223,7 +224,8 @@ export function mount(options = {}) {
     }
 
     // The menu is built after this returns, so the range goes back here for an
-    // engine that moved the caret anyway.
+    // engine that moved the caret anyway — and again on the next turn, for one
+    // that takes the word under the press after dispatching this.
     function onSinkContextMenu() {
         if (!composing)
             sink.setSelectionRange(SENTINEL.length, sink.value.length);
@@ -291,7 +293,10 @@ export function mount(options = {}) {
     // 0. Collapsing it back rejects the duplicate an engine firing more than
     // one of these sends; the worker's reply installs the mirror.
     function onSelectAll() {
-        if (document.activeElement !== sink || !sink.value.length)
+        // A secondary press selects the word under it, which in a one-line
+        // sink is the whole of it; only a range from outside the press is the
+        // command.
+        if (armed || document.activeElement !== sink || !sink.value.length)
             return;
         if (sink.selectionStart !== 0 || sink.selectionEnd !== sink.value.length)
             return;

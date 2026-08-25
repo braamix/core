@@ -495,9 +495,12 @@ that press on a Mac, and therefore no longer starts a drag — and the menu the
 browser raises is the text one, whose `Cut`, `Copy`, `Paste` and `Select All`
 are the four already routed above. The press's own caret move is prevented and
 the range put back before the menu is built, or `Copy` would grey out the
-selection it was raised for. The input is restored on the next turn and, if no
-menu followed, on a timer: a press that raises nothing must not leave the canvas
-covered. A page that wants the canvas's own menu says `mount({menu: false})`.
+selection it was raised for; and the range an engine takes for itself while the
+press is live — the word under it, which in a one-line input is all of it — is
+not the menu's `Select All` and is not read as one. The input is restored on the
+next turn, its range with it, and on a timer if no menu followed: a press that
+raises nothing must not leave the canvas covered. A page that wants the
+canvas's own menu says `mount({menu: false})`.
 There is still no mouse event in the ABI and no popup in this tree — the menu
 was never the missing part, the target under the pointer was.
 
