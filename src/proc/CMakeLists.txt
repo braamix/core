@@ -5,6 +5,8 @@
 # there is no host here — which is what the exact-import assertion in
 # test/run.mjs checks, for every binary.
 add_library(braam_proc STATIC
+    file.cpp
+    filebuf.cpp
     io.cpp
     opt.cpp
     rt.cpp

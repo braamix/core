@@ -1002,6 +1002,20 @@ the shell — a language now (§4.5) — is the largest of them by some way. Kee
 process-side runtime minimal and push anything substantial into syscalls, so it
 lives once in the kernel rather than N times in userland.
 
+**A buffer in the program is the one sanctioned exception to that rule**
+(`src/proc/file.h`). It cannot be pushed down: the kernel already keeps what a
+short read left on the descriptor, and §"Read semantics" in System_Calls.md says
+why that has to be the kernel's and not a program's — a buffer in a program
+outlives the descriptor number it was keyed to. But a reader taking a codepoint
+at a time cannot pay 34–45 µs for each one, and there is no operation that would
+make it cheaper. So `File` buffers on the process side, at the cost of two
+rules it states rather than enforces: **a buffered `File` owns its stream until
+`close()` or `detach()`**, because it has read past what the kernel's pushback
+can see; and **its destructor does not flush**, because a destructor cannot
+`co_await`. The block is 512 bytes, one small size class, and `--gc-sections`
+keeps all of it out of a binary that never names it — so §4.4's arithmetic is
+unchanged for the thirty-six programs that do not.
+
 Cross-instance data movement is Appendix B.
 
 ### 4.5 The shell's language

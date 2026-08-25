@@ -58,6 +58,7 @@ void test_signal();
 void test_vfs();
 void test_trigger();
 void test_zip();
+void test_filebuf();
 
 // The kernel's init() calls this too, so the cases below start from the same
 // static state kernel.wasm does.
@@ -99,6 +100,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_io();
     test_screen();
     test_text();    // after screen: it round-trips through the grid
+    test_filebuf(); // after text: every rune in it goes through utf8_decode
     test_tty();     // after screen: FullScreen snapshots the grid
     test_console(); // after tty: the pump routes through its claims
     test_pane();

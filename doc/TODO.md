@@ -93,6 +93,26 @@ Size is not the constraint: `rootfs/` is around 1.2 MB of the 2 MB in
       the same shape. Distinguishing "a directory is already there" from "a file
       is in the way" needs a stat that `make_dir`'s `Err(Exists)` does not give.
 
+## D — the port layer
+
+`src/proc/file.h` is in; none of the below moves `PROC_ABI` or adds an
+operation, and each names the caller that would satisfy §4.3's first rule.
+
+- [ ] **D1. `/bin/tr`.** A6 already names it, and it is the rune path's first
+      real caller: `File::get`, `File::put` and `rune_lower` have no caller in
+      `src/cmd/` today and are covered by `test/unit/test_filebuf.cpp` and the
+      manual's worked example alone. Wants a line in `rootfs/etc/help` and a
+      smoke case, and moves `compared` in `test_zip.cpp` and the byte count in
+      `subst.mjs` as any new program does.
+- [ ] **D2. Formatted output over a `File`.** "A write per field is a syscall
+      per field" stopped being true the moment the stream buffered, so `Buf<N>`
+      is no longer the only way to put a number on the screen. What replaces it
+      has not been designed; `math/ftoa.h`'s `put_f64` is the shape to match.
+- [ ] **D3. `Input` and `LineReader` onto `File`.** Two line readers now exist
+      and one of them cannot be unwound. Merging them touches every stdin filter
+      and several smoke cases at once, so it wants doing deliberately and not as
+      part of something else.
+
 ## C — measured, not guessed
 
 - [ ] **C1. `pkg verify` over a megabyte.** `SYS_READ_MAX` should have taken it

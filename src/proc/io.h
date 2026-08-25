@@ -18,7 +18,7 @@ Task<Result<void>> write_all(u32 fd, Str s);
 // One chunk, or Err(Closed) at end of input.
 Task<Result<String>> read_chunk(u32 fd);
 
-// At most `max` bytes, clamped to SYS_CHUNK. What is left stays on the
+// At most `max` bytes, clamped to SYS_READ_MAX. What is left stays on the
 // descriptor, so a stream loses nothing and the next read serves it first —
 // which is how a reader takes a line off a pipe without taking the next one.
 Task<Result<String>> read_some(u32 fd, u32 max);

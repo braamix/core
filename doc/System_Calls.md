@@ -1455,6 +1455,23 @@ the key that kills everything.
 every binary carries its own copy, so anything substantial belongs in a syscall
 where it lives once in the kernel.
 
+**There are two layers, and only the lower one is required.** `io.h` is one
+wrapper per operation and adds nothing: `write_all`, `read_chunk`, `Input`,
+`LineReader`. `file.h` is a buffered stream — `File`, with `get()` a rune,
+`put()`, `read()`, `getline()` and a sticky error — and **adds no operation at
+all**, which is why this section and not §"The table" is where it is written
+down. It buffers because a program taking a codepoint at a time cannot pay
+34–45 µs for each one and no operation would make it cheaper; §4.4 in
+Concept.md is where that exception is argued. A program that does not name it
+does not carry it.
+
+`File` reads ahead, which is a thing §"Read semantics" below says a program's
+buffer must not do casually: what it has taken is past where the kernel's own
+pushback can put it back. So `detach()` winds a seekable descriptor back over
+the unread bytes and refuses on one that is not, `Buffering::None` opts out
+altogether, and `/bin/sh`'s `read` builtin — the caller that needs a line off a
+pipe and not the next one — keeps its own loop rather than using `File`.
+
 **The scheduler is two arrays.** `Rt` holds `PROC_TASKS` tasks and `PROC_TASKS`
 waiters, one each (`src/proc/rt.cpp:26-33`). Task 0 is the root. `proc_spawn`
 fills a slot from 1 up and resumes the new task at once, so it runs to its first

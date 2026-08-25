@@ -30,6 +30,11 @@ BRAAM_SYS_IMPORT("sys_async") void sys_async(u32 op, u32 token, u32 ptr, u32 len
 // What a program defines. The runtime's _start builds argv and enters it.
 Task<i32> proc_main(Args args);
 
+// A task the runtime awaits after proc_main returns, for what a destructor
+// cannot do: flushing a buffered stream (proc/file.h). Null in a binary that
+// never sets one. Sys::Exit takes effect on that return, so this runs first.
+void proc_at_exit(Task<void> (*f)());
+
 // The signals delivered and not yet collected, as sig_bit()s (Concept.md §3.5).
 // A word `_sig` wrote: no syscall, so the synchronous half stays closed at five.
 // Only what sig_catch asked for arrives here; the rest is acted on.

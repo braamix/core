@@ -49,6 +49,98 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## A buffer in the program, which §4.4 says not to write
+
+`src/proc/file.h` is a buffered stream — `File`, with `get()` a rune, `put()`,
+`read()`, `getline()`, a sticky error and a flush. It adds **no syscall**,
+`PROC_ABI` does not move, and `--gc-sections` keeps every byte of it out of the
+thirty-five programs that do not name it. `/bin/cat` is the one that does.
+
+**It exists because there was no way to write a port's inner loop.** The
+request that started it was `while ((c = getchar()) != EOF) putchar(tolower(c))`
+— four lines of C that had no expressible form here. `read_some(fd, 1)` is one
+syscall per byte at 34–45 µs, which is forty seconds to a megabyte; `Input` and
+`LineReader` are chunks and lines and neither yields a character; and nothing
+anywhere decoded UTF-8 off a stream, so `getchar` could only have been a byte,
+which on a console that is UTF-8 (§2.3) is the wrong answer rather than a
+limited one.
+
+**§4.4 says to push anything substantial into a syscall, and this one cannot
+go.** System_Calls.md's §"Read semantics" already argued the opposite direction
+and was right: the kernel keeps what a short read left *because* a buffer in a
+program outlives the descriptor number it was keyed to. That argument bounds
+where a userland buffer may be used; it does not make one avoidable, because
+there is no operation that would make a codepoint cheaper than a round trip —
+`Sys::Read` already clamps to `SYS_READ_MAX` and the cost is the hop, not the
+size. So the exception is stated in Concept.md §4.4 rather than smuggled, and it
+is paid for with two rules `File` states and does not enforce: a buffered `File`
+owns its stream until `close()` or `detach()`, and its destructor does not
+flush. `/bin/sh`'s `read` builtin, the caller that must take a line off a pipe
+and not the next one, therefore keeps its own hand-rolled loop and is not
+converted — which is the rule demonstrating itself.
+
+**The sticky error is what makes a port readable, and it is the one idea taken
+from stdio rather than from here.** Every other API in this tree returns
+`Result` and expects it checked at the call. Per character that is unwritable:
+the C loop has no error check because `ferror` is checked once at the end, and
+a translation that puts three lines inside the loop is not a translation. So
+`get()` both returns the error and latches it, `failed()` is `ferror()`, and
+the `while` condition is `Result`'s `explicit operator bool` — which means
+`Err(Closed)` stays exactly the end-of-input convention every other reader here
+already uses and nothing had to be invented for EOF.
+
+**`get()` and `put()` are awaiters and not `Task`s, which is the whole of the
+machinery.** A `Task<Result<char32_t>> get()` would allocate a coroutine frame
+per character — 30–40 ms a megabyte, small beside the syscall it replaces but
+pure waste — and, worse, would hand every port the null-frame problem: awaiting
+a `Task` whose frame did not allocate **panics** (`task.h`), which is why every
+call site in `src/cmd/` writes `Task<...> t = f(); if (!t) …` and why no port
+would. As an awaiter, `await_ready()` is true whenever the buffer can answer, so
+the fast path allocates nothing and suspends nothing; when it cannot, the slow
+path's `Task` is built *into the awaiter*, which lives in the awaiting
+coroutine's own frame, and transferred into by the same symmetric transfer
+`Task::Awaiter` already performs. A frame that will not allocate is then
+`Err(NoMemory)` on a stream, not a trap. `FileBuf` — the bookkeeping, the rune
+boundaries, `unget`, the newline scan — has no syscall in it at all and is
+compiled straight into `tests.wasm`, where a rune straddling a buffer boundary
+can be tested at every offset and every width.
+
+**`unget` puts bytes back rather than keeping a rune aside.** The obvious
+implementation is a one-slot `char32_t` that only `get()` consults, and it is
+wrong twice over: `read()` and `getline()` would step over it, and a pushback of
+a *different* rune than the one taken — which `ungetc` allows — has nowhere to
+live. Encoding it back in front of the held bytes costs a `memmove` in the case
+where the last take did not leave room, and after it there is no second path
+through the buffer for any reader to miss.
+
+**Buffering is decided by one `tty_of`, not by a rule.** The tempting answer was
+a fixed default — line-buffer everything, and let a bulk program opt out — which
+would have cost `cat` a syscall per line on a 64 KiB file. The other tempting
+answer, full buffering, breaks interactive `cat`: the smoke suite types a line
+into it and expects to see it echoed twice *before* `^D`. Both are real, so
+`stdout` starts as `Buffering::Auto` and resolves itself on its first flush,
+which is one round trip once per process and only for a program that uses
+`File`. `stderr` is unbuffered and allocates nothing at all.
+
+**The block is 512 bytes because the allocator says so**, and the 64 KiB span is
+opt-in through `reserve()`. `cat` asks for `SYS_READ_MAX`, so it still costs a
+round trip per span rather than per half-kilobyte, and the manual says out loud
+that a `char buf[4096]` on a coroutine frame is the trap it looks like.
+
+**Flushing at exit is a function pointer, not a wrapper.** The root task in
+`rt.cpp` awaits `proc_at_exit`'s hook after `proc_main` returns, and
+`File::stdout()` installs it on first use. A `proc_root` that referenced the
+flush directly would have put `File` into every binary in the tree and undone
+the one property that makes this affordable. `Sys::Exit` takes effect when the
+root task returns, so a program that exits mid-stream still flushes.
+
+`rune_lower` and `rune_upper` went into `kernel/text.h` beside the two UTF-8
+functions rather than into `file.h`: they are the other half of what "a
+codepoint, not a byte" means, and the case ranges are algorithmic, so ASCII
+through Cyrillic is thirty lines and no table. What is not one codepoint for one
+— ß, the ligatures, the Turkish i — comes back unchanged and is documented as
+doing so, because a table is a table and nothing has asked for one yet.
+
 ## The one number the kernel cannot make
 
 `Sys::Random` is op 5, and it is the first operation here that exists because

@@ -10,6 +10,7 @@ add_executable(tests
     unit/test_db.cpp
     unit/test_dep.cpp
     unit/test_encode.cpp
+    unit/test_filebuf.cpp
     unit/test_fmt.cpp
     unit/test_hash.cpp
     unit/test_hostfs.cpp
@@ -63,9 +64,11 @@ add_executable(tests
     ../src/cmd/sh/parse.cpp
     ../src/cmd/sh/tokenize.cpp
 
-    # The option parser, the calendar and truncate's SIZE grammar are the
-    # process runtime's, and pure for the same reason: Args, Str and Result and
-    # nothing else. braam_proc is not linked here.
+    # The option parser, the calendar, truncate's SIZE grammar and a buffered
+    # stream's bookkeeping are the process runtime's, and pure for the same
+    # reason: Args, Str and Result and nothing else. braam_proc is not linked
+    # here. file.cpp is the half that reads and writes, and stays out.
+    ../src/proc/filebuf.cpp
     ../src/proc/opt.cpp
     ../src/proc/size.cpp
     ../src/proc/time.cpp

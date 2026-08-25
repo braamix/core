@@ -25,6 +25,12 @@ usize utf8_encode(char32_t ch, char *out);
 // yields U+FFFD, so bad input is visible rather than silently dropped.
 usize utf8_decode(Str s, usize at, char32_t &out);
 
+// The other case of `c`, or `c` itself where there is none. ASCII, Latin-1,
+// Latin Extended-A, Greek and Cyrillic, by range rather than by table. A
+// mapping that is not one codepoint for one comes back unchanged.
+char32_t rune_lower(char32_t c);
+char32_t rune_upper(char32_t c);
+
 // Decimal, no sign, no leading space, and the whole string must be digits.
 // None on empty input, a stray character, or a value past 2^32 - 1.
 Option<u32> parse_u32(Str s);

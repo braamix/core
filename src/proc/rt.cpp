@@ -64,6 +64,24 @@ Rt &rt()
     return *reinterpret_cast<Rt *>(storage);
 }
 
+// What proc_at_exit was given. A plain pointer: nothing at namespace scope may
+// have a destructor.
+Task<void> (*at_exit)() = nullptr;
+
+// Task 0. What the program left buffered goes out after proc_main returns and
+// before the kernel is told.
+Task<i32> proc_root(Args args)
+{
+    i32 st = 1;
+    if (Task<i32> m = proc_main(args))
+        st = co_await m;
+
+    if (at_exit)
+        if (Task<void> t = at_exit())
+            co_await t;
+    co_return st;
+}
+
 // 0 = exited, 1 = suspended. Concept.md §4.3's return convention, and the only
 // thing the kernel learns without a syscall.
 i32 status_of(Rt &r)
@@ -145,6 +163,11 @@ Str proc_env(Str name)
     return v;
 }
 
+void proc_at_exit(Task<void> (*f)())
+{
+    at_exit = f;
+}
+
 u32 sig_pending()
 {
     return rt().pending;
@@ -221,7 +244,7 @@ BRAAM_EXPORT("_start") i32 _start(u32 ptr, u32 len)
 
     // A frame that would not allocate leaves the task null, and status_of
     // reports the failure as exit status 1 rather than resuming nothing.
-    r.tasks[0] = proc_main(Args{ Span<const Str>(r.argv.data(), r.argv.size()) });
+    r.tasks[0] = proc_root(Args{ Span<const Str>(r.argv.data(), r.argv.size()) });
     if (r.tasks[0])
         r.tasks[0].handle().resume();
     return status_of(r);

@@ -351,6 +351,9 @@ Each is a `Task<Result<T>>`. `Result` carries an `Error` and is unpacked with
 | Host services | `fetch_url(url, spec)`, `ws_connect(url)`, `clip_get`, `clip_put`, `pick`, `pick_open`, `fexport`, `verify_sig`, `inflate` |
 | Helpers | `errln(who, what, why)`, `Input`, `LineReader`, `next_line`, `next_field` |
 
+A buffered stream over any of these is `proc/file.h`, below — the layer a port
+from Unix wants where this one is the layer a program written here wants.
+
 Everything that is a stream of bytes comes back as a descriptor, so there is
 nothing new to learn for any of it: a fetched body is read with `read_chunk`
 until `Err(Closed)` and closed with `close_fd`, and a WebSocket is written with
@@ -410,6 +413,76 @@ that descriptor is the terminal and, if it is, how wide. The geometry is zero
 for a pipe or a file, so a program that formats for a terminal falls back to one
 item per line rather than inventing a width. `/bin/ls` is the worked example.
 
+### `proc/file.h` — buffered streams, in place of `stdio.h`
+
+`io.h` is one syscall per call, which is right for a program that reads a chunk
+and writes a line, and wrong for one ported from Unix that reads a character at
+a time — at 34–45 µs each, `getchar()` over a megabyte is forty seconds. `File`
+is the layer over it: a buffer, runes rather than bytes, and a sticky error.
+
+```cpp
+#include "proc/file.h"
+
+Task<i32> proc_main(Args)
+{
+    File &in  = File::stdin();
+    File &out = File::stdout();
+
+    while (Result<char32_t> c = co_await in.get())
+        co_await out.put(rune_lower(c.value()));
+
+    if ((co_await out.flush()).is_err())
+        co_return 1;
+    if (in.failed())
+        co_return in.err() == Error::Cancelled ? 130 : 1;
+    co_return 0;
+}
+```
+
+That is `while ((c = getchar()) != EOF) putchar(tolower(c));`, and it is the
+same shape for the same reason: **the error is sticky**. `get()` returns
+`Result<char32_t>`, whose `explicit operator bool` is what the `while` reads,
+and `Err(Error::Closed)` is end of input — but the same error is also latched on
+the `File`, so the loop needs no check inside it and `in.failed()` afterwards is
+`ferror()`. `in.err()` is `Error(0)` while nothing has gone wrong, `in.eof()` is
+`Closed`, and `clear_err()` resets both.
+
+| | |
+| --- | --- |
+| Opening | `File::open(path, FileMode::Read \| Write \| Append \| Update)`, `File::of(fd, mode)`, `File(Input &)`, `File::stdin()`, `File::stdout()`, `File::stderr()` |
+| Reading | `get()` one rune, `unget(c)`, `read(span)`, `getline(String &, keep_nl)` |
+| Writing | `put(c)`, `write(Str)`, `flush()` |
+| The rest | `seek(off, whence)`, `close()`, `detach()`, `err()`, `eof()`, `failed()`, `clean()`, `clear_err()`, `set_buffering()`, `reserve(n)` |
+
+`get()` decodes UTF-8, so what comes back is a codepoint however many bytes it
+took, and a sequence that end of input cut short is one U+FFFD rather than a
+silent truncation. `put()` encodes it again. `rune_lower` and `rune_upper` are
+in `kernel/text.h` beside `utf8_encode` and `utf8_decode`; they cover ASCII,
+Latin-1, Latin Extended-A, Greek and Cyrillic by range, and a mapping that is
+not one codepoint for one comes back unchanged.
+
+`get()` and `put()` are not `Task`s but awaiters, so the common case — the
+buffer already holds a rune, or has room for one — allocates no coroutine frame
+at all, and a slow-path frame that will not allocate becomes `Err(NoMemory)`
+rather than the panic that `co_await` on a null `Task` gives.
+
+Four rules, all of which bite:
+
+- **The destructor does not flush.** A destructor cannot `co_await`. Flush with
+  `flush()` or `close()`; failing that, the runtime flushes `stdout` and
+  `stderr` after `proc_main` returns, which is the safety net and not the plan.
+- **A buffered `File` owns its stream until `close()` or `detach()`.** It reads
+  ahead, past where the kernel's own pushback could put the bytes back.
+  `detach()` winds a seekable descriptor back and refuses on a pipe; a
+  descriptor about to be named in a spawn wants `Buffering::None`.
+- **`stdout` is line-buffered on the console and fully buffered otherwise**,
+  decided by one `tty_of` on the first flush. `stderr` is unbuffered and
+  allocates nothing. `set_buffering` overrides all of it.
+- **The buffer is 512 bytes and the block is heap, but a `char buf[4096]` of
+  your own is not.** A coroutine frame past 512 bytes costs a whole 64 KiB span.
+  Read into a small span and let the `File` do the buffering, or say
+  `reserve(SYS_READ_MAX)`, which is one span exactly — `/bin/cat` does both.
+
 ### `proc/time.h` — the calendar
 
 `civil(secs)` turns seconds since the epoch into a `Civil{year, month, day,
@@ -447,8 +520,8 @@ trusts:
 - **One user of a descriptor in one direction at a time.** A second concurrent
   read of the same descriptor is `Err(Perm)`.
 
-A process may have up to four syscalls outstanding at once, across as many tasks
-as it has; `proc_spawn(Task<i32>)` starts a second task, and the process ends
+A process may have up to `PROC_TASKS` syscalls outstanding at once — eight, one
+per task; `proc_spawn(Task<i32>)` starts a second task, and the process ends
 when the *root* task returns, whatever the others are doing.
 
 ### `proc/screen.h` and `ui/` — painting
