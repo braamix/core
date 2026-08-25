@@ -471,6 +471,11 @@ void test_vfs()
     vfs_close(w);
     CHECK_EQ(fs_closes, 2u);
 
+    // A directory is refused above the filesystem, which would have opened it.
+    CHECK(run_now(vfs_open("/count", O_READ)).error() == Error::IsDir);
+    CHECK(run_now(vfs_open("/count", O_WRITE | O_CREATE)).error() == Error::IsDir);
+    CHECK_EQ(fs_opens, 2u);
+
     // A descriptor honours what it was opened for.
     fd = run_now(vfs_open("/home/notes", O_READ)).value();
     CHECK(write(fd, 0, "x").error() == Error::Perm);

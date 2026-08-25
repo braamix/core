@@ -80,6 +80,11 @@ struct DirEntry {
 // `follow` false reports a symbolic link itself rather than its target.
 Task<Result<FileInfo>> stat_of(Str path, bool follow = true);
 
+// The same, off an open descriptor: the size is the one being read. `kind` is
+// always SYS_KIND_FILE and `mtime` always 0, and what seek_fd refuses this
+// refuses.
+Task<Result<FileInfo>> stat_fd(u32 fd);
+
 Task<Result<Vec<DirEntry>>> list_dir(Str path);
 
 Task<Result<void>> make_dir(Str path);

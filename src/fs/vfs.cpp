@@ -386,10 +386,13 @@ Task<Result<i32>> vfs_open(Str path, u32 flags)
     String abs, phys;
     CO_TRY_VOID(vfs_abs(path, abs));
 
-    // Only the leaf may be absent, and only when creating it.
-    if (Result<Stat> s = co_await vfs_resolve(abs.str(), true, phys);
-        s.is_err() && (s.error() != Error::NotFound || !(flags & O_CREATE)))
-        co_return Err(s.error());
+    // Only the leaf may be absent, and only when creating it. A directory is
+    // refused here rather than by each backend.
+    if (Result<Stat> s = co_await vfs_resolve(abs.str(), true, phys); s.is_err()) {
+        if (s.error() != Error::NotFound || !(flags & O_CREATE))
+            co_return Err(s.error());
+    } else if (s.value().kind == NodeKind::Dir)
+        co_return Err(Error::IsDir);
 
     Str sub;
     const Mount *m = vfs_lookup(phys.str(), sub);

@@ -46,10 +46,12 @@ export function check() {
     store.files.set("/home/d.zip", archive("hello-1.0-r0"));
     is("unzip -p /home/d.zip .PKGINFO | head -n 2", "P:hello|V:1.0-r0");
 
-    // Reading the archive is a read like any other, and so is failing to.
+    // Reading the archive is a read like any other, and so is failing to. The
+    // size comes off the descriptor, so a directory is refused by the open.
     is("unzip /home/nothing.zip", "unzip: /home/nothing.zip: not found");
     store.files.set("/home/junk.zip", new TextEncoder().encode("not a zip"));
     is("unzip /home/junk.zip", "unzip: /home/junk.zip: invalid");
+    is("unzip /home/z", "unzip: /home/z: is a directory");
 
     // A usage error is 2, and -l with -p says nothing about which stdout is
     // for.

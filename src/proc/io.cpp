@@ -147,6 +147,15 @@ u64 wide(const u8 *p)
     return u64(sys_get_u32(p)) | (u64(sys_get_u32(p + 4)) << 32);
 }
 
+// Stat and FStat's shared reply: u32 kind, u64 size, u64 mtime.
+Result<FileInfo> info_of(Str data)
+{
+    if (data.size() < 20)
+        return Err(Error::Io);
+    const u8 *p = reinterpret_cast<const u8 *>(data.data());
+    return FileInfo{ sys_get_u32(p), wide(p + 4), wide(p + 12) };
+}
+
 } // namespace
 
 Task<Result<u64>> seek_fd(u32 fd, i64 off, u32 whence)
@@ -181,11 +190,15 @@ Task<Result<FileInfo>> stat_of(Str path, bool follow)
     Result<SysReply> r = co_await sys_call(Sys::Stat, follow ? 0 : SYS_STAT_NOFOLLOW, path);
     if (r.is_err())
         co_return Err(r.error());
-    if (r.value().data.size() < 20)
-        co_return Err(Error::Io);
+    co_return info_of(r.value().data);
+}
 
-    const u8 *p = reinterpret_cast<const u8 *>(r.value().data.data());
-    co_return FileInfo{ sys_get_u32(p), wide(p + 4), wide(p + 12) };
+Task<Result<FileInfo>> stat_fd(u32 fd)
+{
+    Result<SysReply> r = co_await sys_call(Sys::FStat, fd);
+    if (r.is_err())
+        co_return Err(r.error());
+    co_return info_of(r.value().data);
 }
 
 Task<Result<Vec<DirEntry>>> list_dir(Str path)

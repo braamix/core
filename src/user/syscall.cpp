@@ -720,6 +720,31 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             break;
         }
 
+        // Seek's guards. It reads no payload, moves no position and never
+        // awaits, so neither a busy check nor a HandleRef. The guards leave
+        // kind a file, and a descriptor carries no mtime.
+        case Sys::FStat: {
+            Handle *h = fd < SYS_FD_MIN ? nullptr : proc_handle(p, fd);
+            if (fd < SYS_FD_MIN || (h && h->kind != Handle::Kind::File)) {
+                status = -i32(Error::Unsupported);
+                break;
+            }
+            if (!h) {
+                status = -i32(Error::Invalid);
+                break;
+            }
+
+            Result<u64> n = vfs_size(h->file.fd);
+            if (n.is_err()) {
+                status = -i32(n.error());
+                break;
+            }
+            if (!reply_u32(reply, SYS_KIND_FILE, u32(n.value()), u32(n.value() >> 32), 0, 0))
+                co_return Err(Error::NoMemory);
+            status = 0;
+            break;
+        }
+
         // Seek's guards, and vfs_truncate's own refusal of a descriptor that
         // was not opened for writing. It never awaits, so no HandleRef.
         case Sys::Truncate: {

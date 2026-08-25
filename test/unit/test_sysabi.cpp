@@ -94,6 +94,7 @@ void test_sysabi()
     CHECK_EQ(u32(Sys::Fg), 84u);
     CHECK_EQ(u32(Sys::Seek), 30u); // the filesystem block's growth room
     CHECK_EQ(u32(Sys::Truncate), 31u);
+    CHECK_EQ(u32(Sys::FStat), 33u);
 
     // The synchronous half, which is five and was four. Nothing packs an
     // argument into these: sys() has three spare scalars, so sys_op() is the

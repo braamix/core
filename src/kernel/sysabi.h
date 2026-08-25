@@ -105,6 +105,10 @@ enum class Sys : u32 {
     // Time. The timer queue is the kernel's.
     Sleep = 32, // payload = u32 milliseconds
 
+    // Stat's fields off an open descriptor. What Seek refuses FStat refuses;
+    // kind is always a file and mtime is always 0.
+    FStat = 33, // arg = fd;  data = u32 kind, u64 size, u64 mtime
+
     // Host services. What the kernel publishes as text under /proc is read with
     // Open and Read instead. A stream of bytes comes back as a descriptor, so
     // Read, Write and Close serve it; a killed process drops them with its

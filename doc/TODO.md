@@ -17,7 +17,7 @@ or renumber it.
 
 ## Why the syscall table is not the gap
 
-The table was measured against the generic Unix syscall set. Forty-eight
+The table was measured against the generic Unix syscall set. Forty-nine
 operations answer it, and what is left divides four ways:
 
 - **Covered by another mechanism.** `fork` (the spawn model), `dup2` (`Spawn`
@@ -33,8 +33,9 @@ operations answer it, and what is left divides four ways:
 - **Deliberate.** `bg`/`^Z` with `Wait`'s `WNOHANG`, `chmod`/`access`/`umask`,
   `link`, CPU metering, per-process root, `Kill` restricted to children. Each is
   in CLAUDE.md's known gaps with its argument in Release_Notes.md.
-- **Missing, and waiting for a caller.** `fstat`, `O_EXCL`, `mount`. See "Not
-  scheduled" below — none of them has one.
+- **Missing, and waiting for a caller.** `O_EXCL`, `mount`. See "Not scheduled"
+  below — neither has one. `fstat` was there until `/bin/unzip` turned out to
+  be one; see N3, now in B.
 
 The twelve missing *programs* were checked against the table one by one. None
 is blocked on a syscall. **The gap is the program layer**, which is what
@@ -89,6 +90,16 @@ Size is not the constraint: `rootfs/` is around 1.3 MB of the 2 MB in
       cross-mount `Err(Unsupported)` cannot fire between two paths under `/`;
       what *can* fire is a browser with no `FileSystemFileHandle.move`, so it
       needs `mv`'s existing copy-then-remove fallback.
+- [x] **N3. `fstat`** — done, and it keeps the tag it was filed under in "Not
+      scheduled". It was closed on the wrong question: *which field does a
+      program want from a descriptor* is the size, and `seek_fd(fd, 0,
+      SYS_SEEK_END)` gives it. `/bin/unzip` asked *which file the field was
+      measured on* — it sized the archive by path and read it by descriptor,
+      and a zip's directory is at its end, so an archive that shrank between
+      the two sent `zip_entries` past the end of the file. `Sys::FStat` is op
+      33 and moved no ABI: kind is always a file and mtime always 0, since
+      OPFS has no modification time for an open handle. `vfs_open` refuses a
+      directory now, which is where unzip's `is a directory` comes from.
 - [ ] **B2. `copy_tree` will not merge.** Its destination must not exist, so
       `cp -r a b` with `b/a` already there fails rather than merging. `mv` has
       the same shape. Distinguishing "a directory is already there" from "a file
@@ -150,9 +161,6 @@ where several writes coalesce into one syscall. None of the below moves
 
 Each needs an argument in Concept.md before any of it is built.
 
-- **N3. `fstat`.** The only field anyone wants from a descriptor is its size,
-  and `seek_fd(fd, 0, SYS_SEEK_END)` already gives it — `/bin/tail` does exactly
-  that. `Fs` has no stat-by-handle either, so mtime could not be answered.
 - **N4. `O_EXCL`.** Its only caller would be a `mktemp` that would use the pid
   anyway, and `Open` already refuses a second concurrent writer.
 - **N6. `Sys::Mount`.** §5.4 says it is unbuilt; it needs the `Fs` backend *and*

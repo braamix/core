@@ -49,6 +49,60 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## N3 was closed on the wrong question
+
+`fstat` sat under "Not scheduled" for four milestones, and the note that put it
+there is still correct as far as it goes: the only field anyone wants from a
+descriptor is its size, `seek_fd(fd, 0, SYS_SEEK_END)` gives it, and `/bin/tail`
+does exactly that. When `/bin/truncate` shipped without needing one either, that
+looked like confirmation and was written down as such.
+
+The question it never asked is *which file the size was measured on*.
+`/bin/unzip` sized the archive with `stat_of` and then opened the same path, and
+handed the path's number to an `FdZipSource` reading the descriptor. A zip's
+central directory is at the end of the file, so that number is not a hint about
+how much there is — it is where the read starts. An archive that shrank between
+the stat and the open sent `zip_entries` looking past the end of the file, and
+the two calls that bracketed the window cost exactly what one call and no window
+costs. That is the caller §4.3's first rule wants, and it had been sitting in
+the tree the whole time being counted as a program that did not need one.
+
+**`Sys::FStat` is op 33 and answers what a descriptor knows.** `kind` is always
+a file, because nothing else opens. `mtime` is always 0, because OPFS has no
+modification time for an open handle: `lastModified` lives on a `File` that only
+an `await` produces, and §5.2 does not put a promise on an open file to fetch
+one field no caller wants. It is `vfs_size` underneath — the primitive `Fs` has
+had since M4 and only `handle_seek` ever called — so no `Fs` virtual, no host
+operation, and `web/fs.js` and `test/fakefs.mjs` are untouched. Worth recording
+that the fake is *more* capable than the real store here: `FakeStore` keys its
+handles on paths and could answer mtime by handle, which is exactly why the
+design was settled against `web/fs.js` and not against the thing that would have
+let it pass.
+
+**It took an op without moving `PROC_ABI`, which stays at 19.** `Sys::Truncate`
+established that in 0.6 and this is the second time: an operation purely added
+changes no opcode, no reply and no flag, so no binary built against 19 can tell
+the difference, and the number's job is to refuse a *stale* binary rather than to
+count the table. Nothing is invalidated — no package in the store, no installed
+SDK. The one exposure runs the other way and is worth naming: a program built
+against the new `sysabi.h` that called `stat_fd` on a kernel predating `FStat`
+would load cleanly and fail at runtime with `Err(Unsupported)` instead of being
+refused at `exec` with the message that names the number. No such program
+exists — `/bin/unzip` ships inside `rootfs.zip` alongside the kernel that serves
+it — and the first out-of-tree caller is what would change that.
+
+**`vfs_open` refuses a directory now.** Converting unzip to open-then-fstat
+would otherwise have cost it a diagnostic: the kind check it did by path was the
+whole of its `is a directory`, and `vfs_open` delegated that refusal, so only
+DevFs and ProcFs answered `Err(IsDir)` and OPFS failed somewhere inside
+`getFileHandle` with something vaguer. The `Stat` was already in hand — the
+`vfs_resolve` at the top of the function had it — so the refusal is three lines
+where every backend can stop guessing, and `cat`, `wc`, `less` and `grep` say
+the same thing about a directory as unzip does. `test_vfs` proves it above the
+filesystem rather than in it, by opening the `CountingFs` mount root and
+checking that `fs_opens` did not move: that backend hands out a handle for
+anything, so a refusal it never saw is the only way the count can hold.
+
 ## The right button had nothing under it
 
 The note below made `Select All`, `Copy`, `Cut` and `Paste` work from the

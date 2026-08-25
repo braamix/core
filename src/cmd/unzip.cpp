@@ -223,20 +223,8 @@ Task<i32> proc_main(Args args)
     Args names{ rest.v.subspan(1) };
 
     // The archive is read where it is looked at — the directory is at its end
-    // — so nothing here holds it whole.
-    Result<FileInfo> st = Err(Error::NoMemory);
-    if (Task<Result<FileInfo>> t = stat_of(archive))
-        st = co_await t;
-    if (st.is_ok() && st.value().kind != SYS_KIND_FILE)
-        st = Err(Error::IsDir);
-    if (st.is_err()) {
-        if (st.error() == Error::Cancelled)
-            co_return 130;
-        if (Task<void> e = errln("unzip", archive, st.error()))
-            co_await e;
-        co_return 1;
-    }
-
+    // — so nothing here holds it whole. The size comes off the descriptor, so
+    // it measures the file being read.
     Result<i32> fd = Err(Error::NoMemory);
     if (Task<Result<i32>> t = open_read(archive))
         fd = co_await t;
@@ -244,6 +232,19 @@ Task<i32> proc_main(Args args)
         if (fd.error() == Error::Cancelled)
             co_return 130;
         if (Task<void> e = errln("unzip", archive, fd.error()))
+            co_await e;
+        co_return 1;
+    }
+
+    Result<FileInfo> st = Err(Error::NoMemory);
+    if (Task<Result<FileInfo>> t = stat_fd(u32(fd.value())))
+        st = co_await t;
+    if (st.is_err()) {
+        if (Task<void> c = close_fd(u32(fd.value())))
+            co_await c;
+        if (st.error() == Error::Cancelled)
+            co_return 130;
+        if (Task<void> e = errln("unzip", archive, st.error()))
             co_await e;
         co_return 1;
     }

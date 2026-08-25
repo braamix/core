@@ -864,8 +864,8 @@ The wire's conventions:
   and its own scheduler job, so a socket read that never completes cannot starve
   the keystroke behind it.
 
-**The table is forty-eight operations and `PROC_ABI` is 19**: five synchronous —
-`exit`, `getpid`, `now`, `stage`, `random` — and forty-three asynchronous.
+**The table is forty-nine operations and `PROC_ABI` is 19**: five synchronous —
+`exit`, `getpid`, `now`, `stage`, `random` — and forty-four asynchronous.
 `Random` is the newest and the first the synchronous half has taken since the
 wire was written: 32 bits out of the worker's own CSPRNG, which is the one value
 a kernel whose clock is a counter and whose pids are serial numbers cannot make
@@ -915,6 +915,23 @@ would need one *and* would collide with §5.2's exclusive-writer lock whenever
 the file it names is already open for writing — the caller would be refused for
 holding the file it is trying to change. Growing writes zeros and the
 descriptor's own position does not move.
+
+**`FStat` answers what a descriptor knows, which is its size.** The question it
+settles is not *which field* — `seek_fd(fd, 0, SYS_SEEK_END)` has always given
+the size, and for four milestones that was the answer to why no such operation
+existed — but *which file the field was measured on*. `/bin/unzip` is the
+caller that made the difference: it sized the archive by path, opened the same
+path, and handed the path's size to a source reading the descriptor. A zip's
+directory sits at the end, so that number is not a hint but where the read
+starts, and an archive that shrank between the two calls sent `zip_entries` past
+the end of the file. The call count is the same either way; what changes is that
+the size authorising the read is the size of the file being read. `kind` is
+therefore always a file — nothing else opens — and `mtime` is 0, because OPFS
+has no modification time for an open handle: `lastModified` lives on a `File`
+that only an `await` produces, and §5.2 does not put a promise on an open file
+for one field no caller wants. It took op 33 without moving `PROC_ABI`, being
+purely an addition: no existing opcode, reply or flag changed, so nothing built
+against 19 can tell the difference.
 
 **A descriptor named in a spawn is moved, not duplicated.** The parent's slot is
 closed and the child owns it. POSIX duplicates and expects the parent to close

@@ -35,6 +35,7 @@ memory management unit.
 | a blocking `read(2)` | `co_await` on a suspension | nothing blocks; the browser event loop is the scheduler (§2.1) |
 | a trap into ring 0 | a call to an imported function | an instance can only call the imports it was given, which is the capability system (§4.1) |
 | `errno` | a negated `Error` in the reply's leading `i32` | `_resume` has room for a buffer and not for an errno (§4.3) |
+| `fstat` | `Sys::FStat`, and the size is all of it | OPFS has no modification time for an open handle, and a descriptor opens nothing but a file |
 | `SIGKILL` | `worker.terminate()` | wasm cannot be preempted; a thread can be ended (§4.2) |
 | a core dump | a wasm trap the host reports as exit 132 | a process has no import to log through |
 | the file descriptor table | a `Vec<Handle *>` on the kernel's process record | a number one process holds means nothing in another |
@@ -815,6 +816,7 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 30 | `Seek` | fd | `u32 whence`, `i64 offset` | 0 | `u64` position |
 | 31 | `Truncate` | fd | `u64 length` | 0 | — |
 | 32 | `Sleep` | — | `u32 ms` | 0 | — |
+| 33 | `FStat` | fd | — | 0 | `u32 kind` (always a file), `u64 size`, `u64 mtime` (always 0) |
 | 48 | `Clock` | — | — | 0 | `u64 epoch_ms`, `i32 tz_min` |
 | 49 | `Storage` | — | — | 0 | `u64 quota`, `u64 usage`, `u32 flags` |
 | 50 | `Fetch` | — | `u32 url_len`, the url, the spec | the body's fd | `u32 http_status`, the headers |
@@ -1003,7 +1005,11 @@ widening `Stat` and `List`'s replies and taking op 24 for `Touch`, which pushed
 third value to `SYS_KIND_*` and an argument to `Stat`. `Rename` moved it from 13
 to 14, taking op 29 beside them. `Verify` moved it from 14 to 15, taking op 57
 and adding no reply, and `Inflate` from 15 to 16, taking 58 and an eighth handle
-kind.) That operation used to
+kind. `Truncate` was the first to take an op and move nothing, and `FStat`
+followed it: op 33 inside 19. An operation purely added — no opcode, reply or
+flag changed — cannot be told apart by a binary that never issues it, and the
+number is what refuses a *stale* binary rather than what counts the table.)
+That operation used to
 refuse a handle with
 `refs > 1`, meaning "nothing this process is inside a syscall on" — a second
 *descriptor* raises that count too, so every duplicated fd would have been
