@@ -145,8 +145,8 @@ is the guide and [examples/hello/](examples/hello/) is the worked example.
 
 ## Documentation
 
-- [doc/Concept.md](doc/Concept.md) — the specification, and the reasoning behind
-  each decision. Read it first.
+- [doc/Concept.md](doc/Concept.md) — the top-level design: the principles, and
+  the approach that follows from them. Read it first.
 - [doc/Release_Notes.md](doc/Release_Notes.md) — why the code looks the way it
   does.
 - [doc/Shell.md](doc/Shell.md) — the manual for `/bin/sh`.

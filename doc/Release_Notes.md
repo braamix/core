@@ -49,6 +49,49 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The specification stopped arguing with itself
+
+Concept.md was 1867 lines and had become two documents wearing one number
+scheme. It is now 749, and states the top-level design: the principles, and the
+approach that follows from them.
+
+**The first thing it stopped being is a second copy of this file.** Nearly every
+rule in it carried the argument that produced it — which caller turned up, what
+was rejected, how many milestones something waited. That is what this document
+is for, and a passage-by-passage check found all of it already here:
+`Mount` refusing on purpose, the `O_EXCL` temp name, the right button, the Edit
+menu's empty box, `null` and `zero`, the second device, §2.2's third exception,
+the buffer §4.4 says not to write, the number the kernel cannot make, the slot
+that waited four milestones, pid reuse, symbolic links, the modification time.
+None of it was carried over here, because none of it needed to be.
+
+**The second thing it stopped being is a manual.** It described what each of the
+fifty operations carries, what each `/dev` node answers, how the Edit menu
+reaches the hidden input, and what lives in each source file. Those have homes:
+System_Calls.md derives the ABI in full, Shell.md is the shell's manual, the
+Package_\* pair covers packaging, and the source comments that cite a section
+say the rest. Concept.md now points at them rather than restating them.
+
+**The section numbers did not move, and that was the constraint.** 466 source
+comments cite this scheme, concentrated on §4.3, §7, §5.2, §4, §6, §5.1 and
+§3.5. Every heading kept its number and its subject, so every citation still
+lands. What changed is that some of them now land on the principle rather than
+the rule underneath it — a comment citing §4.3 for `Fg`'s fourth authorisation
+clause finds the wire's four shaping rules instead. That is the accepted cost
+and not an oversight: the detail lives in the comment doing the citing, in
+System_Calls.md, and here.
+
+The architecture diagram, the seven imports and nine exports, the flag line, the
+`Task`/`Waiter` sketch, `Cell` and `Screen`, the `Fs` interface, the mount list,
+`StorageBackend` and the storage-tier table were kept verbatim. They carry more
+of the design per line than any prose that could replace them.
+
+One loose end is recorded rather than repaired. The entry above on `Mount`
+quotes a §4.3 sentence — "left unbuilt for four milestones with `vfs_truncate`
+wired beneath it precisely because no program wanted it" — that no longer exists
+there. This file is append-only and describes the state at the time of writing,
+so the quote stays as written.
+
 ## Three entries that were questions, not work
 
 `C1`, `C2` and `N7` leave TODO.md, and with them its last two sections. None of
