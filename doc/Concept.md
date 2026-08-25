@@ -1131,7 +1131,7 @@ caveats.
 ```
 OpfsFs     → OPFS                (/, and therefore everything — the store)
 ProcFs     → the scheduler       (/proc, generated at open)
-DevFs      → host_random, ChaCha20 (/dev, generated at read)
+DevFs      → host_random, ChaCha20 (/dev, generated at read, dropped at write)
 
 unbuilt:
   a File System Access Fs        (a real local directory, Chromium only, opt-in — §5.4)
@@ -1200,10 +1200,11 @@ itself: a `WebAssembly.Memory` reports its own size and only the worker holds
 one, so it comes back in every step's reply (§4.3) rather than in an operation
 of its own.
 
-`/dev` is `DevFs`, and it holds `random` and `urandom`: raw bytes, as many as
-are read, for as long as anything reads. They are *devices* rather than `/proc`
-entries because what they publish is not state the kernel is holding — `/proc`
-files are snapshots taken at `open`, and these are streams.
+`/dev` is `DevFs`, and it holds `null`, `random`, `urandom` and `zero`: bytes
+made at the moment they are asked for, for as long as anything reads, and writes
+that go nowhere. They are *devices* rather than `/proc` entries because what
+they publish is not state the kernel is holding — `/proc` files are snapshots
+taken at `open`, and these are streams.
 
 The two names carry Linux's two promises rather than one pool under two
 spellings. A read of `random` is one `host_random` and the bytes are the host's
@@ -1215,29 +1216,47 @@ So a program reading a long stream pays one host call ever rather than one per
 read, and a caller who wants the host's own bytes has `random` one path
 component away.
 
-The offset is ignored on both, which is why two descriptors on the one shared
-handle (§5.2) still never see the same byte twice: on `random` because each
-read is its own draw, on `urandom` because the generator advances whoever
-asked. Each 64-byte block's first half replaces the key and only its second
+`null` and `zero` carry Linux's other two: a stream with no bytes and a stream
+of nothing but zero bytes. A read of `null` is the end of input at once, which
+is what a file of no bytes already means everywhere above the VFS; a read of
+`zero` is met in full like the other two. All four take a write and answer the
+count, keeping none of it, so `>`, `>>` and `2>/dev/null` reach a device the way
+they reach a file. Writing to `random` stirs no pool — there is none to stir —
+and is discarded rather than refused, which is Linux's answer arrived at from
+the other direction.
+
+The offset is ignored on all four, which is why two descriptors never see the
+same byte twice: on `random` because each read is its own draw, on `urandom`
+because the generator belongs to the mount and advances whoever asked. Each
+64-byte block's first half replaces the key and only its second
 half leaves, so nothing the kernel is holding can reproduce a byte already
 handed out; the unused tail of a read's last block is dropped rather than kept
 for the next, since keeping it would leave un-emitted keystream resident and
 void exactly that.
 
-Two consequences are deliberate, and they hold for both. `stat` says 0, as
+Two consequences are deliberate, and they hold for all four. `stat` says 0, as
 Linux does for a character device, and `size` on an open descriptor says
 *nothing at all* — `Err(Unsupported)` rather than a number — because the read
 path clamps a request to what a file has left only when a size is given, and a
 device never ends. `SEEK_END` is the price: it is the one operation that needs
-a size, and it fails.
+a size, and it fails. `truncate` on a descriptor fails too, with
+`Err(Invalid)` — there is no length to set, which is the `EINVAL` Linux
+answers — while the `O_TRUNC` a `>` carries is accepted at `open` and ignored.
 
 `DevFs` is in `src/fs/` rather than `src/user/`, where `ProcFs` is, because it
-reads no scheduler and no screen; its entries are a table, so `zero` is a row.
-`urandom` was a row and a generator behind it, since a device that expands one
-draw is not a device that repeats a call. `null` will cost more again: it is a
-writer, and the open-file table refuses a writer any other descriptor holds
-(§5.2), so two stages redirecting to it would collide. That exemption is not
-made here.
+reads no scheduler and no screen; its entries are a table, so `null` and `zero`
+are rows. `urandom` was a row and a generator behind it, since a device that
+expands one draw is not a device that repeats a call. `null` cost a row and two
+predicates on `Fs`, both defaulted so that no other filesystem answers them.
+`file_writable()` is one: `writable()` was keeping two rules at once — whether a
+name may be added, removed or renamed here, and whether a file here may be
+opened for writing — and `/dev` answers no to the first and yes to the second,
+so `mkdir /dev/x` and `rm /dev/null` still refuse before the mount is asked and
+`mount` still prints `/dev` read-only. `shares_handles()` is the other: the
+open-file table refuses a writer any other descriptor holds (§5.2), so two
+stages redirecting here would have collided. That refusal exists for a lock a
+device does not take, and a filesystem holding no file says so and is opened
+once per descriptor instead.
 
 `/proc/stat` is what the kernel has *done* rather than what it is holding: one
 `name value` line per counter, cumulative since boot, and the reader does the
@@ -1376,8 +1395,12 @@ Two constraints to build around:
   table still refuses is a second opener while a *writer* holds the file, and a
   writer while anyone holds it — `O_TRUNC` counts as writing, since a share
   skips the backend open that would have performed it. Sharing is what makes
-  that one rule on every backend: none of them is ever asked to open a file
-  twice, so the rule cannot depend on which mount a path landed in.
+  that one rule on every backend *that has a file to open twice*: none of them
+  is ever asked to, so the rule cannot depend on which mount a path landed in.
+  A backend with no file says so — `Fs::shares_handles()`, which only `DevFs`
+  answers false — and is opened once per descriptor, so neither the sharing nor
+  the refusal reaches a device (§5.1). The rule still does not depend on the
+  path; it depends on the backend, which is where the lock is.
 - OPFS is unavailable in Safari private browsing. Capability-detect and
   **stop**: with the whole namespace in one store there is nothing to fall back
   to, and a memory namespace that looks like a system until the tab is reloaded

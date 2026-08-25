@@ -61,7 +61,14 @@ struct Fs {
     // What `mount` prints, and what `df` names as the backing store.
     virtual Str kind() const = 0;
 
+    // Whether a name may be added, removed or renamed here; `mount`'s rw/ro.
     virtual bool writable() const = 0;
+
+    // Whether a file here may be opened for writing.
+    virtual bool file_writable() const { return writable(); }
+
+    // Whether two descriptors on one path are one backend handle (§5.2).
+    virtual bool shares_handles() const { return true; }
 
     // What this filesystem holds, for `df`. Zero when it is not the kind of
     // store that knows — an OPFS mount asks the host instead.

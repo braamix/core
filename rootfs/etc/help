@@ -119,7 +119,9 @@ More
   /etc/motd         what boot prints
   /etc/anchor       the keys a repository's index is checked against
   /proc             the system as text — try cat /proc/host
+  /dev/null         writes go nowhere, reads end at once
   /dev/random       raw random bytes, for as long as anything reads
   /dev/urandom      the same, out of a generator seeded once
+  /dev/zero         zero bytes, for as long as anything reads
 
   help | grep ls    off a terminal `less` copies, so this list pipes

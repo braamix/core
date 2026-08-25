@@ -395,15 +395,18 @@ Task<Result<i32>> vfs_open(Str path, u32 flags)
     const Mount *m = vfs_lookup(phys.str(), sub);
     if (!m)
         co_return Err(Error::NotFound);
-    if ((flags & O_WRITE) && !m->fs->writable())
+    if ((flags & O_WRITE) && !m->fs->file_writable())
         co_return Err(Error::Perm);
 
     // Concept.md §5.2: descriptors share one handle rather than asking for a
-    // second, which an OPFS sync access handle refuses. No backend is opened
-    // twice, so the rule does not depend on which one a path lands in. Keyed on
-    // the physical path: two links to one file are one open file.
-    if (OpenShared *s = shared_of(m->fs, phys.str()))
-        co_return share(s, flags);
+    // second, which an OPFS sync access handle refuses. Keyed on the physical
+    // path: two links to one file are one open file. A filesystem holding no
+    // file shares none, and is opened once per descriptor.
+    bool shares = m->fs->shares_handles();
+    if (shares) {
+        if (OpenShared *s = shared_of(m->fs, phys.str()))
+            co_return share(s, flags);
+    }
 
     Task<Result<u32>> t = m->fs->open(sub, flags);
     if (!t)
@@ -413,10 +416,12 @@ Task<Result<i32>> vfs_open(Str path, u32 flags)
     // That await was a window: another task may have opened the file while it
     // ran, and on OPFS that is exactly why `r` failed. Nothing below suspends,
     // so the loser always sees the winner's record here.
-    if (OpenShared *s = shared_of(m->fs, phys.str())) {
-        if (r.is_ok())
-            m->fs->close(r.value());
-        co_return share(s, flags);
+    if (shares) {
+        if (OpenShared *s = shared_of(m->fs, phys.str())) {
+            if (r.is_ok())
+                m->fs->close(r.value());
+            co_return share(s, flags);
+        }
     }
     if (r.is_err())
         co_return Err(r.error());

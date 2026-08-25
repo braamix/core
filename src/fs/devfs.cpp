@@ -6,7 +6,7 @@
 
 namespace {
 
-enum class DevKind : u8 { Random, Urandom };
+enum class DevKind : u8 { Null, Random, Urandom, Zero };
 
 struct DevNode {
     Str name;
@@ -15,8 +15,10 @@ struct DevNode {
 
 // A name is a row; two names for one kind would be two rows.
 constexpr DevNode DEVICES[] = {
+    { "null", DevKind::Null },
     { "random", DevKind::Random },
     { "urandom", DevKind::Urandom },
+    { "zero", DevKind::Zero },
 };
 
 const DevNode *node_of(Str name)
@@ -30,7 +32,13 @@ const DevNode *node_of(Str name)
 struct DevFs final : Fs {
     Str kind() const override { return "devfs"; }
 
+    // The table takes no new name; a device still takes bytes.
     bool writable() const override { return false; }
+
+    bool file_writable() const override { return true; }
+
+    // No file behind a handle, so nothing to share.
+    bool shares_handles() const override { return false; }
 
     // 0, as Linux reports for a character device.
     Task<Result<Stat>> stat(Str path) override
@@ -58,11 +66,9 @@ struct DevFs final : Fs {
     }
 
     // A handle is its kind and nothing else; the slot holds kind + 1, so 0 is
-    // free.
-    Task<Result<u32>> open(Str path, u32 flags) override
+    // free. O_TRUNC and O_APPEND are ignored, and O_CREATE creates no name.
+    Task<Result<u32>> open(Str path, u32) override
     {
-        if (flags & (O_WRITE | O_CREATE | O_TRUNC | O_APPEND))
-            co_return Err(Error::Perm);
         if (path == "/")
             co_return Err(Error::IsDir);
 
@@ -87,12 +93,18 @@ struct DevFs final : Fs {
     Task<Result<void>> remove(Str, bool) override { co_return Err(Error::Perm); }
 
     // The offset is ignored and the count is always met: a device is a stream.
-    // random is a host draw per read; urandom is one draw ever, expanded.
+    // random is a host draw per read; urandom is one draw ever, expanded; null
+    // is the end of input at once.
     Result<usize> read(u32 h, u64, u8 *buf, usize n) override
     {
         if (h >= open_.size() || !open_[h])
             return Err(Error::Invalid);
         switch (DevKind(open_[h] - 1)) {
+        case DevKind::Null:
+            return usize(0);
+        case DevKind::Zero:
+            __builtin_memset(buf, 0, n);
+            return n;
         case DevKind::Random:
             host_random(u32(reinterpret_cast<usize>(buf)), u32(n));
             return n;
@@ -109,13 +121,20 @@ struct DevFs final : Fs {
         return Err(Error::Invalid);
     }
 
-    Result<usize> write(u32, u64, const u8 *, usize) override { return Err(Error::Perm); }
+    // Every device takes the whole of a write and keeps none of it.
+    Result<usize> write(u32 h, u64, const u8 *, usize n) override
+    {
+        if (h >= open_.size() || !open_[h])
+            return Err(Error::Invalid);
+        return n;
+    }
 
     // No size, rather than a size of nought: the read path clamps a request to
     // what a file has left only when this answers, and a device never ends.
     Result<u64> size(u32) override { return Err(Error::Unsupported); }
 
-    Result<void> truncate(u32, u64) override { return Err(Error::Perm); }
+    // No length to set either, which is Linux's EINVAL on a character device.
+    Result<void> truncate(u32, u64) override { return Err(Error::Invalid); }
 
     void close(u32 h) override
     {
@@ -126,7 +145,7 @@ struct DevFs final : Fs {
 private:
     Vec<u8> open_;
 
-    // The mount's, not a handle's: two descriptors share one backend handle.
+    // The mount's, not a handle's: every reader advances the one generator.
     ChaCha prng_;
 };
 

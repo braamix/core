@@ -151,7 +151,7 @@ export function check() {
         fail(`64 random bytes on the screen left ${row(garbage, garbage.cursor_y)}`);
 
     // Through a redirection, which is the path an OPFS sync handle serves: the
-    // file is the size asked for. And the device takes nothing back.
+    // file is the size asked for. And a write back to the device is discarded.
     submit("clear", 1189.04);
     submit("head -c 4 /dev/random > /home/draw", 1189.041);
     const wrote = rows(submit("wc /home/draw", 1189.042))
@@ -162,8 +162,8 @@ export function check() {
     submit("clear", 1189.044);
     const wrt = rows(submit("echo hi > /dev/random", 1189.045))
         .filter((line) => line && !line.includes("$")).join("|");
-    if (!wrt.includes("permission"))
-        fail(`echo into /dev/random printed ${JSON.stringify(wrt)}, expected a refusal`);
+    if (wrt.trim() !== "")
+        fail(`echo into /dev/random printed ${JSON.stringify(wrt)}, expected nothing`);
 
     // /dev/urandom is one draw the kernel expands rather than a draw per read,
     // and ends no sooner for it: the count asked for is the count that arrives.
@@ -175,19 +175,50 @@ export function check() {
             fail(`head -c 8 /dev/urandom | wc printed ${JSON.stringify(got)}, expected 8 bytes`);
     }
 
-    // Both devices measure 0, as they do on Linux, and the draw has left /proc.
+    // Every device measures 0, as they do on Linux, and the draw has left /proc.
     submit("clear", 1189.05);
     const dev = rows(submit("ls -l /dev", 1189.06)).filter((line) => line && !line.includes("$"));
-    if (!dev.some((line) => /^file\s+0\s.*\brandom$/.test(line)))
-        fail(`ls -l /dev printed ${JSON.stringify(dev)}, expected random at 0`);
-    if (!dev.some((line) => /^file\s+0\s.*\surandom$/.test(line)))
-        fail(`ls -l /dev printed ${JSON.stringify(dev)}, expected urandom at 0`);
+    for (const name of ["null", "random", "urandom", "zero"]) {
+        if (!dev.some((line) => new RegExp(`^file\\s+0\\s.*\\s${name}$`).test(line)))
+            fail(`ls -l /dev printed ${JSON.stringify(dev)}, expected ${name} at 0`);
+    }
 
     submit("clear", 1189.07);
     const gone = rows(submit("cat /proc/random", 1189.08))
         .filter((line) => line && !line.includes("$")).join("|");
     if (!gone.includes("not found"))
         fail(`cat /proc/random printed ${JSON.stringify(gone)}, expected it to be gone`);
+
+    // Two redirections in one command are two descriptors on one path, which
+    // the open-file table refuses for a file and not for a device (§5.2).
+    submit("clear", 1189.09);
+    const sink = rows(submit("echo hi > /dev/null 2> /dev/null", 1189.1))
+        .filter((line) => line && !line.includes("$")).join("|");
+    if (sink.trim() !== "")
+        fail(`echo into /dev/null printed ${JSON.stringify(sink)}, expected nothing`);
+
+    // Both stages of a pipeline redirecting there at once, which is the
+    // collision Concept.md names.
+    submit("clear", 1189.11);
+    const both = rows(submit("echo one > /dev/null | echo two > /dev/null", 1189.12))
+        .filter((line) => line && !line.includes("$")).join("|");
+    if (both.trim() !== "")
+        fail(`two stages redirecting to /dev/null printed ${JSON.stringify(both)}`);
+
+    // Reading null ends at once, which is a file of no bytes.
+    submit("clear", 1189.13);
+    const empty = rows(submit("wc /dev/null", 1189.14))
+        .filter((line) => line && !line.includes("$")).join("|");
+    if (empty.trim().split(/\s+/).slice(0, 3).join(" ") !== "0 0 0")
+        fail(`wc /dev/null printed ${JSON.stringify(empty)}, expected 0 0 0`);
+
+    // zero ends no sooner than the count asked for, as the two random devices
+    // do not, and every byte of it is a zero the renderer has to draw.
+    submit("clear", 1189.15);
+    const zeros = rows(submit("head -c 8 /dev/zero | wc", 1189.16))
+        .filter((line) => line && !line.includes("$")).join("|");
+    if (zeros.trim().split(/\s+/)[2] !== "8")
+        fail(`head -c 8 /dev/zero | wc printed ${JSON.stringify(zeros)}, expected 8 bytes`);
 
     regrid(60, 16, "the resize after ps failed");
 }

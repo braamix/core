@@ -49,6 +49,73 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## `null` and `zero`, and the two rules `writable()` was keeping at once
+
+`/dev` holds four entries now. `zero` cost what §5.1 said it would — a row in
+the table and a `case` in `read` — and `null` cost what §5.1 said it would too,
+which was more. Both notes below stand as written; this supersedes them rather
+than editing them.
+
+**`writable()` was answering two questions, and `/dev` answers them
+differently.** One is whether a name may be added, removed or renamed here: it
+gates `deny_readonly`, so `mkdir`, `rm`, `mv`, `touch` and `ln -s` fail before a
+path is even walked, and it is what `mount` prints as `rw` or `ro`. The other is
+whether a file here may be opened for writing. For every filesystem that existed
+those were the same question, so one predicate answered both and nobody noticed.
+A device tree is where they part: `/dev`'s table takes no new name and never
+will, and its entries take bytes. Flipping the one predicate would have bought
+`> /dev/null` at the price of `mount` calling `/dev` writable, `touch /dev/null`
+answering `Unsupported` instead of `Perm`, and — worst — `mv /dev/null /home/x`
+reaching the cross-mount `Err(Unsupported)` that tells `mv` to copy and remove
+instead, so it would have created an empty `/home/x` and *then* failed the
+remove. `file_writable()` defaults to `writable()`, is overridden in one place,
+and leaves all of that where it was.
+
+**The open-file table's refusal is OPFS's exclusive lock, not a law of the
+VFS.** §5.2 shares one backend handle per resolved path and refuses a writer any
+other descriptor holds, because a sync access handle would refuse the second
+open itself. `DevFs` opens nothing and locks nothing, so the refusal it
+inherited was pure cost: `cmd >/dev/null 2>/dev/null` opens the path twice and
+holds both, and either stage of `a >/dev/null | b >/dev/null` would have been
+told it lacked permission to write to a sink. `shares_handles()` says a backend
+has no file to open twice, and such a backend is opened once per descriptor.
+
+The cheaper shape — keep the sharing, relax only `share()`'s refusal — was
+rejected. A sharing open returns before `Fs::open` is ever called, so every
+per-path decision the backend makes is skipped whenever another descriptor on
+that path already exists. `/dev` would have answered `IsDir` and `NotFound`
+correctly on a first open and not on a second. Opting out of the table entirely
+keeps `DevFs::open` on every path, which is the only way those answers stay
+exact.
+
+**A 0-byte read was already the end of input, so `null` needed no new
+convention.** `read_chunk` turns an empty reply into `Err(Error::Closed)` and
+nothing in the tree loops on a short read, so `cat /dev/null` exits 0 and
+`wc /dev/null` says `0 0 0` without a line of special-casing. `size()` still
+answers `Err(Unsupported)` for all four rather than 0 — a size of 0 would make
+the read path clamp every read of `zero` to nothing — and `truncate()` now
+answers `Err(Invalid)` rather than `Perm`, since a mount that takes writes
+refusing on grounds of permission would be a lie; `EINVAL` on a character device
+is what Linux says and what it means here too.
+
+**`random` and `urandom` discard a write now instead of refusing it.** Linux
+lets you write to both, where it stirs the entropy pool. There is no pool here —
+`random` is a host draw per read and `urandom` is fast key erasure — so a write
+stirs nothing, and the honest choices were to refuse it or to drop it. The
+refusal was never a decision anyone took: it fell out of the mount being
+read-only, and the moment `file_writable()` made that a per-device question it
+had to be answered on purpose. Dropping it makes all four devices one rule, and
+it is Linux's behaviour reached from the other direction.
+
+**`cp /dev/zero x` fills the store until it refuses, exactly as on Linux.**
+Nothing guards it, and nothing should: both halves are syscalls, so `^C` is the
+answer, which is the same answer `cat /dev/random` has always had.
+
+No import, export or `PROC_ABI` moved; the kernel grew 344 bytes. The two new
+`Fs` predicates are defaulted, so `OpfsFs` and `ProcFs` needed no edit —
+`ProcFs` keeps sharing on purpose, since its content is a snapshot taken at
+`open` and two readers of one snapshot is §5.1's rule rather than an accident.
+
 ## The suite was never a smoke test
 
 `test/smoke/` is now `test/system/`, and the CTest case with it: the three names

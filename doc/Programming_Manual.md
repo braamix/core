@@ -387,13 +387,17 @@ render one with `civil()` from `proc/time.h`, which `date` and `ls -l` both use.
 is no setter in OPFS, so a store that cannot be made to restamp answers
 `Unsupported`.
 
-`/dev/random` and `/dev/urandom` are devices rather than files, and read like
-one: `stat_of` says 0 as Linux does, every read is met in full for as long as
-you read, and `seek_fd` with `SYS_SEEK_END` fails because there is no end to
-seek to. Read either for a nonce or a key — `random` is the host's own bytes,
-one draw per read; `urandom` is a generator in the kernel the host seeded once,
-so a long stream costs no host call at all. `proc_random()` is the cheaper way
-to a single `u32`.
+`/dev` holds `null`, `random`, `urandom` and `zero` — devices rather than files,
+and they read like one: `stat_of` says 0 as Linux does, `seek_fd` with
+`SYS_SEEK_END` fails because there is no end to seek to, and `truncate_fd` fails
+because there is no length to set. A read of `null` is 0 bytes, which is the end
+of input; a read of the other three is met in full for as long as you read. All
+four also open with `SYS_O_WRITE` and take every byte written, keeping none —
+`> /dev/null` is a sink, and two of them in one command or one pipeline are two
+descriptors that do not collide. Read `random` or `urandom` for a nonce or a key
+— `random` is the host's own bytes, one draw per read; `urandom` is a generator
+in the kernel the host seeded once, so a long stream costs no host call at all.
+`proc_random()` is the cheaper way to a single `u32`.
 
 `kind` is `SYS_KIND_FILE`, `SYS_KIND_DIR` or `SYS_KIND_LINK`. Everything above
 that names a path **follows a symbolic link**, except `remove_path`, which drops
