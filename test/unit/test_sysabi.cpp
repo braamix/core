@@ -65,6 +65,12 @@ void test_sysabi()
     CHECK_EQ(sys_op_arg(sys_op(Sys::Open, SYS_O_READ | SYS_O_CREATE)), SYS_O_READ | SYS_O_CREATE);
     CHECK(sys_op_code(sys_op(Sys::Open, SYS_O_TRUNC)) == Sys::Open);
 
+    // The flags a binary compiled today speaks, and the mask Sys::Open checks a
+    // word against so an unknown bit is refused rather than dropped.
+    CHECK_EQ(SYS_O_EXCL, 32u);
+    CHECK_EQ(SYS_O_ALL & SYS_O_EXCL, SYS_O_EXCL);
+    CHECK_EQ(SYS_O_ALL, 63u);
+
     // Wait and Kill carry a pid in that same field, which is 24 bits wide.
     // SYS_PID_MAX is the largest pid there is and survives the round trip with
     // room to spare: the ids above it are the scheduler's anonymous jobs, so the

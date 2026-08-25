@@ -448,6 +448,19 @@ void test_vfs()
     CHECK(run_now(vfs_open("/home/notes", O_READ | O_TRUNC)).error() == Error::Perm);
     vfs_close(a);
 
+    // O_EXCL asks about the name, not about who holds it: Exists either way,
+    // and Exists rather than the Perm a reader would have got.
+    CHECK(run_now(vfs_open("/home/notes", O_WRITE | O_CREATE | O_EXCL)).error() == Error::Exists);
+    a = run_now(vfs_open("/home/notes", O_READ)).value();
+    CHECK(run_now(vfs_open("/home/notes", O_WRITE | O_CREATE | O_EXCL)).error() == Error::Exists);
+    vfs_close(a);
+
+    // A name nothing holds is created, and taken once.
+    fd = run_now(vfs_open("/home/fresh", O_WRITE | O_CREATE | O_EXCL)).value();
+    vfs_close(fd);
+    CHECK(run_now(vfs_open("/home/fresh", O_WRITE | O_CREATE | O_EXCL)).error() == Error::Exists);
+    CHECK(run_now(vfs_remove("/home/fresh", false)).is_ok());
+
     // And what sharing means underneath: one open() and one close() reach the
     // filesystem however many descriptors are on the file. The await window in
     // vfs_open cannot be exercised here — run_now panics on a suspension, and
@@ -471,9 +484,11 @@ void test_vfs()
     vfs_close(w);
     CHECK_EQ(fs_closes, 2u);
 
-    // A directory is refused above the filesystem, which would have opened it.
+    // A directory is refused above the filesystem, which would have opened it,
+    // and so is an O_EXCL over a name that resolved.
     CHECK(run_now(vfs_open("/count", O_READ)).error() == Error::IsDir);
     CHECK(run_now(vfs_open("/count", O_WRITE | O_CREATE)).error() == Error::IsDir);
+    CHECK(run_now(vfs_open("/count/f", O_WRITE | O_CREATE | O_EXCL)).error() == Error::Exists);
     CHECK_EQ(fs_opens, 2u);
 
     // A descriptor honours what it was opened for.

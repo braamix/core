@@ -9,9 +9,12 @@ operation has a caller in `src/cmd/`* — and whether it moves `PROC_ABI`. An AB
 bump invalidates every stamped binary and every installed package, so an entry
 that needs one says so and is batched with anything else that does.
 
-Every entry carries a tag — `A1`, `B2`, `N5` — so it can be named from a commit
+Every entry carries a tag — `A3`, `B2`, `N6` — so it can be named from a commit
 or a conversation. A tag belongs to its entry for good: amend one, never reuse
-or renumber it.
+or renumber it. A finished entry leaves this file, since what is left is the
+whole of what it is for, and the gap it leaves stays a gap: number a new entry
+past its section's highest, never into a hole. The tags missing below are spent,
+not free, and Release_Notes.md is where each of them went.
 
 ---
 
@@ -33,9 +36,9 @@ operations answer it, and what is left divides four ways:
 - **Deliberate.** `bg`/`^Z` with `Wait`'s `WNOHANG`, `chmod`/`access`/`umask`,
   `link`, CPU metering, per-process root, `Kill` restricted to children. Each is
   in CLAUDE.md's known gaps with its argument in Release_Notes.md.
-- **Missing, and waiting for a caller.** `O_EXCL`, `mount`. See "Not scheduled"
-  below — neither has one. `fstat` was there until `/bin/unzip` turned out to
-  be one; see N3, now in B.
+- **Missing, and waiting for a caller.** `mount`. See "Not scheduled" below — it
+  has none. `fstat` and `O_EXCL` were here too, until `/bin/unzip` and
+  `/bin/edit` turned out to be the callers; Release_Notes.md has both arguments.
 
 The twelve missing *programs* were checked against the table one by one. None
 is blocked on a syscall. **The gap is the program layer**, which is what
@@ -56,12 +59,6 @@ Adding a program also moves two counts that are written down: `compared` in
 `test/unit/test_zip.cpp` (the archive's file count) and the byte count in
 `test/system/subst.mjs` (which concatenates `/etc/help` three times).
 
-- [x] **A1. `cp`** — done. The copy moved to `src/proc/io.h` and `mv` now
-      shares it.
-- [x] **A2. `basename`, `dirname`** — done. Text in, text out, no syscall but
-      the write. `path.cpp`'s pair turned out to be the wrong semantics — it
-      takes a normalised absolute path — so only `path_basename` is reused, and
-      after the trailing slashes are trimmed.
 - [ ] **A3. `find`** — `-name`, `-type`, `-newer`; `Sys::List` already carries
       kind and mtime per entry, and `copy_tree`'s explicit-stack walk is the
       shape to reuse. Consider lifting that walk beside the copy helpers when
@@ -79,27 +76,6 @@ Size is not the constraint: `rootfs/` is around 1.3 MB of the 2 MB in
 
 ## B — program-layer correctness
 
-- [ ] **B1. `edit` saves through a temp file.** `save()` opens
-      `O_WRITE|O_CREATE|O_TRUNC` — destroying the file — and only then writes,
-      so a failure or a signal mid-`write_all` loses the original. Write
-      `<path>.tmp.<pid>` (the pid from `Sys::GetPid`, no randomness needed) and
-      rename it. **No syscall is needed and `Sys::Truncate` is not the fix** —
-      truncate-after-write only moves the failure window from "empty" to "new
-      prefix, old suffix", which parses and compiles and is worse. `vfs_mount`
-      is called from two places and there is one writable mount, so `Rename`'s
-      cross-mount `Err(Unsupported)` cannot fire between two paths under `/`;
-      what *can* fire is a browser with no `FileSystemFileHandle.move`, so it
-      needs `mv`'s existing copy-then-remove fallback.
-- [x] **N3. `fstat`** — done, and it keeps the tag it was filed under in "Not
-      scheduled". It was closed on the wrong question: *which field does a
-      program want from a descriptor* is the size, and `seek_fd(fd, 0,
-      SYS_SEEK_END)` gives it. `/bin/unzip` asked *which file the field was
-      measured on* — it sized the archive by path and read it by descriptor,
-      and a zip's directory is at its end, so an archive that shrank between
-      the two sent `zip_entries` past the end of the file. `Sys::FStat` is op
-      33 and moved no ABI: kind is always a file and mtime always 0, since
-      OPFS has no modification time for an open handle. `vfs_open` refuses a
-      directory now, which is where unzip's `is a directory` comes from.
 - [ ] **B2. `copy_tree` will not merge.** Its destination must not exist, so
       `cp -r a b` with `b/a` already there fails rather than merging. `mv` has
       the same shape. Distinguishing "a directory is already there" from "a file
@@ -161,8 +137,6 @@ where several writes coalesce into one syscall. None of the below moves
 
 Each needs an argument in Concept.md before any of it is built.
 
-- **N4. `O_EXCL`.** Its only caller would be a `mktemp` that would use the pid
-  anyway, and `Open` already refuses a second concurrent writer.
 - **N6. `Sys::Mount`.** §5.4 says it is unbuilt; it needs the `Fs` backend *and*
   an answer to the namespace question §5.1 leaves open.
 - **N7. A batched step protocol.** Reconsider only if a workload survives

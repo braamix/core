@@ -54,25 +54,78 @@ Task<Result<void>> load(Editor &e)
     co_return e.buf.load(text.value().str());
 }
 
+// <path>.tmp.<pid>, and a counter after it while the name is taken. A pid is
+// reused, so a save killed before its rename may have left one behind.
+bool temp_name(Str path, u32 pid, usize n, String &out)
+{
+    Buf<32> tail;
+    tail.put(".tmp.").put(pid);
+    if (n)
+        tail.put('.').put(n);
+    return out.assign(path) && out.append(tail.str());
+}
+
+constexpr usize TEMP_TRIES = 8;
+
+// The bytes into `tmp`, then `tmp` over the target. A rename the store will not
+// perform is mv's copy instead.
+Task<Result<void>> write_and_move(Str tmp, Str path, u32 fd, Str text, bool &moved)
+{
+    Result<void> w = Err(Error::NoMemory);
+    if (Task<Result<void>> t = write_all(fd, text))
+        w = co_await t;
+    if (Task<void> c = close_fd(fd))
+        co_await c;
+    CO_TRY_VOID(w);
+
+    Result<void> r = Err(Error::NoMemory);
+    if (Task<Result<void>> t = rename_path(tmp, path))
+        r = co_await t;
+    if (r.is_ok()) {
+        moved = true;
+        co_return {};
+    }
+    if (r.error() != Error::Unsupported)
+        co_return r;
+    if (Task<Result<void>> t = copy_file(tmp, path))
+        co_return co_await t;
+    co_return Err(Error::NoMemory);
+}
+
+// Written beside the target and renamed over it, so an interrupted save costs
+// the new text and not the old. O_EXCL is what makes the name this process's.
 Task<Result<void>> save(Editor &e)
 {
     CO_TRY_VOID(e.buf.serialize(e.scratch));
 
-    Task<Result<i32>> op = open_at(e.path.str(), SYS_O_WRITE | SYS_O_CREATE | SYS_O_TRUNC);
-    if (!op)
-        co_return Err(Error::NoMemory);
-    Result<i32> fd = co_await op;
+    String tmp;
+    Result<i32> fd = Err(Error::Exists);
+    for (usize n = 0; n < TEMP_TRIES; n++) {
+        if (!temp_name(e.path.str(), proc_pid(), n, tmp))
+            co_return Err(Error::NoMemory);
+        Task<Result<i32>> t = open_at(tmp.str(), SYS_O_WRITE | SYS_O_CREATE | SYS_O_EXCL);
+        if (!t)
+            co_return Err(Error::NoMemory);
+        fd = co_await t;
+        if (fd.is_ok() || fd.error() != Error::Exists)
+            break;
+    }
     if (fd.is_err())
         co_return Err(fd.error());
 
-    Result<void> w = Err(Error::NoMemory);
-    if (Task<Result<void>> t = write_all(u32(fd.value()), e.scratch.str()))
-        w = co_await t;
-    if (Task<void> c = close_fd(u32(fd.value())))
-        co_await c;
-    if (w.is_err())
-        co_return Err(w.error());
+    bool moved     = false;
+    Result<void> r = Err(Error::NoMemory);
+    if (Task<Result<void>> t =
+            write_and_move(tmp.str(), e.path.str(), u32(fd.value()), e.scratch.str(), moved))
+        r = co_await t;
 
+    // A rename took the name; anything else leaves one to clear away, and a
+    // cancel here leaves it for the counter above.
+    if (!moved)
+        if (Task<Result<void>> t = remove_path(tmp.str(), false))
+            co_await t;
+
+    CO_TRY_VOID(r);
     e.buf.clear_modified();
     co_return {};
 }

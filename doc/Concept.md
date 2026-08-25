@@ -933,6 +933,21 @@ for one field no caller wants. It took op 33 without moving `PROC_ABI`, being
 purely an addition: no existing opcode, reply or flag changed, so nothing built
 against 19 can tell the difference.
 
+**`O_EXCL` is bound by the first rule exactly as an operation is**, and it waited
+under it for as long as the caller was imagined rather than found. The one
+imagined was a `mktemp`, which would have taken its uniqueness from the pid and
+wanted the flag only as a belt over braces. The caller that turned up is
+`/bin/edit`, saving through `<path>.tmp.<pid>` and renaming so that an
+interrupted write costs the new text rather than the old — and there the pid is
+not uniqueness at all. **A pid is reused** (§4.1), never while something still
+names it, which is an instant and not a lifetime: a save killed between the
+create and the rename leaves an orphan, and the next process to draw that number
+and open that file would truncate it without a word. `O_EXCL` is what makes the
+name provably the writer's own and an orphan a diagnostic. It is a flag and not
+an operation, so the table does not grow and `PROC_ABI` does not move; the cost
+of that is in §5.2, because a bit an older kernel does not know is one it
+silently drops.
+
 **A descriptor named in a spawn is moved, not duplicated.** The parent's slot is
 closed and the child owns it. POSIX duplicates and expects the parent to close
 its copy, and forgetting is the classic bug where the reader never sees end of
@@ -1455,6 +1470,23 @@ Two constraints to build around:
   **stop**: with the whole namespace in one store there is nothing to fall back
   to, and a memory namespace that looks like a system until the tab is reloaded
   is worse than a refusal. Boot says so on the grid and starts no shell.
+
+**`O_EXCL` is as exclusive as `mkdir` is, and that is the ceiling.** The lock
+above answers a question about *openness* — who holds the file now — and
+`O_EXCL` asks one about *existence*, which the lock is silent on. The host
+cannot answer it atomically: `getFileHandle` takes one option, `{create}`, and
+with it set an existing name yields the existing handle. There is no exclusive
+mode, so every implementation is a probe and then a create with an `await`
+between, which is what `mkdir` has always done here and what the flag now does
+beside it. The VFS closes the two windows it can see — a file some descriptor
+already holds is refused before the backend is asked, and the loser of the open
+race is refused rather than folded into a share — and the one it cannot is the
+gap between the probe and the create in the host. Two tabs are the same origin
+and therefore the same store, with a kernel and an open-file table each, so
+across them the flag promises nothing at all; only the sync access handle's own
+lock does, and it is taken after the name exists. This is POSIX's guarantee
+declined rather than approximated, and a caller wanting more must not read one
+into it.
 
 ### 5.3 Capability struct, not probing
 

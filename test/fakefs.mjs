@@ -14,7 +14,10 @@ import {
     E, OP, Request, SYNC, installOps, linkBytes, linkTarget, packEntries, packInfo, packStat,
 } from "../web/fs.js";
 
-const O_CREATE = 4, O_TRUNC = 8;
+// This store is a Map and answers in one turn, so O_EXCL here is atomic where
+// OPFS's probe-then-create is not: passing this proves the flag arrives, never
+// that a browser is exclusive (Concept.md §5.2).
+const O_CREATE = 4, O_TRUNC = 8, O_EXCL = 32;
 
 // The clock writes are stamped from: deterministic, and behind fakesvc's frozen
 // wall clock so a stamped file reads as the recent past.
@@ -144,6 +147,8 @@ export function makeFakeImports(mem, store, kernel) {
                     return r.fail(E.NOTFOUND);
                 store.files.set(path, new Uint8Array(0));
                 store.stamp(path);
+            } else if (flags & O_EXCL) {
+                return r.fail(E.EXISTS);
             } else if (flags & O_TRUNC) {
                 store.files.set(path, new Uint8Array(0));
                 store.stamp(path);

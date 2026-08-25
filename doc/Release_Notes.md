@@ -49,6 +49,67 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The pid in the temp name was never uniqueness
+
+N4 shelved `O_EXCL` on two clauses, and they answer different questions. "`Open`
+already refuses a second concurrent writer" is true and is about **who holds a
+path now** — `share()` turning away an `O_WRITE|O_TRUNC` opener while anyone has
+the file. `O_EXCL` asks whether **a name exists at all**, which no lock here
+reports and which the open-file table has nothing to say about. The other
+clause — that the only caller would be a `mktemp` using the pid anyway — named a
+program nobody has asked for, and the caller was in the tree the whole time.
+
+**B1 is that caller, and it had the same blind spot.** `edit`'s `save()` opened
+the real file `O_WRITE|O_CREATE|O_TRUNC` and only then wrote, so a cancel or an
+OOM in `write_all` left the file empty with the only copy in a worker that was
+going away. B1 prescribed the fix — write `<path>.tmp.<pid>`, rename it — and
+added "no randomness needed", which is where it went wrong. **A pid is reused.**
+§4.1's rule is that a pid is never reused *while something still names it*, and
+that is an instant, not a lifetime. Nothing names a file. So `.tmp.<pid>` is
+unique now and not over time: a save killed between the create and the rename
+leaves an orphan, and the next process to draw that number and edit that file
+would have truncated it without a word — reintroducing the loss B1 exists to
+prevent, at longer odds and with no diagnostic. `O_EXCL` is what makes the name
+provably the writer's own, and a bounded counter after it is what stops an
+orphan making a file permanently unsaveable.
+
+**The flag is as exclusive as `mkdir` is, and says so.** OPFS has no exclusive
+create: `getFileHandle` takes `{create}` and with it set an existing name yields
+the existing handle. So the implementation is a probe and then a create with an
+`await` between — which is exactly what `web/fs.js`'s `mkdir` has shipped since
+M5, and the new code is deliberately the same shape beside it rather than a
+weaker one invented fresh. The VFS closes the two windows it can see: a name
+that resolved is refused before any backend is asked, which is also the only
+check `DevFs` and `ProcFs` need so neither changed, and the loser of the open
+race is refused in `share()` instead of being folded into a share, which is what
+it would silently have become. The window it cannot close is the host's, and two
+tabs are one origin and therefore one store with a kernel each, so across them
+the flag promises nothing whatever. That is POSIX's guarantee declined, not
+approximated, and §5.2 now says so in those words rather than leaving a reader
+to assume the usual meaning.
+
+Worth admitting: the race is the interesting case and **no test covers it**. The
+unit suite's `run_now` panics on a suspension, so the await window is out of
+reach there — `test_vfs` says as much already — and `test/fakefs.mjs` is a
+synchronous `Map`, which makes the fake *atomic where OPFS is not*. Passing
+proves the flag arrives and that the resolve-time and share-time refusals fire;
+it is not evidence that a browser is exclusive. The comment in `fakefs.mjs` says
+this so the next reader does not take a green suite for more than it is.
+
+**`vfs_flags` now refuses what it does not know.** This is the part that made a
+flag bit riskier to add than an operation, and it is worth writing down because
+it cuts against the ABI-19 practice `Truncate` and `FStat` established. A new
+*operation* on an old kernel is `Err(Unsupported)` at the call — loud. A new
+*flag bit* on an old kernel was silently masked off by a whitelist that dropped
+what it did not recognise, so a caller asking for an exclusive create would have
+got a plain one and been told it succeeded. Nothing can repair kernels already
+built, and the exposure is real only for an out-of-tree program, since
+`/bin/edit` ships inside `rootfs.zip` beside the kernel that serves it. What
+`SYS_O_ALL` does is close the class going forward: the next flag added on 19
+fails loudly on this kernel instead of quietly. `O_EXCL` without `O_CREATE` is
+`Err(Invalid)` for the same reason — POSIX leaves it undefined, and undefined is
+what a caller reads as permission.
+
 ## N3 was closed on the wrong question
 
 `fstat` sat under "Not scheduled" for four milestones, and the note that put it

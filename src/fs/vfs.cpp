@@ -126,6 +126,10 @@ i32 slot_alloc(OpenShared *s, u32 flags)
 // recomputing — a record that has it never gains a second descriptor.
 Result<i32> share(OpenShared *s, u32 flags)
 {
+    // A record is a file that exists, whatever the resolve saw: O_EXCL is
+    // refused here rather than shared, and Exists rather than Perm.
+    if (flags & O_EXCL)
+        return Err(Error::Exists);
     if ((flags & O_MUTATE) || s->mutating)
         return Err(Error::Perm);
     i32 fd = slot_alloc(s, flags);
@@ -387,12 +391,15 @@ Task<Result<i32>> vfs_open(Str path, u32 flags)
     CO_TRY_VOID(vfs_abs(path, abs));
 
     // Only the leaf may be absent, and only when creating it. A directory is
-    // refused here rather than by each backend.
+    // refused here rather than by each backend, and so is O_EXCL over a name
+    // that resolved — the one check a backend holding no file still gets.
     if (Result<Stat> s = co_await vfs_resolve(abs.str(), true, phys); s.is_err()) {
         if (s.error() != Error::NotFound || !(flags & O_CREATE))
             co_return Err(s.error());
     } else if (s.value().kind == NodeKind::Dir)
         co_return Err(Error::IsDir);
+    else if (flags & O_EXCL)
+        co_return Err(Error::Exists);
 
     Str sub;
     const Mount *m = vfs_lookup(phys.str(), sub);

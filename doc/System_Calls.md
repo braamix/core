@@ -1231,6 +1231,8 @@ failure.
 | `SYS_STAGE_MAX` | 1 MiB | the cap on `Sys::Stage`, which is the largest blit there can be |
 | `SYS_BLIT_HEAD` | 7 | `ScreenBlit`'s header, in `u32`s |
 | `SYS_O_READ`…`APPEND` | 1, 2, 4, 8, 16 | open flags, restated rather than shared with the VFS |
+| `SYS_O_EXCL` | 32 | with `SYS_O_CREATE`; a name that exists is `Err(Exists)` |
+| `SYS_O_ALL` | 63 | what `Open` accepts; a bit outside it is `Err(Invalid)` |
 | `SYS_SEEK_SET`/`CUR`/`END` | 0, 1, 2 | `Seek`'s whence, in Unix's numbers |
 | `SYS_SEEK_MAX` | 2^63 − 1 | the largest position; the wire's offset is signed |
 | `SYS_SEEK_WORDS` | 3 | `Seek`'s payload, in `u32`s |
@@ -1332,6 +1334,17 @@ over one backend handle, and the last `Close` is what reaches the filesystem. An
 `Open` is `-Error::Perm` if a writer holds the path, or if it asks for
 `SYS_O_WRITE` or `SYS_O_TRUNC` while anyone holds it: OPFS takes an exclusive
 lock, and sharing is what keeps that one rule on every mount (Concept.md §5.2).
+
+**`SYS_O_EXCL` asks a different question, and gets a weaker answer.** The rule
+above is about who holds the path *now*; `SYS_O_EXCL` is about whether the name
+exists at all, which no lock here reports. It is `-Error::Invalid` without
+`SYS_O_CREATE`, `-Error::Exists` over a name that resolves or that any
+descriptor holds, and the loser of two concurrent creates is refused rather than
+folded into a share. What it is not is atomic: the host has no exclusive create,
+so the last gap — between the probe and the create inside one storage operation
+— is `mkdir`'s and cannot be closed from here (Concept.md §5.2). `Open` also now
+refuses a flag word carrying a bit outside `SYS_O_ALL`, so a flag a kernel does
+not know is `-Error::Invalid` instead of being quietly dropped.
 
 A `PickFile` remembers its set **by descriptor rather than by pointer**, so
 closing the set first is `Err(Invalid)` at the next read rather than a dangling

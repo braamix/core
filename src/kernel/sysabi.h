@@ -300,6 +300,12 @@ constexpr u32 SYS_O_WRITE  = 2;
 constexpr u32 SYS_O_CREATE = 4;
 constexpr u32 SYS_O_TRUNC  = 8;
 constexpr u32 SYS_O_APPEND = 16;
+constexpr u32 SYS_O_EXCL   = 32; // with SYS_O_CREATE; an existing name is Err(Exists)
+
+// What Sys::Open accepts. A bit outside it is Err(Invalid), so a flag a kernel
+// does not know is refused rather than dropped.
+constexpr u32 SYS_O_ALL =
+    SYS_O_READ | SYS_O_WRITE | SYS_O_CREATE | SYS_O_TRUNC | SYS_O_APPEND | SYS_O_EXCL;
 
 // Sys::Seek's whence, Unix's numbers, restated for SYS_O_*'s reason.
 constexpr u32 SYS_SEEK_SET = 0;

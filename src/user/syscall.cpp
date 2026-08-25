@@ -57,7 +57,15 @@ u32 vfs_flags(u32 f)
         out |= O_TRUNC;
     if (f & SYS_O_APPEND)
         out |= O_APPEND;
+    if (f & SYS_O_EXCL)
+        out |= O_EXCL;
     return out;
+}
+
+// A bit outside SYS_O_ALL, and O_EXCL without O_CREATE, which names nothing.
+bool open_flags_ok(u32 f)
+{
+    return !(f & ~SYS_O_ALL) && (!(f & SYS_O_EXCL) || (f & SYS_O_CREATE));
 }
 
 // Moves a file handle's offset; Sys::Seek and SYS_O_APPEND are the same sum.
@@ -625,6 +633,10 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         }
 
         case Sys::Open: {
+            if (!open_flags_ok(sys_op_arg(c.op))) {
+                status = -i32(Error::Invalid);
+                break;
+            }
             String abs;
             if (Result<void> a = proc_path(p, payload, abs); a.is_err()) {
                 status = -i32(a.error());

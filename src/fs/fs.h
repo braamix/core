@@ -44,6 +44,7 @@ enum : u32 {
     O_CREATE = 4,
     O_TRUNC  = 8,
     O_APPEND = 16,
+    O_EXCL   = 32,
 };
 
 // Files are read and written a block at a time. 512 is the allocator's top size

@@ -59,9 +59,10 @@ export const SYNC = {
     CLOSE: 6,
 };
 
-// Open flags, from src/fs/fs.h. Only creation and truncation reach OPFS: a
-// sync access handle is read-write regardless of what the opener asked for.
-export const O_CREATE = 4, O_TRUNC = 8;
+// Open flags, from src/fs/fs.h. Only creation, truncation and exclusion reach
+// OPFS: a sync access handle is read-write regardless of what the opener asked
+// for.
+export const O_CREATE = 4, O_TRUNC = 8, O_EXCL = 32;
 
 // The reply the kernel decodes in fs_decode_entries: per entry, six u32s and
 // then the name, padded up to the next word.
@@ -282,7 +283,19 @@ export class OpfsStore {
         const at = path.lastIndexOf("/");
         const dir = await this.dir(path.slice(0, at), false);
         const create = (flags & O_CREATE) !== 0;
-        const file = await dir.getFileHandle(path.slice(at + 1), { create });
+        const name = path.slice(at + 1);
+        // getFileHandle with create is happy to succeed twice, as mkdir's is,
+        // and there is no exclusive mode to ask for instead (Concept.md §5.2).
+        if (flags & O_EXCL) {
+            try {
+                await dir.getFileHandle(name);
+                throw { braam: E.EXISTS };
+            } catch (e) {
+                if (e && e.braam)
+                    throw e;
+            }
+        }
+        const file = await dir.getFileHandle(name, { create });
         const handle = await file.createSyncAccessHandle();
         if (flags & O_TRUNC)
             handle.truncate(0);

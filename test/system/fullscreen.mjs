@@ -3,7 +3,7 @@
 // doc/Testing.md has the rules they run by.
 
 import {
-    CTRL, KEY, fail, output, press, prompt, row, rows, run, screen, submit, type,
+    CTRL, KEY, fail, output, press, prompt, row, rows, run, screen, store, submit, type,
 } from "./harness.mjs";
 
 export function check() {
@@ -52,6 +52,12 @@ export function check() {
     const saved = rows(s).filter((line) => line && !line.includes("$"));
     if (saved.join(",") !== "hXello,editor")
         fail(`the editor saved ${JSON.stringify(saved)}`);
+
+    // The save went through a temp file and renamed it, so the store is asked
+    // rather than the screen: a leftover name is the whole of what B1 fixed.
+    const spare = [...store.files.keys()].filter((p) => p.includes("/m7.txt.tmp."));
+    if (spare.length)
+        fail(`the editor left ${JSON.stringify(spare)}`);
 
     // A pager over a pipe: it reads its input to the end, then takes the keys.
     // The archive's README is the input because it is longer than the pane, which
