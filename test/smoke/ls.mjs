@@ -78,6 +78,8 @@ export function check() {
         ["ls /home/t/aaa /home/t", "/home/t/aaa||/home/t:|aaa   bb    sub/"],
         // A pipe is one name per line; -C forces columns into one, at eighty.
         ["ls /home/t | head -n 2", "aaa|bb"],
+        // -c is bytes rather than lines, and cuts one mid-name.
+        ["ls /home/t | head -c 5", "aaa|b"],
         ["ls -C /home/t | cat", "aaa   bb    sub/"],
     ];
     let at = 1186.4;

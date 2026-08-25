@@ -161,7 +161,7 @@ The reverse direction needs no such call, because `_alloc` is already in the
 ABI.
 
 **One import per calling convention, so the table grows by an enum value.** The
-kernel has six host imports and gained none for processes: spawning, stepping
+kernel has seven host imports and gained none for processes: spawning, stepping
 and killing are three more operations on `host_svc`, which is what that import's
 convention already was. The same discipline governs the syscall table — adding
 an operation is a number on each side, never a new function.
@@ -364,7 +364,8 @@ because this half carries no payload back.
 
 Randomness passes all three. The second is easy for it: any 32 bits is a valid
 draw, so no second source can disagree. That is also why the kernel drawing its
-own through `SvcOp::Random` is not a conflict. The wall clock fails two: `Now`
+own through `host_random` — its third synchronous import, Concept.md §2.2 — is
+not a conflict. The wall clock fails two: `Now`
 already answers the time here, and `Sys::Clock` returns a `u64` and an `i32`,
 which do not fit. `navigator.hardwareConcurrency` fails the second: `/proc/host`
 publishes it.
@@ -374,11 +375,12 @@ the worst way for an ABI to break. So anything needing the kernel is
 asynchronous, whatever it costs.
 
 **`Random` is the one operation the kernel does not answer.** `exec_sys` has no
-case for it. There is no entropy in `kernel.wasm`, and `exec_sys` is a plain
-switch, so it cannot await `svc_random`. It refuses instead, which is easier to
-diagnose than a number built from a counter and a pid. Nothing is lost: the host
-relays only `Exit` and `Stage` through `exec_sys`, so a program's `GetPid`,
-`Now` and `Random` never arrive there. `Stage` is already answered two ways —
+case for it, and refuses. The kernel is not short of entropy — `host_random`
+serves `/dev/random` from the same `crypto.getRandomValues` — but answering
+would give one operation two servers, and a refusal is the diagnosable end of
+an unreachable path. Nothing is lost: the host relays only `Exit` and `Stage`
+through `exec_sys`, so a program's `GetPid`, `Now` and `Random` never arrive
+there. `Stage` is already answered two ways —
 refused in the worker, served by the kernel — and `Random` is the same split
 reversed.
 

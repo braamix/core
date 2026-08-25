@@ -32,8 +32,9 @@ function verifyEd25519(key, sig, msg) {
 }
 
 // A fixed stream rather than real entropy, so a run repeats. Never re-seeded,
-// including across a kernel reload: two shells must not agree.
-function fakeEntropy(net, n) {
+// including across a kernel reload: two shells must not agree. The harness
+// stands this behind host.random, which is where the kernel draws now.
+export function fakeEntropy(net, n) {
     const out = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
         let x = net.entropy;
@@ -281,10 +282,6 @@ export function makeFakeSvc(mem, net, kernel) {
                 r.fail(E.PERM);
             return;
         }
-
-        case OP.RANDOM:
-            r.write(fakeEntropy(net, r.get("flags")));
-            return;
 
         // Eagerly, because perform() is synchronous and DecompressionStream is
         // not: the browser refuses a truncated stream on a later read, this

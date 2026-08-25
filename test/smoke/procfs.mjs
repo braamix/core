@@ -130,19 +130,44 @@ export function check() {
     if (paced[2] === paced[3])
         fail(`vmstat's second row repeated the first: ${JSON.stringify(paced)}`);
 
-    // /proc/random is the kernel's own draw, a host call per open rather than a
-    // snapshot of state it holds. A u32 each time, and not the same one twice.
-    const drew = [];
+    // /dev/random is raw bytes out of the host and never ends, so the count
+    // asked for is the count that arrives and `head -c` is what stops it.
+    // Whether two draws differ is the unit suite's to say: it can compare bytes
+    // without putting them on a screen.
     for (let i = 0; i < 2; i++) {
         submit("clear", 1189 + i * 0.02);
-        const got = rows(submit("cat /proc/random", 1189.01 + i * 0.02))
+        const got = rows(submit("head -c 8 /dev/random | wc", 1189.01 + i * 0.02))
             .filter((line) => line && !line.includes("$")).join("|");
-        if (!/^\d{1,10}$/.test(got) || Number(got) > 4294967295)
-            fail(`cat /proc/random printed ${JSON.stringify(got)}, expected a u32`);
-        drew.push(got);
+        if (got.trim().split(/\s+/)[2] !== "8")
+            fail(`head -c 8 /dev/random | wc printed ${JSON.stringify(got)}, expected 8 bytes`);
     }
-    if (drew[0] === drew[1])
-        fail(`/proc/random printed ${drew[0]} twice`);
+
+    // Through a redirection, which is the path an OPFS sync handle serves: the
+    // file is the size asked for. And the device takes nothing back.
+    submit("clear", 1189.04);
+    submit("head -c 4 /dev/random > /home/draw", 1189.041);
+    const wrote = rows(submit("wc /home/draw", 1189.042))
+        .filter((line) => line && !line.includes("$")).join("|");
+    if (wrote.trim().split(/\s+/)[2] !== "4")
+        fail(`wc /home/draw printed ${JSON.stringify(wrote)}, expected 4 bytes`);
+    submit("rm /home/draw", 1189.043);
+    submit("clear", 1189.044);
+    const wrt = rows(submit("echo hi > /dev/random", 1189.045))
+        .filter((line) => line && !line.includes("$")).join("|");
+    if (!wrt.includes("permission"))
+        fail(`echo into /dev/random printed ${JSON.stringify(wrt)}, expected a refusal`);
+
+    // A device measures 0, as it does on Linux, and the draw has left /proc.
+    submit("clear", 1189.05);
+    const dev = rows(submit("ls -l /dev", 1189.06)).filter((line) => line && !line.includes("$"));
+    if (!dev.some((line) => /^file\s+0\s.*\brandom$/.test(line)))
+        fail(`ls -l /dev printed ${JSON.stringify(dev)}, expected random at 0`);
+
+    submit("clear", 1189.07);
+    const gone = rows(submit("cat /proc/random", 1189.08))
+        .filter((line) => line && !line.includes("$")).join("|");
+    if (!gone.includes("not found"))
+        fail(`cat /proc/random printed ${JSON.stringify(gone)}, expected it to be gone`);
 
     regrid(60, 16, "the resize after ps failed");
 }

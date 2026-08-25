@@ -1,5 +1,6 @@
 // The JS half of the kernel ABI. Every import is non-blocking; results come
-// back through wake() (Concept.md §2.2). host.now is a sanctioned exception.
+// back through wake() (Concept.md §2.2). host.now and host.random are
+// sanctioned exceptions.
 
 // memory.grow detaches the ArrayBuffer, which kills any cached view
 // (Concept.md §8.4). All access goes through view(), which re-derives.
@@ -41,6 +42,15 @@ export class Memory {
     }
 }
 
+// getRandomValues refuses more than 65536 bytes at a time, so a large read is
+// filled in spans.
+function fillRandom(bytes, ptr, len) {
+    for (let at = 0; at < len; at += 65536) {
+        const take = Math.min(65536, len - at);
+        crypto.getRandomValues(bytes.subarray(ptr + at, ptr + at + take));
+    }
+}
+
 // `present` draws and returns; it must never call back into the kernel, which
 // would re-enter the scheduler in the middle of the tick that called it. The
 // same is true of the storage imports, which is why every one of their replies
@@ -53,6 +63,9 @@ export function makeImports(mem, sink, present, fs, svc) {
             },
             now() {
                 return performance.now();
+            },
+            random(ptr, len) {
+                fillRandom(mem.view(), ptr, len);
             },
             present(x, y, w, h) {
                 present(x, y, w, h);

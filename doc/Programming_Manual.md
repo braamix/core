@@ -380,11 +380,17 @@ searched.
 `stat_of` answers a `FileInfo{kind, size, mtime}` and `list_dir` a `DirEntry`
 each, which is the same three fields plus a name. The `mtime` is milliseconds
 since the epoch, and **0 means the filesystem keeps none**: every directory,
-since OPFS has no timestamp on one, and all of `/proc`, which is generated at
-`open`. Compare two of them to tell which file is newer; render one with
-`civil()` from `proc/time.h`, which `date` and `ls -l` both use. `touch_path`
-moves a file's mtime to now and is the only thing that can — there is no setter
-in OPFS, so a store that cannot be made to restamp answers `Unsupported`.
+since OPFS has no timestamp on one, and all of `/proc` and `/dev`, which are
+generated rather than stored. Compare two of them to tell which file is newer;
+render one with `civil()` from `proc/time.h`, which `date` and `ls -l` both use.
+`touch_path` moves a file's mtime to now and is the only thing that can — there
+is no setter in OPFS, so a store that cannot be made to restamp answers
+`Unsupported`.
+
+`/dev/random` is a device rather than a file, and reads like one: `stat_of`
+says 0 as Linux does, every read is met in full for as long as you read, and
+`seek_fd` with `SYS_SEEK_END` fails because there is no end to seek to. Read it
+for a nonce or a key; `proc_random()` is the cheaper way to a single `u32`.
 
 `kind` is `SYS_KIND_FILE`, `SYS_KIND_DIR` or `SYS_KIND_LINK`. Everything above
 that names a path **follows a symbolic link**, except `remove_path`, which drops

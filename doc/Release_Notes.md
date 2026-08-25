@@ -49,6 +49,92 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The draw becomes a device, and §2.2 admits a third
+
+`/proc/random` was a decimal `u32` per `open`, one release old, and neither the
+name nor the content Linux has. On Linux `/dev/random` is a character device
+that hands out raw bytes for as long as anything reads. So it moved, and it
+became what it is called: `/dev` is a mount of its own, `DevFs`, and its one
+entry answers every read in full, for ever.
+
+**A `/proc` file is a snapshot and a device is a stream, and that difference is
+the whole of the move.** Everything else in `/proc` is state the kernel is
+holding, produced at `open` so that no two lines of one read describe different
+moments. Entropy is not state and there is nothing to be consistent about; a
+snapshot of it is just a number that goes stale in a way nobody can observe.
+Nothing was lost in the move except that `cat /proc/random` printed something
+short and readable, which was never the point of it.
+
+**`Fs::read` is not a coroutine, and that is what forced a new import.** §5.2
+makes opening asynchronous and everything on an open descriptor synchronous, so
+that an OPFS sync access handle can serve a redirection with a plain call. A
+device that draws per read therefore cannot await, and `SvcOp::Random` — a
+promise on the host side — is out of reach from exactly the place the bytes are
+needed. Three ways out were on the table. Draw a block at `open` and serve reads
+from it: simple, and not a device, because it ends. Seed a ChaCha20 in the
+kernel from one asynchronous draw and expand it: endless, and the answer to "is
+every byte the host's?" becomes no — the kernel would be inventing them, and a
+generator in the kernel is a thing to get wrong in a way
+`crypto.getRandomValues` is not. Or make entropy synchronous, which it is.
+
+**`host_random(ptr, len)` is §2.2's third sanctioned exception, and the previous
+note in this file said there would be no seventh import.** It said so about the
+callers that existed: the kernel's draw was an operation on `host_svc` and a
+process's is made in its own worker, and neither crossed the line. What changed
+is a caller that cannot await. The test §2.2 states has not moved — no promise
+is involved at any point, and `crypto.getRandomValues` fills the array it is
+given and returns — and the bar for a fourth is written up a notch in the same
+edit. A few pragmatic exceptions are fine; a class of them is a second calling
+convention, and then there are two ABIs and no invariant.
+
+**`SvcOp::Random` is gone, one release after it arrived.** It was the last enum
+value, so nothing renumbered, and it had no caller left: `/proc/random` was the
+only one, and this tree does not keep a host operation nobody makes. The
+kernel's entropy is now one import instead of one operation on another, which is
+also a round trip less per draw — a service call is a record, a token and a
+resumption, and this is a call.
+
+**`size()` refuses rather than answering 0, and that is what makes the stream
+endless.** The read syscall clamps a request to what a file has left *only when
+the filesystem gives a size* (`src/user/syscall.cpp`), so a device that reported
+0 would answer every read with EOF and `cat /dev/random` would print nothing at
+all. `Err(Unsupported)` means there is nothing to clamp against, and no line of
+the read path changed. `SEEK_END` is the price and the only one: it is the sole
+operation that needs a size, and on a device it fails.
+
+**The offset is ignored, which settles a sharing problem instead of creating
+one.** §5.2 keys one backend handle per physical path, so two `cat /dev/random`
+readers share a handle while both are open. Had reads been a function of the
+offset, the two would have been handed identical bytes; drawing per read, they
+cannot be. `stat` still says 0, as Linux does for a character device — and the
+old argument that measuring a file must not spend entropy now costs nothing to
+honour, since nothing but a read touches the device.
+
+**`head` grew `-c`, because otherwise nothing could ask for eight bytes.**
+`head` was lines only, there is no `od`, no `xxd` and no `dd`, and `wc` reads to
+the end of an input that has no end. `cat /dev/random` was therefore stoppable
+only by `^C`, and the smoke suite — which drives a real shell — could not read
+the device at all without hanging. `head -c 8 /dev/random` both terminates and
+is the idiom somebody arriving from Linux would type. Whether two draws differ
+is the unit suite's to say: it is the half that can compare bytes without
+putting them on a screen.
+
+**`/dev` holds one entry, and `urandom`, `null` and `zero` are coming.** The
+entries are a table rather than a chain of name comparisons, so the first two
+are a row each. `null` is not: it is a writer, `DevFs` would have to become
+writable, and the open-file table refuses a writer any other descriptor holds —
+so two pipeline stages redirecting there would collide. That exemption is a §5.2
+change to argue on its own, and smuggling it in behind `random` would have been
+the wrong way to make it.
+
+**Nothing about a process moved.** `$RANDOM` is still one `Sys::Random` answered
+in the shell's own worker, `PROC_ABI` is untouched, and `exec_sys` still has no
+case for `Sys::Random` — but the reason in the comment is now that answering
+would give one operation two servers, rather than that the kernel has no
+entropy, which stopped being true. In the suites the new import is the fixed
+xorshift stream the fake service used to serve, moved to where the harness
+builds its imports: a run still repeats, and two shells still disagree.
+
 ## Ten programs stopped paying a syscall a row
 
 `/bin/cat` was `proc/file.h`'s only caller. What every other program wrote

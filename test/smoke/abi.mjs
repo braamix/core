@@ -11,7 +11,7 @@ export function check(binaries) {
     // The import and export surface is the ABI; drift is a bug, and an
     // unexpected import means a libc dependency crept in.
     const want_imports = ["host.fs", "host.fs_sync", "host.log", "host.now", "host.present",
-                          "host.svc"];
+                          "host.random", "host.svc"];
     const want_exports = ["init", "key", "memory", "ref", "resize", "sys", "sys_async", "tick",
                           "wake"];
     const got_imports = names(WebAssembly.Module.imports(compiled()));

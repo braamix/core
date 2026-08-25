@@ -67,17 +67,26 @@ token*; the result arrives later through the `wake()` export. This keeps the
 boundary uniform and makes any new asynchronous browser API a ~20-line change on
 each side.
 
-**Two exceptions are sanctioned**, both because no promise is involved at any
+**Three exceptions are sanctioned**, each because no promise is involved at any
 point:
 
 1. `host_now()` — a clock read.
 2. **OPFS sync access handles** — once a file is open,
    `read`/`write`/`getSize`/`truncate`/ `flush` are genuinely synchronous
    (§5.2).
+3. `host_random(ptr, len)` — `crypto.getRandomValues` fills the array it is
+   given and returns, so entropy is exactly as synchronous as the clock. It is
+   here rather than on `host_svc` because its caller cannot await: `/dev/random`
+   is served by `Fs::read`, which is not a coroutine (§5.1, §5.2). The
+   alternative — seeding a generator in the kernel from one asynchronous
+   draw — would mean the bytes handed out are the kernel's invention rather
+   than the host's.
 
-A third needs a written justification in this document. One or two pragmatic
-exceptions are fine; three are a second calling convention, and then there are
-two ABIs and no invariant.
+Each of the three fails a promise test the ordinary imports pass, and none of
+them carries a reply large enough or late enough to need a token. A fourth needs
+a written justification in this document, and the bar rises with each one: a few
+pragmatic exceptions are fine; a class of them is a second calling convention,
+and then there are two ABIs and no invariant.
 
 Calls in the other direction are not exceptions to this rule, because they are
 *exports*: `ref(slot, obj)` (§3.7) stores a JS object and returns, and
@@ -108,7 +117,7 @@ escape sequence to mis-parse. The whole renderer is ~300 lines of JavaScript.
 ┌───────────────────────────┴────────────────────────────────┐
 │                   kernel Web Worker                        │
 │  ┌──────────────── JS host shim ────────────────────────┐  │
-│  │  imports: log, now, present, fs, fs_sync, svc        │  │
+│  │  imports: log, now, present, random, fs, fs_sync, svc│  │
 │  │  exports: init, wake, tick, key, resize, ref,        │  │
 │  │           sys, sys_async, memory                     │  │
 │  │  externref table · OPFS handle table · canvas blit   │  │
@@ -245,10 +254,11 @@ host_now(), host_log(ptr, len)
 host_present(dirty_x, dirty_y, dirty_w, dirty_h)
 host_fs(op, token, req)                        // storage, async  (§5.2)
 host_fs_sync(op, handle, ptr, len, off) -> i32 // storage, sync   (§5.2)
+host_random(ptr, len)                          // entropy, sync   (§2.2)
 host_svc(op, token, req, ref)                  // host services, async (§6)
 ```
 
-Six, and the smoke test asserts exactly these.
+Seven, and the smoke test asserts exactly these.
 
 Storage and services are **multiplexed rather than named per operation**: one
 import per *calling convention*, so a new operation is an enum value on each
@@ -1103,14 +1113,15 @@ caveats.
 ```
 OpfsFs     → OPFS                (/, and therefore everything — the store)
 ProcFs     → the scheduler       (/proc, generated at open)
+DevFs      → host_random         (/dev, generated at read)
 
 unbuilt:
   a File System Access Fs        (a real local directory, Chromium only, opt-in — §5.4)
   an Fs over Range requests      (read-only remote trees)
 ```
 
-**Two mounts, and one of them is generated.** Everything a user can name is in
-the one store: `/bin`, `/etc`, `/home`, `/tmp`, `/import` and `/pkg` are
+**Three mounts, and two of them are generated.** Everything a user can name is
+in the one store: `/bin`, `/etc`, `/home`, `/tmp`, `/import` and `/pkg` are
 directories in it, not filesystems of their own. There is no `/usr`, and no
 `/mnt` either: a directory named for mounting would promise a second filesystem
 there is no way to have. `fimport` writes the picker's bytes into `/import` like
@@ -1141,8 +1152,8 @@ is the price of one store: `/bin` used to be immutable because it was a
 read-only archive mount, and what stands in for that now is that the archive can
 always be unpacked again (§5.2).
 
-`/proc` is `ProcFs` over the scheduler: `cwd`, `meminfo`, `mounts`, `random`,
-`stat`, `tasks`, `uptime`, `version`, and one file per live pid. It is also why
+`/proc` is `ProcFs` over the scheduler: `cwd`, `meminfo`, `mounts`, `stat`,
+`tasks`, `uptime`, `version`, and one file per live pid. It is also why
 the process ABI is as small as it is (§4.3) — a process reads its answers here
 rather than asking for an operation — and it makes `cat` and `grep` the
 introspection tools, with no second interface to keep in step. The tree is flat:
@@ -1171,10 +1182,26 @@ itself: a `WebAssembly.Memory` reports its own size and only the worker holds
 one, so it comes back in every step's reply (§4.3) rather than in an operation
 of its own.
 
-`/proc/random` is the kernel's own draw: a decimal `u32` per `open`, and the one
-entry whose text costs a host call. Its `stat`, and its line in a listing, say 0
-and draw nothing — measuring a file should not spend entropy, and a `/proc` size
-was never binding. Only `open` is asked for the text, so only `open` awaits.
+`/dev` is `DevFs`, and it holds `random`: raw bytes, as many as are read, for as
+long as anything reads. A read is one `host_random` and the bytes are the
+host's own; nothing is generated here and nothing is held between reads, which
+is why the offset is ignored and two descriptors on the one shared handle
+(§5.2) still never see the same byte twice. It is a *device* rather than a
+`/proc` entry because what it publishes is not state the kernel is holding —
+`/proc` files are snapshots taken at `open`, and this is a stream.
+
+Two consequences are deliberate. `stat` says 0, as Linux does for a character
+device, and `size` on an open descriptor says *nothing at all* —
+`Err(Unsupported)` rather than a number — because the read path clamps a
+request to what a file has left only when a size is given, and a device never
+ends. `SEEK_END` is the price: it is the one operation that needs a size, and
+it fails.
+
+`DevFs` is in `src/fs/` rather than `src/user/`, where `ProcFs` is, because it
+reads no scheduler and no screen; its entries are a table, so `urandom`, `null`
+and `zero` are a row each. `null` will cost more than a row: it is a writer, and
+the open-file table refuses a writer any other descriptor holds (§5.2), so two
+stages redirecting to it would collide. That exemption is not made here.
 
 `/proc/stat` is what the kernel has *done* rather than what it is holding: one
 `name value` line per counter, cumulative since boot, and the reader does the
@@ -1432,12 +1459,6 @@ an enum value on each side.
   fetched body. Its input is one staged payload and is therefore capped at
   `SYS_STAGE_MAX`; its output is not capped, which is the asymmetry that makes
   the operation worth having.
-- **Random bytes** — `crypto.getRandomValues`, which is on `WorkerGlobalScope`
-  and so needs no relay, as the signature check does not. A count goes in and
-  that many bytes come back: no stream and no descriptor, because entropy is
-  drawn in one shot at a size the caller already knows. Its caller is
-  `/proc/random` (§5) — this is the *kernel's* draw, and a process makes its own
-  in its own worker through `Sys::Random` rather than asking for this one.
 
 Every one of them is a promise on the host side, so every one takes a wake token
 and §2.2 is untouched. The wall clock is the near miss — `Date.now()` is as
@@ -1445,15 +1466,15 @@ synchronous as `host_now()` — but a service already had an import, and one mor
 operation on it costs nothing while a second value-returning import would cost
 the invariant.
 
-`crypto.getRandomValues` looks like a second near miss but is not, because it
-crosses a different boundary. §2.2 governs the *kernel's* six imports of `host`.
-The kernel's draw is an operation on `host_svc`, one of the six; a process's is
-made in its own worker by [web/proc.js](../web/proc.js), which `kernel.wasm`
-never sees. Neither adds a seventh import. Each realm drawing separately is not
-two answers to one question: any 32 bits is a valid draw, so there is nothing to
-disagree about. The wall clock cannot take the process's road — `Sys::Now`
-answers the time there already, and `Sys::Clock` returns a `u64` and an `i32`,
-which do not fit one `i32`.
+`crypto.getRandomValues` is not a near miss but a hit, and it is §2.2's third
+exception: it fills the array it is given and returns, and `/dev/random`'s
+reader cannot await, so it is `host_random` — the seventh import — rather than
+an operation on `host_svc`. A process draws separately, in its own worker,
+through [web/proc.js](../web/proc.js), which `kernel.wasm` never sees. Two
+realms drawing separately is not two answers to one question: any bits are a
+valid draw, so there is nothing to disagree about. The wall clock cannot take
+the process's road — `Sys::Now` answers the time there already, and `Sys::Clock`
+returns a `u64` and an `i32`, which do not fit one `i32`.
 
 The clipboard, the picker and the download need the DOM, so `web/svc.js` relays
 those across `postMessage` and answers by id. That is invisible from the kernel:
@@ -1504,7 +1525,7 @@ src/cmd/pkg/            the package manager (Package_Management.md), and the mai
 src/cmd/sh/             the shell (§4.5): grammar, word expander, pattern matcher, condition
                         evaluator, variables, LineEditor, job runtime, builtins, and the
                         main.cpp that makes them a binary like any other
-src/fs/                 Fs interface, path, VFS, OpfsFs, storage ABI
+src/fs/                 Fs interface, path, VFS, OpfsFs, DevFs, storage ABI
 src/math/               musl's libm, vendored (§3.2); a program links braam::math for it
 src/math/musl/          the vendored sources, byte-identical, with a private header shim
 src/math/cvt/           musl's strtod and printf float engines, derived rather than verbatim

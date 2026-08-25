@@ -2,6 +2,7 @@
 
 #include "console.h"
 #include "exec.h"
+#include "fs/devfs.h"
 #include "fs/hostfs.h"
 #include "fs/opfsfs.h"
 #include "fs/vfs.h"
@@ -350,6 +351,12 @@ Task<bool> boot_filesystem(const u32 &pid)
     if (Fs *proc = procfs_create())
         if (vfs_mount("/proc", proc).is_err())
             say("/proc would not mount");
+
+    // The character devices. No mkdir: a mount point shows in its parent's
+    // listing whether or not the store has a directory of that name.
+    if (Fs *dev = devfs_create())
+        if (vfs_mount("/dev", dev).is_err())
+            say("/dev would not mount");
 
     if (Task<void> t = unpack_if_stale(pid))
         co_await t;

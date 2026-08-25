@@ -1,4 +1,5 @@
 add_library(braam_fs STATIC
+    devfs.cpp
     hostfs.cpp
     opfsfs.cpp
     path.cpp

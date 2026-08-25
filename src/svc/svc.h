@@ -42,8 +42,6 @@ enum class SvcOp : u32 {
     // req = pid and token = the signal, because there is no record to hold
     // either: this is told, not asked, exactly as ProcKill is.
     ProcSignal,
-
-    Random, // flags = how many bytes -> buf = that many
 };
 
 // A service operation. The record's inline string argument is a URL or a name.
@@ -110,10 +108,6 @@ Task<Result<void>> clip_write(Str text);
 // Ed25519. Ok is a good signature, Err(Perm) a bad one, Err(Unsupported) a
 // browser without the algorithm. src/proc/io.cpp turns that into a bool once.
 Task<Result<void>> svc_verify(Str key, Str sig, Str bytes);
-
-// crypto.getRandomValues, exactly n bytes. Not sized twice — the caller named
-// the length.
-Task<Result<String>> svc_random(u32 n);
 
 // What the browser will state about itself: browser, OS, architecture, cores,
 // memory, locale. Asked once at boot and cached (src/user/boot.cpp), because

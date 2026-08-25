@@ -15,7 +15,7 @@ import { basename } from "node:path";
 
 import { FakeStore, makeFakeImports } from "../fakefs.mjs";
 import { parseZip } from "../../web/fs.js";
-import { FakeNet, makeFakeSvc } from "../fakesvc.mjs";
+import { FakeNet, fakeEntropy, makeFakeSvc } from "../fakesvc.mjs";
 
 export const logged = [];
 export const presented = [];
@@ -64,6 +64,10 @@ const imports = {
             console.log(text);
         },
         now: () => performance.now(),
+        // The fixed stream, not the browser's: a run has to repeat.
+        random(ptr, len) {
+            bytes().set(fakeEntropy(net, len), ptr);
+        },
         present(x, y, w, h) {
             presented.push({ x, y, w, h });
         },

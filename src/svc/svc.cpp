@@ -93,22 +93,6 @@ Task<Result<String>> host_info()
     co_return co_await t;
 }
 
-Task<Result<String>> svc_random(u32 n)
-{
-    SvcCall c(SvcOp::Random, "", n);
-    if (!c.ok() || !c.reserve(n))
-        co_return Err(Error::NoMemory);
-    CO_TRY_VOID(co_await c);
-
-    HostReq &r = c.req();
-    if (r.h.buf_len != n)
-        co_return Err(Error::Io);
-    String out;
-    if (!out.append(Str(r.buf.data(), r.h.buf_len)))
-        co_return Err(Error::NoMemory);
-    co_return move(out);
-}
-
 Task<Result<void>> clip_write(Str text)
 {
     SvcCall c(SvcOp::ClipWrite, "", 0);

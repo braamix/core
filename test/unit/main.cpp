@@ -40,6 +40,7 @@ void test_solve();
 void test_plan();
 void test_text();
 void test_procfs();
+void test_devfs();
 void test_pane();
 void test_textbuf();
 void test_time();
@@ -136,6 +137,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_trigger(); // after db and dep: a changeset says which triggers fire
     test_zip();     // after sha256 and svc: rootfs.zip is compared by digest
     test_procfs();
+    test_devfs();
 
     u32 failures = test_failures();
     HeapStats s  = heap_stats();

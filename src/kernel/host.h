@@ -1,5 +1,5 @@
 // Imports from the JS host. Every one is non-blocking (Concept.md §2.2);
-// host_now is one of the two sanctioned value-returning exceptions.
+// host_now is one of the three sanctioned value-returning exceptions.
 #pragma once
 
 #include "str.h"
@@ -22,6 +22,11 @@ BRAAM_IMPORT("fs") void host_fs(u32 op, u32 token, u32 req);
 // exists, these are genuinely synchronous and no promise is involved (§5.2).
 // Returns a byte count, or a negative Error.
 BRAAM_IMPORT("fs_sync") i32 host_fs_sync(u32 op, u32 handle, u32 ptr, u32 len, u32 off);
+
+// The third: crypto.getRandomValues fills its array and returns, so entropy is
+// as synchronous as the clock. Fills `len` bytes at `ptr`; /dev/random is the
+// caller, and Fs::read cannot await (§5.1, §5.2).
+BRAAM_IMPORT("random") void host_random(u32 ptr, u32 len);
 
 // Host services: fetch, WebSocket, clipboard, file transfer, wall clock
 // (Concept.md §3.7). `req` is the same HostRequest the storage import takes;

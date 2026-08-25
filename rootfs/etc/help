@@ -55,7 +55,8 @@ Programs in /bin
   fexport   <file> [<name>] — download a file to your computer
   fimport   [<dir>] — copy files from your computer into /import
   grep      [-i] [-v] <text> [<file>...] — print the lines that match
-  head      [-n <count>] [<file>...] — the first lines, ten by default
+  head      [-n <count>] [-c <count>] [<file>...] — the first lines, ten by
+            default, or the first bytes
   help      show this list, which is /etc/help
   hog       take memory until the limit stops it
   less      [<file>] — read a file a screen at a time; q quits
@@ -118,5 +119,6 @@ More
   /etc/motd         what boot prints
   /etc/anchor       the keys a repository's index is checked against
   /proc             the system as text — try cat /proc/host
+  /dev/random       raw random bytes, for as long as anything reads
 
   help | grep ls    off a terminal `less` copies, so this list pipes

@@ -460,10 +460,10 @@ i32 exec_sys(u32 pid, u32 op, u32 a0, u32, u32)
         return i32(sched_now());
     case Sys::Stage:
         return i32(proc_stage(*p, a0));
-    // Sys::Random has no case: there is no entropy in this binary, and this is
-    // not a coroutine, so svc_random is out of reach. The process's own worker
-    // answers it and never relays it. A refusal is diagnosable; a number made
-    // from sched_now() and a pid is not.
+    // Sys::Random has no case: the process's own worker answers it and never
+    // relays it, so nothing arrives here. The kernel draws for /dev/random
+    // through host_random instead, and answering both ways would give a program
+    // two sources for one operation.
     default:
         return -i32(Error::Unsupported);
     }

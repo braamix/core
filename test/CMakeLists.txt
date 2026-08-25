@@ -9,6 +9,7 @@ add_executable(tests
     unit/test_coroutine.cpp
     unit/test_db.cpp
     unit/test_dep.cpp
+    unit/test_devfs.cpp
     unit/test_encode.cpp
     unit/test_filebuf.cpp
     unit/test_fmt.cpp

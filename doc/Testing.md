@@ -157,7 +157,7 @@ keystrokes is the thing under test — and it is what the rules are about.
   That document is the whole of `help`, nothing notices at run time when it goes
   stale, and the `help` case fails on a forgotten line.
 - **A change to the wasm ABI updates `test/smoke/abi.mjs` in the same commit** —
-  the six imports and nine exports, and every binary's three imports and four
+  the seven imports and nine exports, and every binary's three imports and four
   exports, are asserted there by name.
 
 ## 7. Running part of it
