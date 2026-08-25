@@ -487,6 +487,20 @@ visible screen, exactly as `Cmd+A` does. Nothing about this crosses the wasm
 boundary either — it is the same `selectall` message and the same
 `renderer.all()`.
 
+**The right button raises that same menu, and there is no menu of ours.** A
+`contextmenu` hit-tests what is under the pointer, which is the canvas, and the
+menu a browser has for a canvas offers to save an image. So the hidden input is
+moved under the pointer for the length of a secondary press — `Ctrl`+click is
+that press on a Mac, and therefore no longer starts a drag — and the menu the
+browser raises is the text one, whose `Cut`, `Copy`, `Paste` and `Select All`
+are the four already routed above. The press's own caret move is prevented and
+the range put back before the menu is built, or `Copy` would grey out the
+selection it was raised for. The input is restored on the next turn and, if no
+menu followed, on a timer: a press that raises nothing must not leave the canvas
+covered. A page that wants the canvas's own menu says `mount({menu: false})`.
+There is still no mouse event in the ABI and no popup in this tree — the menu
+was never the missing part, the target under the pointer was.
+
 **The wheel is page-side in the same sense, and becomes the scrollback chord.**
 A `wheel` over the canvas is turned into the keystrokes above — one Shift+Up or
 Shift+Down per row, the half-screen chord for a page-mode delta — so the history

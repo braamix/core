@@ -17,6 +17,9 @@
 // focus ring as `canvas.braam-focus`, and `.braam-key` for the buttons in the
 // `keys` container. Sizing to `visualViewport` is the page's too. See
 // index.html.
+//
+// A right-click raises the browser's own text menu, over the hidden input;
+// `mount({menu: false})` declines that and leaves the canvas its own.
 
 import { E } from "./abi.js";
 import { MOD_CTRL, consumes, named, normalise, pasted } from "./keys.js";
@@ -180,6 +183,60 @@ export function mount(options = {}) {
         sink.focus({ preventScroll: true });
     }
 
+    // The right-click menu is the browser's own, and it acts on what the
+    // pointer is over — so the sink covers the canvas for the length of a
+    // secondary press (§3.5). The timer restores it when no menu follows.
+    const MENU_GRACE_MS = 1500;
+
+    let armed = 0; // the restore timer, or 0
+
+    function armSink() {
+        const rect = canvas.getBoundingClientRect();
+        sink.style.left = `${rect.left}px`;
+        sink.style.top = `${rect.top}px`;
+        sink.style.width = `${rect.width}px`;
+        sink.style.height = `${rect.height}px`;
+        sink.style.pointerEvents = "auto";
+        sink.style.zIndex = "2147483647";
+        clearTimeout(armed);
+        armed = setTimeout(restSink, MENU_GRACE_MS);
+    }
+
+    function restSink() {
+        clearTimeout(armed);
+        armed = 0;
+        sink.style.left = "0px";
+        sink.style.top = "0px";
+        sink.style.width = "1px";
+        sink.style.height = "1px";
+        sink.style.pointerEvents = "none";
+        sink.style.zIndex = "-1";
+    }
+
+    // A secondary press that moved the caret would collapse the range the
+    // menu's Copy reads; any other press on an armed sink is the canvas's.
+    function onSinkMouseDown(event) {
+        if (event.button === 2 || event.ctrlKey)
+            event.preventDefault();
+        else if (armed)
+            restSink();
+    }
+
+    // The menu is built after this returns, so the range goes back here for an
+    // engine that moved the caret anyway.
+    function onSinkContextMenu() {
+        if (!composing)
+            sink.setSelectionRange(SENTINEL.length, sink.value.length);
+        setTimeout(restSink, 0);
+    }
+
+    const wantsMenu = options.menu !== false;
+
+    if (wantsMenu) {
+        sink.addEventListener("mousedown", onSinkMouseDown);
+        sink.addEventListener("contextmenu", onSinkContextMenu);
+    }
+
     function onSinkFocus() {
         canvas.classList.add("braam-focus");
     }
@@ -264,11 +321,20 @@ export function mount(options = {}) {
 
     function onPointerDown(event) {
         // A second finger is not a second drag.
-        if (event.button !== 0 || !event.isPrimary)
+        if (!event.isPrimary)
             return;
         // A click has to focus, or the copy chord below would go to whatever
         // the page focused last.
         focusSink();
+        // The secondary button, which Ctrl+click is on a Mac: a menu rather
+        // than a drag, and the sink has to be under it before contextmenu.
+        if (event.button === 2 || event.ctrlKey) {
+            if (wantsMenu)
+                armSink();
+            return;
+        }
+        if (event.button !== 0)
+            return;
         dragging = event.pointerId;
         canvas.setPointerCapture(event.pointerId);
         drag("start", event);
@@ -698,6 +764,7 @@ export function mount(options = {}) {
         dispose() {
             live = false;
             clearTimeout(stall);
+            clearTimeout(armed);
             observer.disconnect();
             canvas.removeEventListener("focus", focusSink);
             canvas.removeEventListener("click", focusSink);

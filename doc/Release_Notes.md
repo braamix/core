@@ -49,6 +49,71 @@ write a shell script here — 0.5's answer to "what can I write" was "a program"
 and 0.6's is "a program, or the five-line script that was going to call four
 things that did not exist".
 
+## The right button had nothing under it
+
+The note below made `Select All`, `Copy`, `Cut` and `Paste` work from the
+browser's own Edit menu, and left the menu most people actually reach for
+untouched: the one the right button raises. Over the canvas it was the menu a
+browser has for an image — `Save image as…`, `Copy image`, `Open image in new
+tab` — three commands about a picture of a terminal, and not one about the
+terminal.
+
+**The menu was never the missing part; the target under the pointer was.** A
+`contextmenu` hit-tests where the pointer is, and every command that menu then
+offers is chosen from what it hit. It hit a `<canvas>`. Everything wanted was
+one element away — the hidden input, holding the sentinel and the mirror the
+note below installs, which four editing commands already act on correctly. So
+the sink is stretched over the canvas for the length of a secondary press,
+released on the next turn, and the browser raises its *text* menu instead. Cut,
+Copy, Paste and Select All arrive as the same four events `web/braam.js` has
+been handling since that note, and there is nothing new to route.
+
+**A popup of our own was the obvious alternative and is the worse one.** Three
+items, drawn and placed and dismissed by hand: a second implementation of a
+menu, a styling contract every embedding page would have to satisfy or look
+broken, keyboard navigation to write, and — the part that decides it —
+`navigator.clipboard.readText()` for `Paste`, which is gated behind a permission
+prompt in every engine, where the `paste` event the native menu fires needs no
+permission at all and is the route `pbpaste` already depends on (§6). The
+browser's menu is worse-looking and carries items we did not choose; it is also
+correct in every locale, on every platform, without a line of CSS.
+
+**The caret is the hazard, and both guards are kept.** A secondary press inside
+a text control moves the caret when it lands outside the current selection, and
+an armed sink covers a whole terminal while its mirror renders in the first few
+pixels of one line — so nearly every press lands outside it, collapsing the
+range and greying out the very `Copy` the menu was raised for. `mousedown` is
+prevented for that press, which stops the move where an engine honours it; and
+the range is set again in the `contextmenu` handler, which runs before the menu
+is built, for one that does not. Neither is trusted alone: the first is a
+default some engines derive the platform menu from rather than the DOM event,
+the second assumes menu contents are read after dispatch. Together they have no
+engine left to fall through.
+
+**Restoring is a `setTimeout(0)`, and a timer behind it.** Not synchronous,
+because the menu is anchored and its commands route to the *focused* element —
+which the sink still is, whatever size it has — so one turn later is soon enough
+and costs nothing. Not never, because the window in which an invisible input
+covers the terminal is a window in which no drag can select: a press that raises
+no menu at all, on an engine that suppressed it, would leave the canvas dead.
+The grace is 1.5s, and any ordinary press on an armed sink restores it first.
+
+It costs one behaviour elsewhere. **`Ctrl`+click on a Mac is the secondary
+click**, so it stops starting a selection drag — which it should never have
+done: it wiped the selection at the moment the menu about to appear needed it.
+
+**The gaps are the ones the pointer leaves.** A touch long press has no button
+to arm from, so Android keeps the canvas's own menu; iOS raises no `contextmenu`
+under `-webkit-touch-callout: none`, and taking that off brings the text
+magnifier back over the grid. The key bar and `⌘V` remain what a phone has. And
+`mount({menu: false})` gives an embedder the canvas menu back, for a page that
+wants `Save image as…` over a terminal.
+
+Nothing crosses the wasm boundary: no import, no export, no syscall, no worker
+message that did not exist. There is still no browser harness in this tree, so
+the three CTest cases prove only that this stayed on the page, and the rest was
+checked by hand at the prompt.
+
 ## The Edit menu was talking to an empty box
 
 `Edit → Select All` in the browser's own menu selected nothing, and `Edit →
