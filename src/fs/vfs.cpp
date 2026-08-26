@@ -268,7 +268,7 @@ Result<void> vfs_abs(Str path, String &out)
 }
 
 // Err(NotDir) is the only failure a link in mid-path can produce, so it is the
-// only one worth a walk (Release_Notes.md, "Symbolic links").
+// only one worth a walk (Release_Notes-v0.3.md, "Symbolic links").
 Task<Result<Stat>> vfs_resolve(Str abs, bool follow_final, String &out)
 {
     if (!out.assign(abs))

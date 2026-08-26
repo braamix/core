@@ -23,10 +23,13 @@ the three passing CTest cases.
   numbers are cited from source comments — amend a section, never renumber it.
   `§n` below refers to it.
 - **[doc/Release_Notes.md](doc/Release_Notes.md) is where the *why* goes** —
-  appended under a new heading, never by rewriting an old one. It also holds
-  M0–M9's objectives and acceptance criteria, which are live constraints; read
-  its M0 section before touching the allocator, the coroutine shim or the build
-  flags.
+  appended under a new heading, never by rewriting an old one. It holds the
+  release being written; the finished ones are a file each in
+  [doc/releases/](doc/releases/), indexed at its top. M0–M9's objectives and
+  acceptance criteria are live constraints in
+  [doc/releases/Release_Notes-v0.1.md](doc/releases/Release_Notes-v0.1.md) —
+  read its M0 section before touching the allocator, the coroutine shim or the
+  build flags.
 - **[doc/System_Calls.md](doc/System_Calls.md)** derives the kernel↔process
   mechanism (§4.3 is normative). Changes to `src/proc/`, `src/user/`,
   [src/kernel/sysabi.h](src/kernel/sysabi.h) or [web/proc.js](web/proc.js) must
