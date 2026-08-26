@@ -261,7 +261,7 @@ it, and how much memory to give it. It lives in a wasm custom section named
 ```c
 struct ProcMeta {
     u32 magic;          // 0x6d617262, "bram"
-    u32 abi;            // PROC_ABI, currently 19
+    u32 abi;            // PROC_ABI, currently 20
     u32 flags;
     u32 initial_pages;
     u32 max_pages;
@@ -1446,9 +1446,10 @@ them back is politeness; the destructor is the guarantee.
 terminal — `Proc::term`, inherited at spawn like `cwd` — so `Tty`, `Fg`,
 `Cursor`, `Style`, `Echo`, `ScreenBlit`, `ScreenClear`, `ScreenEnter` and
 `KeyClaim` all resolve the *caller's* terminal from its record. That is why a
-page with two screens (Concept.md §3.5) moved no wire format and did not move
-`PROC_ABI`: a program cannot paint another terminal's grid, and there is nothing
-in the process ABI that would let it try.
+page with two screens (Concept.md §3.5) moved no wire format here: a program
+cannot paint another terminal's grid, and there is nothing in the process ABI
+that would let it try. `PROC_ABI` still went to 20, so that a `/bin` unpacked by
+an older kernel says so rather than being run by this one.
 
 **One holder of each per terminal, named by pid.** A second `ScreenEnter` or
 `KeyClaim` on the same terminal is `Err(Perm)` rather than nesting, whether it
