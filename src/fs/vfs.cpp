@@ -2,6 +2,7 @@
 
 #include "kernel/alloc.h"
 #include "kernel/host.h"
+#include "kernel/sched.h"
 #include "kernel/traits.h"
 #include "kernel/vec.h"
 #include "path.h"
@@ -40,9 +41,23 @@ void slot_release(OpenFile &f)
     }
 }
 
+// A path whose backend open is in flight. Published before the await and
+// dropped after it, so a second opener waits for the record the first is about
+// to register rather than asking the store for a handle it already holds.
+struct Opening {
+    Fs *fs = nullptr;
+    String path;
+};
+
+// Ticks a second opener will wait for one in flight. Zero-delay, so each is a
+// turn of the host's loop rather than a delay; past it, it asks for its own
+// handle and takes whatever answer the store gives.
+constexpr usize OPEN_WAIT = 64;
+
 struct Vfs {
     Vec<Mount> mounts;
     Vec<OpenFile> files;
+    Vec<Opening> opening;
     String cwd;
 
     ~Vfs()
@@ -87,6 +102,51 @@ OpenShared *shared_of(Fs *fs, Str abs)
             return f.s;
     return nullptr;
 }
+
+// Whether a backend open on this path is in flight.
+bool opening_of(Fs *fs, Str abs)
+{
+    for (const Opening &o : vfs().opening)
+        if (o.fs == fs && o.path.str() == abs)
+            return true;
+    return false;
+}
+
+// The publication, as RAII: the entry has to go whichever way vfs_open leaves,
+// including a cancelled frame, or every later opener waits out OPEN_WAIT.
+struct OpenMark {
+    OpenMark(const OpenMark &)            = delete;
+    OpenMark &operator=(const OpenMark &) = delete;
+
+    OpenMark() = default;
+
+    ~OpenMark()
+    {
+        if (!fs_)
+            return;
+        Vec<Opening> &v = vfs().opening;
+        for (usize i = 0; i < v.size(); i++)
+            if (v[i].fs == fs_ && v[i].path.str() == path_.str()) {
+                v[i] = move(v[v.size() - 1]);
+                v.pop();
+                return;
+            }
+    }
+
+    bool arm(Fs *fs, Str abs)
+    {
+        Opening o;
+        o.fs = fs;
+        if (!o.path.assign(abs) || !path_.assign(abs) || !vfs().opening.push(move(o)))
+            return false;
+        fs_ = fs;
+        return true;
+    }
+
+private:
+    Fs *fs_ = nullptr;
+    String path_;
+};
 
 // Whether any descriptor is open on `abs` or below it. A rename would move the
 // file out from under OpenShared::path, which is what shared_of keys on.
@@ -413,9 +473,25 @@ Task<Result<i32>> vfs_open(Str path, u32 flags)
     // path: two links to one file are one open file. A filesystem holding no
     // file shares none, and is opened once per descriptor.
     bool shares = m->fs->shares_handles();
+    OpenMark mark;
     if (shares) {
         if (OpenShared *s = shared_of(m->fs, phys.str()))
             co_return share(s, flags);
+
+        // An open already in flight will register a record the moment it
+        // lands, and two exclusive handles on one file is what an OPFS store
+        // refuses (Concept.md §5.2) — so this waits for that record rather
+        // than asking for a handle the other opener is taking. Two terminals
+        // starting a shell at once is the case that needs it: without this the
+        // loser reads a refusal it cannot tell from a real one.
+        for (usize spin = 0; spin < OPEN_WAIT && opening_of(m->fs, phys.str()); spin++)
+            if ((co_await Sleep(0)).is_err())
+                co_return Err(Error::Cancelled);
+        if (OpenShared *s = shared_of(m->fs, phys.str()))
+            co_return share(s, flags);
+
+        if (!mark.arm(m->fs, phys.str()))
+            co_return Err(Error::NoMemory);
     }
 
     Task<Result<u32>> t = m->fs->open(sub, flags);

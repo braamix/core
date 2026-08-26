@@ -12,9 +12,9 @@ void round_trip(char32_t ch, usize want_len)
     usize n = utf8_encode(ch, b);
     CHECK_EQ(n, want_len);
 
-    screen_move(0, 0);
-    screen_write(Str(b, n));
-    CHECK_EQ(u32(screen_cells()[0].ch), u32(ch));
+    screen_move(t0(), 0, 0);
+    screen_write(t0(), Str(b, n));
+    CHECK_EQ(u32(screen_cells(t0())[0].ch), u32(ch));
 }
 
 // One decode: the codepoint and the bytes it took.
@@ -46,8 +46,8 @@ void test_text()
     CHECK(!is_digit('/'));
     CHECK(!is_digit(':'));
 
-    screen_reset();
-    CHECK(screen_resize(8, 2));
+    screen_reset(t0());
+    CHECK(screen_resize(t0(), 8, 2));
 
     round_trip('A', 1);     // 1 byte
     round_trip(0x00e9, 2);  // e acute
@@ -103,22 +103,22 @@ void test_text()
         for (usize i = 0; i < 256; i++)
             all[i] = char(u8(i));
 
-        screen_reset();
-        CHECK(screen_resize(64, 8));
-        screen_write(Str(all, 256));
+        screen_reset(t0());
+        CHECK(screen_resize(t0(), 64, 8));
+        screen_write(t0(), Str(all, 256));
         for (usize i = 0; i < 64 * 8; i++)
-            CHECK_EQ(u32(screen_cells()[i].ch), u32(rune_safe(screen_cells()[i].ch)));
+            CHECK_EQ(u32(screen_cells(t0())[i].ch), u32(rune_safe(screen_cells(t0())[i].ch)));
     }
 
     // And a caller that lies outright is clamped at the cell.
-    screen_reset();
-    CHECK(screen_resize(4, 2));
-    screen_put(char32_t(0x11b58c));
-    screen_put(char32_t(0xd800));
-    CHECK_EQ(u32(screen_cells()[0].ch), 0xfffd);
-    CHECK_EQ(u32(screen_cells()[1].ch), 0xfffd);
+    screen_reset(t0());
+    CHECK(screen_resize(t0(), 4, 2));
+    screen_put(t0(), char32_t(0x11b58c));
+    screen_put(t0(), char32_t(0xd800));
+    CHECK_EQ(u32(screen_cells(t0())[0].ch), 0xfffd);
+    CHECK_EQ(u32(screen_cells(t0())[1].ch), 0xfffd);
 
-    screen_reset();
+    screen_reset(t0());
 
     CHECK(!parse_u32("").has_value());
     CHECK_EQ(parse_u32("0").value(), 0);

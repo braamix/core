@@ -19,89 +19,89 @@ void test_tty()
     // Raw keys: the second claimant is refused, and refusing it changes
     // nothing about the first.
     {
-        KeyInput a(7);
+        KeyInput a(t0(), 7);
         CHECK(a.ok());
-        CHECK(tty_raw() != nullptr);
-        CHECK_EQ(tty_keys_owner(), 7);
+        CHECK(tty_raw(t0()) != nullptr);
+        CHECK_EQ(tty_keys_owner(t0()), 7);
 
-        KeyRing *held = tty_raw();
+        KeyRing *held = tty_raw(t0());
         {
-            KeyInput b(9);
+            KeyInput b(t0(), 9);
             CHECK(!b.ok());
             CHECK_EQ(b.error(), Error::Perm);
-            CHECK(tty_raw() == held);
-            CHECK_EQ(tty_keys_owner(), 7);
+            CHECK(tty_raw(t0()) == held);
+            CHECK_EQ(tty_keys_owner(t0()), 7);
         }
-        CHECK(tty_raw() == held);
-        CHECK_EQ(tty_keys_owner(), 7);
+        CHECK(tty_raw(t0()) == held);
+        CHECK_EQ(tty_keys_owner(t0()), 7);
     }
-    CHECK(tty_raw() == nullptr);
-    CHECK_EQ(tty_keys_owner(), 0);
+    CHECK(tty_raw(t0()) == nullptr);
+    CHECK_EQ(tty_keys_owner(t0()), 0);
 
     // And the route is claimable again once its holder is gone.
     {
-        KeyInput c(9);
+        KeyInput c(t0(), 9);
         CHECK(c.ok());
-        CHECK_EQ(tty_keys_owner(), 9);
+        CHECK_EQ(tty_keys_owner(t0()), 9);
     }
 
     // Out of order, on the heap, which a scope cannot express: the refused
     // claim outlives the holder. Restoring a saved predecessor here left the
     // pump with a pointer to a freed ring.
     {
-        KeyInput *a = heap_new<KeyInput>(1);
-        KeyInput *b = heap_new<KeyInput>(2);
+        KeyInput *a = heap_new<KeyInput>(t0(), 1);
+        KeyInput *b = heap_new<KeyInput>(t0(), 2);
         CHECK(a && a->ok());
         CHECK(b && !b->ok());
         heap_delete(a);
-        CHECK(tty_raw() == nullptr);
+        CHECK(tty_raw(t0()) == nullptr);
         heap_delete(b);
-        CHECK(tty_raw() == nullptr);
-        CHECK_EQ(tty_keys_owner(), 0);
+        CHECK(tty_raw(t0()) == nullptr);
+        CHECK_EQ(tty_keys_owner(t0()), 0);
     }
 
     // The screen: the second claimant must not snapshot the blanked grid the
     // first is painting, or the shell's screen is what gets thrown away.
-    screen_reset();
-    screen_resize(4, 3);
-    screen_write("ab");
+    screen_reset(t0());
+    screen_resize(t0(), 4, 3);
+    screen_write(t0(), "ab");
     {
-        FullScreen *a = heap_new<FullScreen>(3);
+        FullScreen *a = heap_new<FullScreen>(t0(), 3);
         CHECK(a && a->ok());
-        CHECK_EQ(tty_screen_owner(), 3);
-        CHECK_EQ(screen_cells()[0].ch, 0); // taken, so blank
+        CHECK_EQ(tty_screen_owner(t0()), 3);
+        CHECK_EQ(screen_cells(t0())[0].ch, 0); // taken, so blank
 
-        FullScreen *b = heap_new<FullScreen>(4);
+        FullScreen *b = heap_new<FullScreen>(t0(), 4);
         CHECK(b && !b->ok());
         CHECK_EQ(b->error(), Error::Perm);
-        CHECK_EQ(tty_screen_owner(), 3);
+        CHECK_EQ(tty_screen_owner(t0()), 3);
 
         heap_delete(a); // the holder first, then the refused one
-        CHECK_EQ(tty_screen_owner(), 0);
-        CHECK_EQ(screen_cells()[0].ch, 'a');
+        CHECK_EQ(tty_screen_owner(t0()), 0);
+        CHECK_EQ(screen_cells(t0())[0].ch, 'a');
         heap_delete(b);
-        CHECK_EQ(screen_cells()[0].ch, 'a');
+        CHECK_EQ(screen_cells(t0())[0].ch, 'a');
     }
 
     // A view is taken down before the snapshot: a background job claims the
     // screen with no keystroke to have brought it home.
-    screen_reset();
-    screen_resize(4, 2);
-    screen_write("ab\ncd\nef");
-    CHECK(screen_view_scroll(-1) != 0);
+    screen_reset(t0());
+    screen_resize(t0(), 4, 2);
+    screen_write(t0(), "ab\ncd\nef");
+    CHECK(screen_view_scroll(t0(), -1) != 0);
     {
-        FullScreen *a = heap_new<FullScreen>(5);
+        FullScreen *a = heap_new<FullScreen>(t0(), 5);
         CHECK(a && a->ok());
-        CHECK_EQ(screen_view(), 0u);
+        CHECK_EQ(screen_view(t0()), 0u);
         heap_delete(a);
-        CHECK_EQ(screen_cells()[0].ch, 'c');
+        CHECK_EQ(screen_cells(t0())[0].ch, 'c');
     }
-    screen_reset();
+    screen_reset(t0());
 
     // What Sys::Tty answers with: a console stream and a pipe's are the same
     // type, so only the sink tells them apart.
     {
-        Stdio c = stdio_console();
+        Stdio c = stdio_console(t0());
         CHECK(tty_is_console(c.out));
         CHECK(tty_is_console(c.err));
         CHECK(console_is_input(c.in));

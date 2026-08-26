@@ -22,6 +22,21 @@ export function check(binaries) {
     if (got_exports.join() !== want_exports.join())
         fail(`exports are [${got_exports}], expected [${want_exports}]`);
 
+    // The names alone are not the ABI: an argument added to one of these is
+    // drift a matching list would not catch, and the terminal id on key() and
+    // resize() is exactly that kind of change. A wasm export reaches JS as a
+    // function whose `length` is its declared parameter count. host.present
+    // carries one too, and boot.mjs is what pins it: the harness reads the
+    // rectangle out of the last four arguments.
+    const arity = {
+        init: 1, key: 3, ref: 2, resize: 3, sys: 5, sys_async: 4, tick: 1, wake: 3,
+    };
+    for (const [fn, want] of Object.entries(arity)) {
+        const got = kernel()[fn].length;
+        if (got !== want)
+            fail(`${fn}() takes ${got} arguments, expected ${want}`);
+    }
+
     // The process ABI is a surface of its own (Concept.md §4.3), and the same
     // rule applies to it: drift is a bug. Note what is *not* there — a process
     // imports nothing from the host, and `sys` has no pid argument, which is

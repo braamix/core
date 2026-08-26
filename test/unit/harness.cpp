@@ -8,6 +8,11 @@ Str current;
 u32 failures;
 } // namespace
 
+Term &t0()
+{
+    return *term_open(0);
+}
+
 void test_begin(Str name)
 {
     current = name;

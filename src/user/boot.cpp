@@ -30,12 +30,21 @@ constexpr f64 RESPAWN_FLOOR_MS = 1000;
 String *g_host = nullptr;
 
 // On a row of its own: a shell that died left its prompt on this one.
-void say(Str s)
+void say(Term &term, Str s)
 {
-    if (screen().cursor_x != 0)
-        screen_newline();
-    screen_write(s);
-    screen_newline();
+    if (screen(term).cursor_x != 0)
+        screen_newline(term);
+    screen_write(term, s);
+    screen_newline(term);
+}
+
+// The version line, which main.cpp writes on terminal 0 before this task runs.
+// A terminal the host made later gets it here instead, without the uptime.
+void banner(Term &term)
+{
+    Buf<64> line;
+    line.put("braam ").put(BRAAM_VERSION);
+    say(term, line.str());
 }
 
 // Yes or no on the grid, before there is a shell to ask with. The keyboard's
@@ -45,20 +54,20 @@ void say(Str s)
 //
 // Anything but y is no, ^C included: it arrives as an ordinary key, since
 // nothing has armed a foreground.
-Task<bool> ask(Str question, const u32 &pid)
+Task<bool> ask(Term &term, Str question, const u32 &pid)
 {
     Buf<96> line;
     line.put(question).put(" [y/N] ");
-    if (screen().cursor_x != 0)
-        screen_newline();
+    if (screen(term).cursor_x != 0)
+        screen_newline(term);
     // Bright white for the question, back to the default for the answer.
-    screen_style(COLOR_WHITE | COLOR_BRIGHT, COLOR_BLACK, 0);
-    screen_write(line.str());
-    screen_style(COLOR_WHITE, COLOR_BLACK, 0);
+    screen_style(term, COLOR_WHITE | COLOR_BRIGHT, COLOR_BLACK, 0);
+    screen_write(term, line.str());
+    screen_style(term, COLOR_WHITE, COLOR_BLACK, 0);
 
-    KeyInput keys(pid);
+    KeyInput keys(term, pid);
     if (!keys.ok()) {
-        screen_write("n\n");
+        screen_write(term, "n\n");
         co_return false;
     }
 
@@ -67,14 +76,14 @@ Task<bool> ask(Str question, const u32 &pid)
         if (k.is_err()) {
             if (k.error() == Error::Again)
                 continue;
-            screen_write("n\n");
+            screen_write(term, "n\n");
             co_return false;
         }
         bool yes = k.value().code == 'y' || k.value().code == 'Y';
         if (!yes && k.value().code != 'n' && k.value().code != 'N' && k.value().code != KEY_ENTER &&
             !(k.value().mods & MOD_CTRL))
             continue;
-        screen_write(yes ? "y\n" : "n\n");
+        screen_write(term, yes ? "y\n" : "n\n");
         co_return yes;
     }
 }
@@ -84,7 +93,7 @@ Task<bool> ask(Str question, const u32 &pid)
 // prompt anyone could answer usefully. A mismatch is the user's call: the old
 // /bin may be what they want kept, and a stale one says so for itself when
 // exec_resolve refuses it.
-Task<void> unpack_if_stale(const u32 &pid)
+Task<void> unpack_if_stale(Term &term, const u32 &pid)
 {
     String stored;
     if (Task<Result<String>> t = read_file(VERSION_PATH)) {
@@ -102,12 +111,12 @@ Task<void> unpack_if_stale(const u32 &pid)
             .put(stored.str())
             .put(" and this kernel is ")
             .put(BRAAM_VERSION);
-        say(line.str());
+        say(term, line.str());
         bool yes = false;
-        if (Task<bool> t = ask("replace /bin and /etc?", pid))
+        if (Task<bool> t = ask(term, "replace /bin and /etc?", pid))
             yes = co_await t;
         if (!yes) {
-            say("keeping the stored image");
+            say(term, "keeping the stored image");
             co_return;
         }
     }
@@ -116,18 +125,18 @@ Task<void> unpack_if_stale(const u32 &pid)
     if (Task<Result<u32>> t = storage_unpack(BRAAM_VERSION))
         r = co_await t;
     if (r.is_err()) {
-        say("the root archive would not unpack — /bin is empty and there is no shell");
+        say(term, "the root archive would not unpack — /bin is empty and there is no shell");
         co_return;
     }
 
     Buf<96> line;
     line.put("unpacked ").put(r.value()).put(" files");
-    say(line.str());
+    say(term, line.str());
 }
 
 // The directories the store is expected to have and the archive does not
 // carry. Exists is the ordinary answer on every boot but the first.
-Task<void> make_dirs()
+Task<void> make_dirs(Term &term)
 {
     // Where `fimport` puts what the file picker hands over (Concept.md §5.4):
     // /import, at the root.
@@ -140,7 +149,7 @@ Task<void> make_dirs()
             if (r.is_err() && r.error() != Error::Exists) {
                 Buf<96> line;
                 line.put(d).put(": ").put(error_name(r.error()));
-                say(line.str());
+                say(term, line.str());
             }
         }
     }
@@ -163,7 +172,7 @@ Task<void> wipe_tmp()
 //
 // Silent when there is no motd. A boot archive without a greeting is not a
 // broken one, and the line saying so would itself be noise at every boot.
-Task<void> show_motd()
+Task<void> show_motd(Term &term)
 {
     Task<Result<String>> t = read_file(MOTD);
     if (!t)
@@ -180,11 +189,11 @@ Task<void> show_motd()
     // screen_write turns the file's own newlines into rows (screen.cpp), so
     // the only thing left to arrange is that the prompt starts on a line of
     // its own — which a file not ending in a newline would take away.
-    screen_style(COLOR_GREEN, COLOR_BLACK, 0);
-    screen_write(r.value().str());
+    screen_style(term, COLOR_GREEN, COLOR_BLACK, 0);
+    screen_write(term, r.value().str());
     if (r.value().str()[r.value().size() - 1] != '\n')
-        screen_newline();
-    screen_style(COLOR_WHITE, COLOR_BLACK, 0);
+        screen_newline(term);
+    screen_style(term, COLOR_WHITE, COLOR_BLACK, 0);
 }
 
 // The half of the description above the blank line: the fields short enough to
@@ -205,7 +214,7 @@ constexpr usize LABEL_COL = 9;
 // One `name value` row of the description, written as `name: value`. The colon
 // is presentation and lives only here: /proc/host stays a plain table, which is
 // what lets `uname` read a field out of it with next_field.
-void write_labelled(Str line)
+void write_labelled(Term &term, Str line)
 {
     usize name = 0;
     while (name < line.size() && line[name] != ' ')
@@ -225,8 +234,8 @@ void write_labelled(Str line)
     } while (col < LABEL_COL);
     out.put(line.substr(value));
 
-    screen_write(out.str());
-    screen_newline();
+    screen_write(term, out.str());
+    screen_newline(term);
 }
 
 // What the system is running on, under the version line main.cpp already wrote.
@@ -235,7 +244,7 @@ void write_labelled(Str line)
 //
 // A description that does not arrive is not an error: the store is what boot
 // cannot do without, and this is the motd's kind of line, not the OPFS one.
-Task<void> show_host(const StorageBackend &b)
+Task<void> show_host(Term &term, const StorageBackend &b)
 {
     if (Task<Result<String>> t = host_info()) {
         Result<String> r = co_await t;
@@ -253,7 +262,7 @@ Task<void> show_host(const StorageBackend &b)
         Str line = nl == Str::npos ? rest : rest.substr(0, nl);
         rest     = nl == Str::npos ? Str() : rest.substr(nl + 1);
         if (!line.empty())
-            write_labelled(line);
+            write_labelled(term, line);
     }
 
     // The geometry is not here: it is on the screen being reported, and
@@ -273,13 +282,13 @@ Task<void> show_host(const StorageBackend &b)
     else
         line.put("quota unknown");
     line.put(b.persisted ? Str(", persistent") : Str(", best-effort"));
-    say(line.str());
+    say(term, line.str());
 }
 
 // Why /bin/sh would not resolve, on one line. Three different repairs hide
 // behind one Result: a store with no shell in it, one built against another
 // kernel, and one whose bytes are damaged.
-void no_shell(Error e)
+void no_shell(Term &term, Error e)
 {
     Buf<160> line;
     line.put(SHELL).put(": ");
@@ -302,7 +311,7 @@ void no_shell(Error e)
         line.put(error_name(e));
         break;
     }
-    say(line.str());
+    say(term, line.str());
 }
 
 } // namespace
@@ -312,7 +321,7 @@ Str host_facts()
     return g_host ? g_host->str() : Str();
 }
 
-Task<bool> boot_filesystem(const u32 &pid)
+Task<bool> boot_filesystem(Term &term, const u32 &pid)
 {
     // Idempotent. A second boot in a test finds the mounts already there and
     // leaves them, rather than reporting every one of them as an error.
@@ -329,19 +338,19 @@ Task<bool> boot_filesystem(const u32 &pid)
             b = r.value();
     }
     if (!b.opfs || !b.sync) {
-        say("this browser has no OPFS — Braam cannot run here");
-        say("private browsing usually explains it; try an ordinary window");
+        say(term, "this browser has no OPFS — Braam cannot run here");
+        say(term, "private browsing usually explains it; try an ordinary window");
         co_return false;
     }
 
     // What the machine is, before what is being done to it: the mounts and the
     // unpack below say what happened, and this says where.
-    if (Task<void> t = show_host(b))
+    if (Task<void> t = show_host(term, b))
         co_await t;
 
     Fs *root = heap_new<OpfsFs>();
     if (!root || vfs_mount("/", root).is_err()) {
-        say("no root filesystem");
+        say(term, "no root filesystem");
         co_return false;
     }
 
@@ -350,17 +359,17 @@ Task<bool> boot_filesystem(const u32 &pid)
     // process like any other (Concept.md §5.1).
     if (Fs *proc = procfs_create())
         if (vfs_mount("/proc", proc).is_err())
-            say("/proc would not mount");
+            say(term, "/proc would not mount");
 
     // The character devices. No mkdir: a mount point shows in its parent's
     // listing whether or not the store has a directory of that name.
     if (Fs *dev = devfs_create())
         if (vfs_mount("/dev", dev).is_err())
-            say("/dev would not mount");
+            say(term, "/dev would not mount");
 
-    if (Task<void> t = unpack_if_stale(pid))
+    if (Task<void> t = unpack_if_stale(term, pid))
         co_await t;
-    if (Task<void> t = make_dirs())
+    if (Task<void> t = make_dirs(term))
         co_await t;
     if (Task<void> t = wipe_tmp())
         co_await t;
@@ -392,17 +401,12 @@ bool base_env(String &out)
     return true;
 }
 
-Task<i32> init_task(const u32 &pid)
-{
-    // The store comes first, and the mounts always did — but the shell used to
-    // do them. It cannot any more: it is a file in /bin, which is in the store.
-    bool up = false;
-    if (Task<bool> t = boot_filesystem(pid))
-        up = co_await t;
-    if (!up)
-        co_return 1;
+namespace {
 
-    bool greeted  = false;
+// One terminal's session: a shell, and another when that one dies. `greet` is
+// terminal 0's — the motd is the system's, not the terminal's.
+Task<i32> shell_session(Term &term, const u32 &pid, bool greet)
+{
     bool restored = false;
     u32 tries     = 0;
     i32 status    = 1;
@@ -424,7 +428,7 @@ Task<i32> init_task(const u32 &pid)
             // nobody left to print it: a store that will not give up /bin/sh
             // is a system with no prompt, and the reason has to reach the
             // screen.
-            no_shell(found.error());
+            no_shell(term, found.error());
 
             // /bin is writable now, so `rm /bin/sh` is reachable from the
             // prompt — and the stamp would still match, so nothing would ever
@@ -434,7 +438,7 @@ Task<i32> init_task(const u32 &pid)
             if (!restored) {
                 restored = true;
                 bool yes = false;
-                if (Task<bool> t = ask("restore /bin and /etc from the archive?", pid))
+                if (Task<bool> t = ask(term, "restore /bin and /etc from the archive?", pid))
                     yes = co_await t;
                 if (yes) {
                     Result<u32> r = Err(Error::NoMemory);
@@ -442,10 +446,10 @@ Task<i32> init_task(const u32 &pid)
                         r = co_await t;
                     if (r.is_ok())
                         continue;
-                    say("the root archive would not unpack");
+                    say(term, "the root archive would not unpack");
                 }
             }
-            say("there is no prompt — reload once the store is repaired");
+            say(term, "there is no prompt — reload once the store is repaired");
             co_return 1;
         }
         // Init's own, and every replacement takes it again: the record under it
@@ -457,9 +461,9 @@ Task<i32> init_task(const u32 &pid)
         // Only now, with a shell that is going to run: a system with no prompt
         // coming should show why, not a greeting above a dead terminal. Once,
         // however many shells follow.
-        if (!greeted) {
-            greeted = true;
-            if (Task<void> t = show_motd())
+        if (greet) {
+            greet = false;
+            if (Task<void> t = show_motd(term))
                 co_await t;
         }
 
@@ -470,9 +474,10 @@ Task<i32> init_task(const u32 &pid)
         // Scoped, so this shell's record — removed by a destructor in there —
         // is gone before the next one, which answers to the same pid.
         {
-            Task<i32> t = exec_process(exe, args, stdio_console(), Str(), env.str(), &died);
+            Task<i32> t =
+                exec_process(exe, args, stdio_console(term), term, Str(), env.str(), &died);
             if (!t) {
-                say("/bin/sh would not start");
+                say(term, "/bin/sh would not start");
                 co_return 1;
             }
             status = co_await t;
@@ -489,24 +494,88 @@ Task<i32> init_task(const u32 &pid)
         // spawn waits for one rather than returning.
         tries = sched_now() - started >= RESPAWN_FLOOR_MS ? 1 : tries + 1;
         if (tries >= RESPAWN_TRIES) {
-            say("the shell will not stay up — reload to start again");
+            say(term, "the shell will not stay up — reload to start again");
             co_return status;
         }
 
         // The foreground the dead shell armed, or ^C at the next prompt reaches
         // pids that are gone (console.h). The keyboard and screen claims need
         // nothing: ~Proc drops both.
-        console_fg_clear();
+        console_fg_clear(term);
 
         Buf<96> line;
         line.put("the shell died (status ").put(status).put(") — starting another");
-        say(line.str());
+        say(term, line.str());
     }
 
     // The user's own `exit`, and there is no getty to start another. Say so
     // rather than leave a prompt that never comes back, and carry the status.
     Buf<96> line;
     line.put("the shell exited (status ").put(status).put(") — reload to start again");
-    say(line.str());
+    say(term, line.str());
     co_return status;
+}
+
+// A terminal the host made after boot gets a session of its own, whose pid is
+// its own: only terminal 0's shell answers to init's.
+u32 g_sh_pid[TERM_MAX];
+
+Channel<u32, TERM_MAX> g_new_terms;
+
+static_assert(is_trivially_destructible<Channel<u32, TERM_MAX>>, "a global must not need atexit");
+
+// Started once the store is up, so a terminal made while it came up is served
+// from the queue rather than lost.
+Task<i32> term_watch()
+{
+    for (;;) {
+        Result<u32> r = co_await g_new_terms.recv();
+        if (r.is_err()) {
+            if (r.error() == Error::Again)
+                continue;
+            co_return 0;
+        }
+
+        u32 id  = r.value();
+        Term *t = id ? term_at(id) : nullptr; // terminal 0 is init's own
+        if (!t)
+            continue;
+
+        banner(*t);
+        if (Task<i32> s = shell_session(*t, g_sh_pid[id], false))
+            g_sh_pid[id] = sched_spawn(move(s), "sh");
+    }
+}
+
+} // namespace
+
+void init_term_up(Term &term)
+{
+    // The pump first, and it needs no store: it is that terminal's only
+    // keyboard receiver. The session waits for the store, since /bin is in it.
+    if (!sched_spawn(console_pump(term), "tty"))
+        return;
+    g_new_terms.try_send(term_id(term));
+}
+
+Task<i32> init_task(const u32 &pid)
+{
+    Term *t0 = term_at(0);
+    if (!t0)
+        co_return 1;
+
+    // The store comes first, and the mounts always did — but the shell used to
+    // do them. It cannot any more: it is a file in /bin, which is in the store.
+    bool up = false;
+    if (Task<bool> t = boot_filesystem(*t0, pid))
+        up = co_await t;
+    if (!up)
+        co_return 1;
+
+    if (Task<i32> t = term_watch())
+        sched_spawn(move(t), "getty");
+
+    if (Task<i32> t = shell_session(*t0, pid, true))
+        co_return co_await t;
+    co_return 1;
 }

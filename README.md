@@ -81,7 +81,10 @@ repository <https://braamix.github.io>, and
 your own.
 
 **An embedding API.** `web/braam.js` puts a terminal on any web page with
-`mount({ canvas })`, and `web/embed.html` is a working example.
+`mount({ canvas })`. `web/embed.html` is a working example, and
+`web/dual.html` splits a window between two screens of one kernel —
+`mount({ screens: [ … ] })`, a shell and a `^C` of its own on each, over one
+filesystem.
 
 ## Building
 

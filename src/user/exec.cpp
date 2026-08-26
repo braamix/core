@@ -305,7 +305,8 @@ Task<Result<void>> exec_resolve(Str name, Executable &out, Str cwd, Str env)
     }
 }
 
-Task<i32> exec_process(Executable &exe, Args args, Stdio io, Str cwd, Str env, bool *died)
+Task<i32> exec_process(Executable &exe, Args args, Stdio io, Term &term, Str cwd, Str env,
+                       bool *died)
 {
     // True until the one return that says otherwise, so a path added later
     // reports a death rather than being forgotten.
@@ -318,6 +319,7 @@ Task<i32> exec_process(Executable &exe, Args args, Stdio io, Str cwd, Str env, b
         co_await io.err.write("out of memory\n");
         co_return 1;
     }
+    p->term      = &term;
     p->depth     = exe.depth;
     p->max_pages = exe.meta.max_pages;
     p->pages     = exe.meta.initial_pages; // until the first step reports

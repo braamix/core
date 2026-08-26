@@ -43,12 +43,13 @@ BRAAM_EXPORT("init") void init(u32 heap_base)
     heap_init(heap_base);
     __wasm_call_ctors();
 
-    // A grid exists from the first instruction, so the kernel is never in a
-    // screenless state and the banner below has somewhere to go. The host's
-    // first resize() moves the rows to the measured geometry but does not
-    // re-wrap them (§3.5), so what wraps here stays wrapped: the banner has to
-    // fit in 80 columns, which is what keeps it terse.
-    if (!screen_resize(80, 24))
+    // Terminal 0 has a grid from the first instruction, so the kernel is never
+    // in a screenless state and the banner below has somewhere to go. The
+    // host's first resize() moves the rows to the measured geometry but does
+    // not re-wrap them (§3.5), so what wraps here stays wrapped: the banner has
+    // to fit in 80 columns, which is what keeps it terse.
+    Term *t0 = term_open(0);
+    if (!t0 || !screen_resize(*t0, 80, 24))
         panic("braam: no screen");
 
     // The version and what it cost to get here, and nothing else: the heap is
@@ -61,13 +62,13 @@ BRAAM_EXPORT("init") void init(u32 heap_base)
         .put(u32((host_now() - started) * 1000))
         .put(" us");
     log(line.str());
-    screen_write(line.str());
-    screen_newline();
+    screen_write(*t0, line.str());
+    screen_newline(*t0);
 
-    // The pump before the shell, and for good: it is the only receiver on the
-    // keyboard channel (console.h), and the prompt claims a route through it
-    // rather than reading keys itself.
-    if (!sched_spawn(console_pump(), "tty"))
+    // The pump before the shell, and for good: it is the only receiver on that
+    // terminal's keyboard channel (console.h), and the prompt claims a route
+    // through it rather than reading keys itself.
+    if (!sched_spawn(console_pump(*t0), "tty"))
         panic("braam: the console would not start");
 
     // The mounts, and then /bin/sh — a program like any other, with no shell
@@ -108,20 +109,35 @@ BRAAM_EXPORT("ref") void ref(u32 slot, __externref_t obj)
 // The fast path: it only queues, so it can never re-enter the scheduler, and a
 // full queue drops the event rather than blocking the host. Returns 1 if the
 // keystroke was queued and 0 if it was not, which is what lets the host feed a
-// paste at the rate the console drains it (Concept.md §3.5).
-BRAAM_EXPORT("key") u32 key(u32 code, u32 mods)
+// paste at the rate the console drains it (Concept.md §3.5). A terminal that
+// does not exist drops it: the host has a canvas the kernel does not.
+BRAAM_EXPORT("key") u32 key(u32 term, u32 code, u32 mods)
 {
-    return keys().try_send(Key{ code, mods }) ? 1 : 0;
+    if (!term_at(term))
+        return 0;
+    return keys(term).try_send(Key{ code, mods }) ? 1 : 0;
 }
 
-// Reflows the screen and returns the address of its descriptor, or 0 if the
-// grid could not be allocated. This is where the renderer learns the geometry
-// and re-derives its view, since it is the only call that moves the cells.
-BRAAM_EXPORT("resize") u32 resize(u32 cols, u32 rows)
+// Reflows one terminal's screen and returns the address of its descriptor, or 0
+// if the grid could not be allocated. This is where the renderer learns the
+// geometry and re-derives its view, since it is the only call that moves the
+// cells — and where a terminal the host has not used before is made, which
+// gives it a pump and a shell of its own (boot.h).
+BRAAM_EXPORT("resize") u32 resize(u32 term, u32 cols, u32 rows)
 {
-    u32 at = screen_resize(cols, rows);
-    if (at)
-        tty_resized(); // 0 left the old grid whole, so nothing changed shape
+    Term *t = term_open(term);
+    if (!t)
+        return 0;
+
+    bool fresh = screen_cells(*t) == nullptr;
+    u32 at     = screen_resize(*t, cols, rows);
+    if (!at)
+        return 0; // the old grid is whole, so nothing changed shape
+
+    if (fresh)
+        init_term_up(*t);
+    else
+        tty_resized(*t);
     return at;
 }
 

@@ -10,8 +10,17 @@ import { makeSvcImport } from "./svc.js";
 
 const mem = new Memory();
 
-let renderer = null;
-let pending = null; // a canvas or viewport that arrived before the kernel did
+// One per terminal: its renderer, the sub-row remainder of a wheel gesture, and
+// the paste being fed into it. A terminal is made kernel-side by the first
+// resize() that names it, so this is filled by whatever the page attaches.
+const screens = [];
+
+function pane(term) {
+    return screens[term] || (screens[term] = { renderer: null, residue: 0, pasting: null });
+}
+
+// A canvas or viewport that arrived before the kernel did, by terminal.
+const pending = [];
 
 // What an embedder may choose: where the module and the root archive live, and
 // how the renderer draws. The defaults are the files beside this one, so a page
@@ -122,7 +131,7 @@ async function boot() {
             pump();
         }, proc);
 
-    const imports = makeImports(mem, (text) => emit("log", text), (x, y, w, h) => {
+    const imports = makeImports(mem, (text) => emit("log", text), (term, x, y, w, h) => {
         last_present = performance.now();
         if (key_at) {
             if (keys.length < KEY_SAMPLES)
@@ -131,9 +140,12 @@ async function boot() {
         } else {
             repaints++;
         }
-        if (renderer && drawing) {
+        // A terminal the page has no canvas for is painted nowhere: the kernel
+        // keeps its grid either way, and a canvas may arrive later.
+        const r = screens[term] && screens[term].renderer;
+        if (r && drawing) {
             const at = performance.now();
-            renderer.present(x, y, w, h);
+            r.present(x, y, w, h);
             paint.ms += performance.now() - at;
             paint.n++;
         }
@@ -160,27 +172,35 @@ async function boot() {
     self.kernel = instance.exports;
 
     // The canvas may have arrived before the module finished compiling.
-    if (pending) {
-        const { canvas, viewport } = pending;
-        pending = null;
-        if (canvas)
-            attach(canvas);
-        if (viewport)
-            fit(viewport);
+    for (let term = 0; term < pending.length; term++) {
+        const held = pending[term];
+        if (!held)
+            continue;
+        pending[term] = null;
+        if (held.canvas)
+            attach(held.canvas, term);
+        if (held.viewport)
+            fit(held.viewport, term);
     }
     pump();
 }
 
-function attach(canvas) {
-    renderer = new Renderer(canvas, mem, options);
+// A screen may name a palette or a font of its own; the rest is the mount's.
+function attach(msg, term) {
+    const own = {};
+    for (const key of ["palette", "fontFamily", "fontSize"])
+        if (msg[key] !== undefined)
+            own[key] = msg[key];
+    pane(term).renderer = new Renderer(msg.canvas, mem, { ...options, ...own });
 }
 
 // A mouse selection is the page's gesture and the renderer's highlight, and the
 // kernel is told nothing about either (Concept.md §3.5). The text crosses back
 // when it settles, because only the page can reach the clipboard.
-function deselect() {
-    if (renderer && renderer.clear())
-        self.postMessage({ kind: "selection", text: "" });
+function deselect(term) {
+    const r = screens[term] && screens[term].renderer;
+    if (r && r.clear())
+        self.postMessage({ kind: "selection", term, text: "" });
 }
 
 // The wheel is the page's gesture too, and reaches the kernel as the keystrokes
@@ -188,8 +208,6 @@ function deselect() {
 // the ABI here either. The worker owns the font, so this is the side that can
 // turn device pixels into rows; the fraction of a row left over is carried, or
 // a trackpad's small deltas would never scroll at all.
-let residue = 0;
-
 const KEY_UP = named("ArrowUp");
 const KEY_DOWN = named("ArrowDown");
 const KEY_PAGE_UP = named("PageUp");
@@ -198,17 +216,18 @@ const KEY_PAGE_DOWN = named("PageDown");
 // One flick may not outrun the key ring, which holds 64.
 const WHEEL_MAX = 64;
 
-function scroll({ dy, mode }) {
-    if (!renderer)
+function scroll({ dy, mode, term }) {
+    const p = pane(term);
+    if (!p.renderer)
         return;
     let rows = dy;
     const page = mode === 2; // pages: the chord's own half a screen each
     if (mode !== 1 && !page) {
-        if ((dy < 0) !== (residue < 0))
-            residue = 0; // a reversal continues nothing
-        const exact = (residue + dy) / renderer.cellH;
+        if ((dy < 0) !== (p.residue < 0))
+            p.residue = 0; // a reversal continues nothing
+        const exact = (p.residue + dy) / p.renderer.cellH;
         rows = Math.trunc(exact);
-        residue = (exact - rows) * renderer.cellH;
+        p.residue = (exact - rows) * p.renderer.cellH;
     }
     const n = Math.trunc(rows);
     if (!n)
@@ -216,29 +235,30 @@ function scroll({ dy, mode }) {
 
     const back = n < 0;
     const code = page ? (back ? KEY_PAGE_UP : KEY_PAGE_DOWN) : (back ? KEY_UP : KEY_DOWN);
-    deselect();
+    deselect(term);
     // Fed like a paste: a full ring is back-pressure, and the rest of the flick
     // is dropped rather than queued. One pump, so the whole run costs one paint.
     for (let i = Math.min(Math.abs(n), WHEEL_MAX); i > 0; i--)
-        if (!self.kernel.key(code, MOD_SHIFT))
+        if (!self.kernel.key(term, code, MOD_SHIFT))
             break;
     pump();
 }
 
 // The worker owns the font, so it owns the geometry: the page reports a box in
 // device pixels and reads back whatever the kernel accepted.
-function fit({ width, height, dpr }) {
-    if (!renderer)
+function fit({ width, height, dpr }, term) {
+    const p = pane(term);
+    if (!p.renderer)
         return;
-    deselect();
-    residue = 0; // the row height it is a fraction of is about to change
-    const { cols, rows } = renderer.fit(width, height, dpr);
-    const info = self.kernel.resize(cols, rows);
+    deselect(term);
+    p.residue = 0; // the row height it is a fraction of is about to change
+    const { cols, rows } = p.renderer.fit(width, height, dpr);
+    const info = self.kernel.resize(term, cols, rows);
     if (info === 0) {
         emit("error", `braam: no memory for a ${cols}x${rows} screen`);
         return;
     }
-    renderer.attach(info);
+    p.renderer.attach(info);
 }
 
 // The event loop is the scheduler (Concept.md §2.1). tick() drains the ready
@@ -265,26 +285,28 @@ function pump() {
 // of the run waits for the tick that empties it. A second paste joins the queue
 // instead of displacing it; a key typed while one is being fed goes straight in
 // ahead of the rest, since ^C must not wait behind a paste.
-let pasting = null; // { codes, at }, the run being fed
-
-function feed() {
-    while (pasting.at < pasting.codes.length && self.kernel.key(pasting.codes[pasting.at] >>> 0, 0))
-        pasting.at++;
+// pane().pasting is { codes, at }, the run being fed into that terminal.
+function feed(term) {
+    const p = pane(term);
+    const run = p.pasting;
+    while (run.at < run.codes.length && self.kernel.key(term, run.codes[run.at] >>> 0, 0))
+        run.at++;
     pump();
-    if (pasting.at < pasting.codes.length)
-        setTimeout(feed, 0);
+    if (run.at < run.codes.length)
+        setTimeout(() => feed(term), 0);
     else
-        pasting = null;
+        p.pasting = null;
 }
 
-function type(codes) {
-    if (pasting) {
-        pasting.codes = pasting.codes.slice(pasting.at).concat(codes);
-        pasting.at = 0;
+function type(codes, term) {
+    const p = pane(term);
+    if (p.pasting) {
+        p.pasting.codes = p.pasting.codes.slice(p.pasting.at).concat(codes);
+        p.pasting.at = 0;
         return; // the feed already waiting on a turn will take it
     }
-    pasting = { codes, at: 0 };
-    feed();
+    p.pasting = { codes, at: 0 };
+    feed(term);
 }
 
 // Events reach a suspended task as a wake token, never as a return value
@@ -362,58 +384,65 @@ self.onmessage = ({ data }) => {
         return;
     }
 
+    // Which terminal the page means. Absent is 0, so a single-screen embedder
+    // posts what it always did (web/braam.js).
+    const term = data.term >>> 0;
+
     if (!self.kernel) {
-        pending = pending || {};
+        const held = pending[term] || (pending[term] = {});
         if (data.kind === "canvas")
-            pending.canvas = data.canvas;
+            held.canvas = data;
         else if (data.kind === "viewport")
-            pending.viewport = data;
+            held.viewport = data;
         return;
     }
 
+    const r = screens[term] && screens[term].renderer;
+
     switch (data.kind) {
     case "canvas":
-        attach(data.canvas);
+        attach(data, term);
         break;
     case "viewport":
-        fit(data);
+        fit(data, term);
         pump();
         break;
     case "key":
-        deselect();
+        deselect(term);
         key_at = performance.now();
         last_key = key_at;
-        self.kernel.key(data.code >>> 0, data.mods >>> 0);
+        self.kernel.key(term, data.code >>> 0, data.mods >>> 0);
         pump();
         break;
     case "scroll":
         scroll(data);
         break;
     case "select":
-        if (renderer) {
-            renderer.select(data.phase, data.x, data.y);
+        if (r) {
+            r.select(data.phase, data.x, data.y);
             if (data.phase === "end")
-                self.postMessage({ kind: "selection", text: renderer.text() });
+                self.postMessage({ kind: "selection", term, text: r.text() });
         }
         break;
     case "selectall":
         // Answered even with nothing to answer with, and carrying back the id
         // the asker sent: a driver cannot tell a blank screen from a dropped
         // request otherwise, and deselect() posts a selection nobody asked for.
-        if (renderer)
-            renderer.all();
+        if (r)
+            r.all();
         self.postMessage({
             kind: "selection",
-            text: renderer ? renderer.text() : "",
+            term,
+            text: r ? r.text() : "",
             id: data.id,
         });
         break;
     case "paste":
-        deselect();
-        type(data.codes || []);
+        deselect(term);
+        type(data.codes || [], term);
         break;
     case "deselect":
-        deselect();
+        deselect(term);
         break;
     case "wake":
         self.kernel.wake(data.token >>> 0, data.ptr >>> 0, data.len >>> 0);

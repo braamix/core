@@ -3,6 +3,7 @@
 // own, so userland asks for a name and there is nothing else to ask for.
 #pragma once
 
+#include "kernel/screen.h"
 #include "kernel/string.h"
 #include "kernel/sysabi.h"
 #include "kernel/task.h"
@@ -66,8 +67,10 @@ Task<Result<void>> exec_resolve(Str name, Executable &out, Str cwd = Str(), Str 
 // every other way out — a trap, a step that failed, an instance that would not
 // be made. A status cannot say which: `exit 132` is a program's word for what
 // 132 is the kernel's word for. Init is what needs the difference (boot.cpp).
-Task<i32> exec_process(Executable &exe, Args args, Stdio io, Str cwd = Str(), Str env = Str(),
-                       bool *died = nullptr);
+// `term` is the terminal it is on, inherited from whoever spawned it: which
+// grid Sys::Cursor moves, which console ^C reaches, and what Sys::Tty measures.
+Task<i32> exec_process(Executable &exe, Args args, Stdio io, Term &term, Str cwd = Str(),
+                       Str env = Str(), bool *died = nullptr);
 
 // What only the process record knows about a task, for /proc to publish. The
 // scheduler has the rest; this is the half a worker comes with.

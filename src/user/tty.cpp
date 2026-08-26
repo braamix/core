@@ -8,26 +8,35 @@
 
 namespace {
 
-Result<usize> to_screen(void *, Str s)
+Result<usize> to_screen(void *ctx, Str s)
 {
-    screen_write(s);
+    screen_write(*static_cast<Term *>(ctx), s);
     return s.size();
 }
 
 // Pointers and words, so the globals stay trivially destructible (CLAUDE.md).
-// Each route names its holder by the pid that took it.
-KeyRing *g_raw = nullptr;
-u32 g_raw_pid  = 0;
+// Each route names its holder by the pid that took it, one pair per terminal.
+struct Claims {
+    KeyRing *raw;
+    u32 raw_pid;
 
-FullScreen *g_alt = nullptr;
-u32 g_alt_pid     = 0;
+    FullScreen *alt;
+    u32 alt_pid;
+};
+
+Claims g_claims[TERM_MAX];
+
+Claims &claims(const Term &t)
+{
+    return g_claims[term_id(t)];
+}
 
 } // namespace
 
-Stdio stdio_console()
+Stdio stdio_console(Term &t)
 {
-    Stream s{ to_screen, nullptr, nullptr };
-    return Stdio{ console_input(), s, s };
+    Stream s{ to_screen, nullptr, &t };
+    return Stdio{ console_input(t), s, s };
 }
 
 bool tty_is_console(const Stream &s)
@@ -35,11 +44,12 @@ bool tty_is_console(const Stream &s)
     return s.fn == to_screen;
 }
 
-KeyInput::KeyInput(u32 pid)
+KeyInput::KeyInput(Term &t, u32 pid) : term_(&t)
 {
     // Refused before anything is allocated: a claim that nested would leave the
     // pump pointing at a ring whose owner may die first.
-    if (g_raw) {
+    Claims &c = claims(t);
+    if (c.raw) {
         err_ = Error::Perm;
         return;
     }
@@ -47,17 +57,18 @@ KeyInput::KeyInput(u32 pid)
     if (!ring_)
         return;
     new (ring_) KeyRing();
-    g_raw     = ring_;
-    g_raw_pid = pid;
+    c.raw     = ring_;
+    c.raw_pid = pid;
 }
 
 KeyInput::~KeyInput()
 {
     if (!ring_)
         return;
-    if (g_raw == ring_) {
-        g_raw     = nullptr;
-        g_raw_pid = 0;
+    Claims &c = claims(*term_);
+    if (c.raw == ring_) {
+        c.raw     = nullptr;
+        c.raw_pid = 0;
     }
 
     // Type-ahead the claimant never read goes back to the console rather than
@@ -68,28 +79,44 @@ KeyInput::~KeyInput()
     // channel by the time anything can release a claim, so this arrives ahead
     // of whatever the host queues next rather than behind it.
     for (Option<Key> k = ring_->try_recv(); k.has_value(); k = ring_->try_recv())
-        keys().try_send(k.value());
+        keys(term_id(*term_)).try_send(k.value());
 
     ring_->~KeyRing();
     heap_free(ring_);
 }
 
-KeyRing *tty_raw()
+KeyRing *tty_raw(const Term &t)
 {
-    return g_raw;
+    return claims(t).raw;
 }
 
-u32 tty_keys_owner()
+u32 tty_keys_owner(const Term &t)
 {
-    return g_raw_pid;
+    return claims(t).raw_pid;
 }
 
-u32 tty_screen_owner()
+u32 tty_screen_owner(const Term &t)
 {
-    return g_alt_pid;
+    return claims(t).alt_pid;
 }
 
-void tty_resized()
+bool tty_keys_held_by(u32 pid)
+{
+    for (const Claims &c : g_claims)
+        if (c.raw_pid && c.raw_pid == pid)
+            return true;
+    return false;
+}
+
+bool tty_screen_held_by(u32 pid)
+{
+    for (const Claims &c : g_claims)
+        if (c.alt_pid && c.alt_pid == pid)
+            return true;
+    return false;
+}
+
+void tty_resized(Term &t)
 {
     // Whoever is in front, which is ^C's audience and for ^C's reason, plus
     // whoever holds a route — a full-screen program has the keys and the
@@ -107,30 +134,31 @@ void tty_resized()
         sig_raise(pid, SIG_WINCH);
     };
 
-    for (usize i = 0; i < console_fg_count(); i++)
-        tell(console_fg_at(i));
-    tell(g_alt_pid);
-    tell(g_raw_pid);
+    for (usize i = 0; i < console_fg_count(t); i++)
+        tell(console_fg_at(t, i));
+    tell(claims(t).alt_pid);
+    tell(claims(t).raw_pid);
 }
 
 // ------------------------------------------------------------ the alternate
 // screen
 
-FullScreen::FullScreen(u32 pid)
+FullScreen::FullScreen(Term &t, u32 pid) : term_(&t)
 {
     // Before the snapshot, or a second claimant would save the blanked grid the
     // first is painting and give *that* back to the shell.
-    if (g_alt) {
+    Claims &c = claims(t);
+    if (c.alt) {
         err_ = Error::Perm;
         return;
     }
 
     // After the refusal and before the snapshot: a background job takes the
     // screen with no keystroke to have brought the view home first.
-    screen_view_home();
+    screen_view_home(t);
 
-    const Screen &s = screen();
-    if (!s.cols || !s.rows || !screen_cells())
+    const Screen &s = screen(t);
+    if (!s.cols || !s.rows || !screen_cells(t))
         return;
 
     usize n = usize(s.cols) * s.rows * sizeof(Cell);
@@ -138,18 +166,18 @@ FullScreen::FullScreen(u32 pid)
     if (!saved_)
         return;
 
-    __builtin_memcpy(saved_, screen_cells(), n);
+    __builtin_memcpy(saved_, screen_cells(t), n);
     cols_      = s.cols;
     rows_      = s.rows;
     cursor_x_  = s.cursor_x;
     cursor_y_  = s.cursor_y;
     cursor_on_ = s.cursor_on != 0;
 
-    g_alt     = this;
-    g_alt_pid = pid;
+    c.alt     = this;
+    c.alt_pid = pid;
 
-    screen_cursor(false);
-    screen_clear();
+    screen_cursor(t, false);
+    screen_clear(t);
 }
 
 FullScreen::~FullScreen()
@@ -157,24 +185,26 @@ FullScreen::~FullScreen()
     if (!saved_)
         return;
 
-    if (g_alt == this) {
-        g_alt     = nullptr;
-        g_alt_pid = 0;
+    Term &t   = *term_;
+    Claims &c = claims(t);
+    if (c.alt == this) {
+        c.alt     = nullptr;
+        c.alt_pid = 0;
     }
 
-    const Screen &s = screen();
+    const Screen &s = screen(t);
 
     // A resize while the program ran leaves the snapshot describing a grid that
     // no longer exists. Blanking is the honest answer: the shell repaints its
     // prompt on the next line either way.
-    if (s.cols == cols_ && s.rows == rows_ && screen_cells()) {
-        __builtin_memcpy(screen_cells(), saved_, usize(cols_) * rows_ * sizeof(Cell));
-        screen_touch(0, 0, cols_, rows_);
-        screen_move(cursor_x_, cursor_y_);
+    if (s.cols == cols_ && s.rows == rows_ && screen_cells(t)) {
+        __builtin_memcpy(screen_cells(t), saved_, usize(cols_) * rows_ * sizeof(Cell));
+        screen_touch(t, 0, 0, cols_, rows_);
+        screen_move(t, cursor_x_, cursor_y_);
     } else {
-        screen_clear();
+        screen_clear(t);
     }
-    screen_cursor(cursor_on_);
+    screen_cursor(t, cursor_on_);
 
     heap_free(saved_);
     saved_ = nullptr;

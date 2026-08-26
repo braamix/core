@@ -241,6 +241,10 @@ struct Proc {
     // parked on p.io outlives everything it points at.
     u32 refs = 1;
 
+    // Which terminal this process is on, inherited at spawn. Never null once
+    // exec_process has run: everything it does to a grid names this one.
+    Term *term = nullptr;
+
     // The terminal, while this process has it. Both are the kernel's rather
     // than the program's: a killed process runs no destructor, and ~Proc is
     // reached from exec_process's End on ^C, kill and a destroyed frame alike.

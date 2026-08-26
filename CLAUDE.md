@@ -124,10 +124,12 @@ make clean
   entry that depends on an earlier one says so beside it. The kernel's exact
   imports (`host.fs`, `host.fs_sync`, `host.log`, `host.now`, `host.present`,
   `host.random`, `host.svc`), its exports (`init`, `key`, `memory`, `ref`, `resize`, `sys`,
-  `sys_async`, `tick`, `wake`) and every binary's surface and `braam` section
-  are [test/system/abi.mjs](test/system/abi.mjs); the boot to a prompt is
+  `sys_async`, `tick`, `wake`) — **their arity as well as their names** — and
+  every binary's surface and `braam` section are
+  [test/system/abi.mjs](test/system/abi.mjs); the boot to a prompt is
   `boot.mjs`; `rootfs/etc/help` against the builtin table and the archive's
-  `bin/` is `help.mjs`.
+  `bin/` is `help.mjs`; a second terminal, a second shell and the one
+  filesystem under both is `dual.mjs`.
 - `unit` — `test/run.mjs --tests` over `tests.wasm`, with `rootfs.zip` alongside
   so that `src/cmd/pkg/zip.cpp` and `web/fs.js` are compared over the same bytes
   rather than each trusted against its own reading of the format. New core code
@@ -230,20 +232,32 @@ Further constraints, easy to violate by habit:
 
 ### Keyboard, foreground and claims
 
-- **One receiver per `Channel`; the keyboard's is the console pump** —
-  permanent, spawned by init ([src/user/console.h](src/user/console.h)). A
-  program claims a route through it (`KeyInput` in
-  [src/user/tty.h](src/user/tty.h)) rather than receiving on `keys()`, which
-  would displace the pump silently and lose `^C`. `CancelState::waiting` is one
-  slot, so no task can be parked on a pipe and on the keyboard at once.
+- **A terminal is a screen plus a console, and there may be up to `TERM_MAX` of
+  them.** `Term` ([src/kernel/screen.h](src/kernel/screen.h)) is opaque and
+  every `screen_*` call names one; `keys(tid)`, the pump, the cooked pipe, the
+  foreground set and the two claims are one per terminal as well. **The host
+  makes one by resizing it** — `resize(tid, …)` for an unknown id creates it,
+  spawns its pump and has init start a `/bin/sh` on it
+  ([src/user/boot.cpp](src/user/boot.cpp), `init_term_up`), so a page with one
+  canvas has exactly one shell. A process carries `Proc::term`, inherited at
+  spawn like `cwd`; **there is no "current terminal" global, and adding one is
+  the bug this shape exists to prevent** — a syscall server awaits.
+  `web/dual.html` is two screens of one kernel; `web/embed.html` is two kernels.
+- **One receiver per `Channel`; a terminal's keyboard has its console pump** —
+  permanent, spawned when the terminal is made
+  ([src/user/console.h](src/user/console.h)). A program claims a route through
+  it (`KeyInput` in [src/user/tty.h](src/user/tty.h)) rather than receiving on
+  `keys(tid)`, which would displace the pump silently and lose `^C`.
+  `CancelState::waiting` is one slot, so no task can be parked on a pipe and on
+  the keyboard at once.
 - **`^C` cancels the foreground if there is one, and reaches the claimant if
   there is not.** The foreground is a set of pids armed with `Sys::Fg`; a shell
   arms its stages before it waits and arms nothing at a prompt. **The foreground
   belongs to whoever armed it** — `Sys::Fg`'s fourth authorisation clause, the
   only one that lets a shell arm a *pipeline* (§4.3).
-- Each route (keys, screen) has **one holder; a second claim is `Err(Perm)`**. A
-  claim clears its route only if it is still the holder, so parent and child may
-  die in either order.
+- Each route (keys, screen) has **one holder per terminal; a second claim on the
+  same one is `Err(Perm)`**. A claim clears its route only if it is still the
+  holder, so parent and child may die in either order.
 - **0 is not a pid.** It is `sched_spawn`'s failure return, "nobody" for the tty
   owners, `SYS_WAIT_ANY`, `Fg(0)`, and `link.pid = 0` in `web/proc.js`.
 - `Sys::Spawn` **moves** a descriptor into the child rather than duplicating it,

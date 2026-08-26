@@ -67,8 +67,8 @@ export function makeImports(mem, sink, present, fs, svc) {
             random(ptr, len) {
                 fillRandom(mem.view(), ptr, len);
             },
-            present(x, y, w, h) {
-                present(x, y, w, h);
+            present(term, x, y, w, h) {
+                present(term, x, y, w, h);
             },
             fs: fs.fs,
             fs_sync: fs.fs_sync,

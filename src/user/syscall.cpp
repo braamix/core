@@ -150,6 +150,7 @@ struct Spawned {
     u32 refs   = 1;
     u32 parent = 0;
     u32 pid    = 0;
+    Term *term = nullptr; // the parent's, which the child is entered on
     Executable exe;
     String blob; // the argv bytes, copied out of the staging block
     Vec<Str> words;
@@ -272,8 +273,8 @@ Task<i32> spawn_run(SpawnRef s)
             // back: ^C must not point at a pid nothing answers to. Only when it
             // is the whole foreground — a pipeline's stages are armed together
             // and the ones still running keep it.
-            if (console_fg_count() == 1 && console_fg_has(pid))
-                console_fg_clear();
+            if (console_fg_count(*term) == 1 && console_fg_has(*term, pid))
+                console_fg_clear(*term);
 
             Proc *par = proc_find(parent);
             if (!par || par->dead)
@@ -299,11 +300,12 @@ Task<i32> spawn_run(SpawnRef s)
 
         u32 parent;
         u32 pid;
+        Term *term;
         i32 *status;
-    } rep{ s->parent, s->pid, &status };
+    } rep{ s->parent, s->pid, s->term, &status };
 
     Task<i32> body = exec_process(s->exe, Args{ Span<const Str>(s->words.data(), s->words.size()) },
-                                  s->io, s->cwd.str(), s->env.str());
+                                  s->io, *s->term, s->cwd.str(), s->env.str());
     if (!body)
         co_return status;
     status = co_await body;
@@ -373,6 +375,7 @@ Task<i32> proc_spawn_child(Proc &p, u32 arg, Str payload)
     // argv is copied rather than viewed: the staging block belongs to the call,
     // and the child holds its words until it exits.
     s->parent    = p.pid;
+    s->term      = p.term;
     s->exe.depth = p.depth + 1;
     if (!s->blob.append(blob) || !s->env.append(envb) || !s->cwd.assign(p.cwd.str()) ||
         !s->words.reserve(argc))
@@ -1282,7 +1285,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             } else if (key) {
                 // Whether another process holds it is the claim's own answer,
                 // so Perm and NoMemory are told apart by the constructor.
-                p.keys = heap_new<KeyInput>(p.pid);
+                p.keys = heap_new<KeyInput>(*p.term, p.pid);
                 if (!p.keys || !p.keys->ok()) {
                     status = -i32(p.keys ? p.keys->error() : Error::NoMemory);
                     heap_delete(p.keys);
@@ -1290,7 +1293,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                     break;
                 }
             } else {
-                p.alt = heap_new<FullScreen>(p.pid);
+                p.alt = heap_new<FullScreen>(*p.term, p.pid);
                 if (!p.alt || !p.alt->ok()) {
                     status = -i32(p.alt ? p.alt->error() : Error::NoMemory);
                     heap_delete(p.alt);
@@ -1299,7 +1302,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 }
             }
 
-            if (!reply_u32(reply, screen().cols, screen().rows))
+            if (!reply_u32(reply, screen(*p.term).cols, screen(*p.term).rows))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
@@ -1319,7 +1322,8 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
 
             // The geometry rides on every key, so a program that repaints per
             // keystroke handles a resize without an event to subscribe to.
-            if (!reply_u32(reply, r.value().code, r.value().mods, screen().cols, screen().rows))
+            if (!reply_u32(reply, r.value().code, r.value().mods, screen(*p.term).cols,
+                           screen(*p.term).rows))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
@@ -1339,8 +1343,8 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             }
             u32 x = sys_get_u32(c.stage), y = sys_get_u32(c.stage + 4);
             u32 w = sys_get_u32(c.stage + 8), h = sys_get_u32(c.stage + 12);
-            Cell *cells = screen_cells();
-            if (!cells || u64(x) + w > screen().cols || u64(y) + h > screen().rows ||
+            Cell *cells = screen_cells(*p.term);
+            if (!cells || u64(x) + w > screen(*p.term).cols || u64(y) + h > screen(*p.term).rows ||
                 payload.size() != head + usize(w) * h * sizeof(Cell)) {
                 status = -i32(Error::Invalid);
                 break;
@@ -1348,24 +1352,24 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
 
             const Cell *from = reinterpret_cast<const Cell *>(c.stage + head);
             for (u32 row = 0; row < h; row++)
-                __builtin_memcpy(cells + (y + row) * screen().cols + x, from + row * w,
+                __builtin_memcpy(cells + (y + row) * screen(*p.term).cols + x, from + row * w,
                                  usize(w) * sizeof(Cell));
             if (w && h)
-                screen_touch(x, y, w, h);
-            screen_move(sys_get_u32(c.stage + 16), sys_get_u32(c.stage + 20));
-            screen_cursor(sys_get_u32(c.stage + 24) != 0);
+                screen_touch(*p.term, x, y, w, h);
+            screen_move(*p.term, sys_get_u32(c.stage + 16), sys_get_u32(c.stage + 20));
+            screen_cursor(*p.term, sys_get_u32(c.stage + 24) != 0);
             status = 0;
             break;
         }
 
         // Refused while somebody else holds the screen, as a cursor set is.
         case Sys::ScreenClear: {
-            u32 owner = tty_screen_owner();
+            u32 owner = tty_screen_owner(*p.term);
             if (owner && owner != p.pid) {
                 status = -i32(Error::Perm);
                 break;
             }
-            screen_clear();
+            screen_clear(*p.term);
             status = 0;
             break;
         }
@@ -1377,7 +1381,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         // holds the screen, for the reason a blit is.
         case Sys::Cursor: {
             if (sys_op_arg(c.op) & 1) {
-                u32 owner = tty_screen_owner();
+                u32 owner = tty_screen_owner(*p.term);
                 if (owner && owner != p.pid) {
                     status = -i32(Error::Perm);
                     break;
@@ -1389,12 +1393,12 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 // screen_move clamps, so a column past the edge is the edge
                 // rather than a refusal — the deferred wrap column (§3.5) is
                 // not one a caller can name.
-                screen_move(sys_get_u32(c.stage), sys_get_u32(c.stage + 4));
-                screen_cursor(sys_get_u32(c.stage + 8) != 0);
+                screen_move(*p.term, sys_get_u32(c.stage), sys_get_u32(c.stage + 4));
+                screen_cursor(*p.term, sys_get_u32(c.stage + 8) != 0);
             }
 
-            if (!reply_u32(reply, screen().cursor_x, screen().cursor_y, screen_cursor_on(),
-                           screen().cols, screen().rows))
+            if (!reply_u32(reply, screen(*p.term).cursor_x, screen(*p.term).cursor_y,
+                           screen_cursor_on(*p.term), screen(*p.term).cols, screen(*p.term).rows))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
@@ -1406,13 +1410,13 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         // default back. Refused while somebody else holds the screen, as a
         // cursor set is.
         case Sys::Style: {
-            u32 owner = tty_screen_owner();
+            u32 owner = tty_screen_owner(*p.term);
             if (owner && owner != p.pid) {
                 status = -i32(Error::Perm);
                 break;
             }
             u32 a = sys_op_arg(c.op);
-            screen_style(sys_style_fg(a), sys_style_bg(a), sys_style_attrs(a));
+            screen_style(*p.term, sys_style_fg(a), sys_style_bg(a), sys_style_attrs(a));
             status = 0;
             break;
         }
@@ -1422,13 +1426,13 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         // Sys::Write's go, and `scrolled` is the answer the caller used to have
         // to go back and ask Cursor for.
         case Sys::Echo: {
-            u32 owner = tty_screen_owner();
+            u32 owner = tty_screen_owner(*p.term);
             if (owner && owner != p.pid) {
                 status = -i32(Error::Perm);
                 break;
             }
             constexpr usize head = SYS_ECHO_HEAD * 4;
-            if (payload.size() < head || !screen().cols) {
+            if (payload.size() < head || !screen(*p.term).cols) {
                 status = -i32(Error::Invalid);
                 break;
             }
@@ -1462,19 +1466,19 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
 
             // Dark for the write, whatever it is left as: one tick, so nothing
             // between here and the placement below is ever presented.
-            screen_cursor(false);
-            u64 was = screen_scrolled();
+            screen_cursor(*p.term, false);
+            u64 was = screen_scrolled(*p.term);
 
             // FRESH: the anchor is wherever the cursor is, on a row of its own.
             // The newline goes through the Stream, so a redirected stdout sees
             // it, and ahead of any run's style, so a scroll blanks the new row
             // in the default colour rather than the prompt's.
             if (arg & SYS_ECHO_FRESH) {
-                if (screen().cursor_x != 0) {
+                if (screen(*p.term).cursor_x != 0) {
                     CO_CALL(wrote, echo_write(out, "\n"));
                 }
             } else
-                screen_move(x, y);
+                screen_move(*p.term, x, y);
 
             usize at = head + table;
             for (u32 i = 0; wrote.is_ok() && i < runs; i++) {
@@ -1485,13 +1489,14 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 // A run naming no colour paints in the sticky one; one with no
                 // bytes only sets the colour.
                 if (style != SYS_STYLE_KEEP)
-                    screen_style(sys_style_fg(style), sys_style_bg(style), sys_style_attrs(style));
+                    screen_style(*p.term, sys_style_fg(style), sys_style_bg(style),
+                                 sys_style_attrs(style));
                 if (len)
                     CO_CALL(wrote, echo_write(out, payload.substr(at, len)));
                 at += len;
             }
 
-            u32 scrolled = u32(screen_scrolled() - was);
+            u32 scrolled = u32(screen_scrolled(*p.term) - was);
             if (wrote.is_err()) {
                 status = -i32(wrote.error());
                 break;
@@ -1500,25 +1505,27 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 // The deferred wrap column is not one screen_move can name, so
                 // a write that filled a row is carried to the next. That can
                 // scroll, so `scrolled` is taken again after it.
-                if (screen().cursor_x >= screen().cols) {
+                if (screen(*p.term).cursor_x >= screen(*p.term).cols) {
                     CO_CALL(wrote, echo_write(out, "\n"));
-                    scrolled = u32(screen_scrolled() - was);
+                    scrolled = u32(screen_scrolled(*p.term) - was);
                 }
             } else {
                 // Where the caller wants the cursor left, measured from the
                 // anchor and carried up by whatever the write scrolled under it.
                 u32 off = x + cur;
-                u32 row = y + off / screen().cols;
-                screen_move(off % screen().cols, row >= scrolled ? row - scrolled : 0);
+                u32 row = y + off / screen(*p.term).cols;
+                screen_move(*p.term, off % screen(*p.term).cols,
+                            row >= scrolled ? row - scrolled : 0);
             }
             if (wrote.is_err()) {
                 status = -i32(wrote.error());
                 break;
             }
-            screen_cursor((arg & SYS_ECHO_SHOW) != 0);
+            screen_cursor(*p.term, (arg & SYS_ECHO_SHOW) != 0);
 
-            if (!reply_u32(reply, screen().cursor_x, screen().cursor_y, screen_cursor_on(),
-                           screen().cols, screen().rows, scrolled))
+            if (!reply_u32(reply, screen(*p.term).cursor_x, screen(*p.term).cursor_y,
+                           screen_cursor_on(*p.term), screen(*p.term).cols, screen(*p.term).rows,
+                           scrolled))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
@@ -1539,8 +1546,9 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             }
             // Anything in the process's own table is a file, a pipe, a socket
             // or a pick set; none is the grid.
-            if (!reply_u32(reply, console ? SYS_TTY_CONSOLE : 0u, console ? screen().cols : 0u,
-                           console ? screen().rows : 0u))
+            if (!reply_u32(reply, console ? SYS_TTY_CONSOLE : 0u,
+                           console ? screen(*p.term).cols : 0u,
+                           console ? screen(*p.term).rows : 0u))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
@@ -1707,14 +1715,14 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             // armed a stage at a time, so what is in front by the second call
             // is what this caller put there, and the foreground belongs to
             // whoever armed it.
-            if (tty_keys_owner() != p.pid && !console_fg_has(p.pid) && console_fg_count() &&
-                console_fg_owner() != p.pid) {
+            if (tty_keys_owner(*p.term) != p.pid && !console_fg_has(*p.term, p.pid) &&
+                console_fg_count(*p.term) && console_fg_owner(*p.term) != p.pid) {
                 status = -i32(Error::Perm);
                 break;
             }
             u32 want = sys_op_arg(c.op);
             if (!want) {
-                console_fg_clear();
+                console_fg_clear(*p.term);
                 status = 0;
                 break;
             }
@@ -1726,7 +1734,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             // Added rather than replacing, because the op word carries one pid
             // and a pipeline is up to eight of them: a shell puts its stages in
             // front one call at a time, and ^C reaches all of them.
-            status = console_fg_add(want, p.pid) ? 0 : -i32(Error::NoMemory);
+            status = console_fg_add(*p.term, want, p.pid) ? 0 : -i32(Error::NoMemory);
             break;
         }
 

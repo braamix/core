@@ -6,7 +6,9 @@
 //
 // One instance is one worker, which is the isolation M8 builds on rather than
 // an accident, so mounting twice on a page gives two independent kernels that
-// share nothing but the origin's storage.
+// share nothing but the origin's storage. Two *screens* of one kernel are the
+// other arrangement — `mount({screens: [...]})`, one shell and one console per
+// screen over one scheduler and one filesystem (web/dual.html).
 //
 // Everything that used to be inline in index.html lives here: the worker, the
 // OffscreenCanvas transfer, the resize and device-pixel-ratio watches, the
@@ -58,61 +60,27 @@ const PERSIST_GRACE_MS = 250;
 // throws nothing and leaves a black canvas.
 const BOOT_STALL_MS = 5000;
 
-// A canvas hands its pixels over exactly once, so a terminal that has been
-// disposed cannot be mounted again on the same element — make a new one.
-export function mount(options = {}) {
-    const canvas = options.canvas;
-    if (!canvas)
-        throw new Error("braam: mount needs a canvas");
-    if (!canvas.transferControlToOffscreen)
-        throw new Error("braam: this browser has no OffscreenCanvas");
-
-    const onLog = options.onLog || ((text) => console.log(text));
-    const onError = options.onError || ((text) => console.error(text));
-
-    const worker = new Worker(new URL(options.workerUrl || "./worker.js", import.meta.url),
-                              { type: "module" });
-
-    // Until the worker names a step of its own.
-    let stage = "loading the worker";
-    let spoke = false;
-    const stall = setTimeout(() => {
-        onError(`braam: boot is stuck ${stage} (${BOOT_STALL_MS / 1000}s).`
-                + " A blocking extension or a proxy can hold a fetch open for ever;"
-                + " try a private window or a profile with extensions off.");
-    }, BOOT_STALL_MS);
-
-    // First of all: the worker fetches nothing until it knows what to fetch.
-    worker.postMessage({
-        kind: "options",
-        options: {
-            wasmUrl: options.wasmUrl,
-            rootfsUrl: options.rootfsUrl,
-            procWorkerUrl: options.procWorkerUrl,
-            palette: options.palette,
-            fontFamily: options.fontFamily,
-            fontSize: options.fontSize,
-        },
-    });
-
-    // navigator.storage.persist() exists only on the main thread (Concept.md
-    // §A.2), and asking for it is what keeps files from being evicted without
-    // warning. Boot waits for it, so it is answered twice when it is slow: once
-    // provisionally, once for real.
-    let answered = false;
-    const grace = setTimeout(() => {
-        if (!answered)
-            worker.postMessage({ kind: "persisted", value: false });
-    }, PERSIST_GRACE_MS);
-
-    persistOnce(options.persist !== false).then((granted) => {
-        answered = true;
-        clearTimeout(grace);
-        worker.postMessage({ kind: "persisted", value: granted });
-    });
+// One screen: the canvas, the hidden input behind it, the pointer and keyboard
+// listeners, and the key bar. Everything here names its terminal, and nothing
+// here knows there is more than one.
+//
+// `session` is what the panes of one mount share — the worker they post to, the
+// clipboard wait a `pbpaste` on any screen parks on, and the file input.
+function makePane(session, spec, term) {
+    const { worker, onError } = session;
+    const canvas = spec.canvas;
 
     const offscreen = canvas.transferControlToOffscreen();
-    worker.postMessage({ kind: "canvas", canvas: offscreen }, [offscreen]);
+    // A screen may draw in colours of its own, which is how two panes on one
+    // page are told apart; anything it does not name is the mount's.
+    worker.postMessage({
+        kind: "canvas",
+        term,
+        canvas: offscreen,
+        palette: spec.palette,
+        fontFamily: spec.fontFamily,
+        fontSize: spec.fontSize,
+    }, [offscreen]);
 
     // The page owns the pixel box; the worker owns the font and therefore the
     // geometry. devicePixelContentBoxSize is the exact device-pixel box, and is
@@ -129,7 +97,7 @@ export function mount(options = {}) {
             width = Math.round(rect.width * dpr);
             height = Math.round(rect.height * dpr);
         }
-        worker.postMessage({ kind: "viewport", width, height, dpr });
+        worker.postMessage({ kind: "viewport", term, width, height, dpr });
     }
 
     const observer = new ResizeObserver((entries) => viewport(entries[0]));
@@ -137,13 +105,11 @@ export function mount(options = {}) {
 
     // devicePixelRatio changes when the window moves to another monitor or the
     // browser zooms; the query has to be re-armed at the new ratio each time.
-    let live = true;
-
     function watchRatio() {
         matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener(
             "change",
             () => {
-                if (!live)
+                if (!session.live)
                     return;
                 viewport(null);
                 watchRatio();
@@ -232,7 +198,7 @@ export function mount(options = {}) {
         setTimeout(restSink, 0);
     }
 
-    const wantsMenu = options.menu !== false;
+    const wantsMenu = session.options.menu !== false;
 
     if (wantsMenu) {
         sink.addEventListener("mousedown", onSinkMouseDown);
@@ -301,7 +267,7 @@ export function mount(options = {}) {
         if (sink.selectionStart !== 0 || sink.selectionEnd !== sink.value.length)
             return;
         sink.setSelectionRange(SENTINEL.length, sink.value.length);
-        worker.postMessage({ kind: "selectall" });
+        worker.postMessage({ kind: "selectall", term });
     }
 
     // Which of the three an engine fires for a text control differs; the guard
@@ -321,7 +287,7 @@ export function mount(options = {}) {
 
     function drag(phase, event) {
         const { x, y } = device(event);
-        worker.postMessage({ kind: "select", phase, x, y });
+        worker.postMessage({ kind: "select", term, phase, x, y });
     }
 
     function onPointerDown(event) {
@@ -377,6 +343,7 @@ export function mount(options = {}) {
         const dpr = window.devicePixelRatio || 1;
         worker.postMessage({
             kind: "scroll",
+            term,
             dy: event.deltaMode === 0 ? event.deltaY * dpr : event.deltaY,
             mode: event.deltaMode,
         });
@@ -389,7 +356,7 @@ export function mount(options = {}) {
     function copied() {
         selection = "";
         resetSink();
-        worker.postMessage({ kind: "deselect" });
+        worker.postMessage({ kind: "deselect", term });
     }
 
     function copy() {
@@ -410,8 +377,8 @@ export function mount(options = {}) {
     // Copy and Cut off the browser's Edit menu, which the chord above never
     // reaches: it prevents its own default, so no copy event follows it. Cut
     // shares this — a terminal has nothing to cut, and the native one would
-    // take the mirror out of the sink. The event is the document's, so an
-    // embedded terminal claims one only while it holds the focus.
+    // take the mirror out of the sink. The event is the document's, so a
+    // terminal claims one only while it holds the focus.
     function onCopy(event) {
         if (document.activeElement !== sink || !selection || !event.clipboardData)
             return;
@@ -422,6 +389,32 @@ export function mount(options = {}) {
 
     addEventListener("copy", onCopy);
     addEventListener("cut", onCopy);
+
+    // Cmd+V, or Ctrl+V where that is the chord: the browser hands the text over
+    // and the terminal types it. A `pbpaste` that is waiting takes it instead —
+    // it asked for exactly this gesture, and a program reading the clipboard
+    // wants the text rather than the keystrokes.
+    //
+    // The paste event is the document's, not the canvas's, so a pane only
+    // claims one when it holds the focus; otherwise the paste belongs to
+    // whatever field the page focused.
+    function onPaste(event) {
+        if (document.activeElement !== sink)
+            return;
+        const text = event.clipboardData ? event.clipboardData.getData("text") : "";
+        if (session.pasteWaiter) {
+            const resolve = session.pasteWaiter;
+            session.pasteWaiter = null;
+            event.preventDefault();
+            resolve(text);
+            return;
+        }
+        if (!text)
+            return;
+        event.preventDefault();
+        worker.postMessage({ kind: "paste", term, codes: pasted(text) });
+    }
+    addEventListener("paste", onPaste);
 
     const letter = (event, c) =>
         !event.altKey && (event.key === c || event.key === c.toUpperCase());
@@ -443,7 +436,7 @@ export function mount(options = {}) {
     // The one way a keystroke leaves for the kernel.
     function sendKey(code, mods) {
         dropSelection();
-        worker.postMessage({ kind: "key", code, mods: mods | sticky });
+        worker.postMessage({ kind: "key", term, code, mods: mods | sticky });
         setSticky(0);
     }
 
@@ -453,11 +446,11 @@ export function mount(options = {}) {
     function typeCodes(codes) {
         dropSelection();
         if (codes.length)
-            worker.postMessage({ kind: "paste", codes });
+            worker.postMessage({ kind: "paste", term, codes });
     }
 
-    // Scoped to the sink rather than the window: an embedded terminal shares
-    // its page, and two of them must not both read the same keystroke.
+    // Scoped to the sink rather than the window: a terminal shares its page,
+    // and two of them must not both read the same keystroke.
     function onKeyDown(event) {
         // A soft keyboard reports a key it has not decided on yet — GBoard
         // sends keyCode 229 with key "Unidentified". Those arrive as input
@@ -481,7 +474,7 @@ export function mount(options = {}) {
         // copy. A browser that claims Ctrl+Shift+A for itself keeps it.
         if ((event.metaKey || (event.ctrlKey && event.shiftKey)) && letter(event, "a")) {
             event.preventDefault();
-            worker.postMessage({ kind: "selectall" });
+            worker.postMessage({ kind: "selectall", term });
             return;
         }
 
@@ -566,6 +559,9 @@ export function mount(options = {}) {
     // have. The page places the container and styles it; only the behaviour is
     // here. Nothing about it reaches the kernel — a tapped Esc and a typed one
     // are the same {code, mods} (Concept.md §3.5).
+    //
+    // A bar belongs to the screen whose spec named it: every button closes over
+    // that pane's sendKey, so two screens take two bars.
     const barKeys = [];
 
     function makeKey(container, label, code, mods) {
@@ -591,8 +587,8 @@ export function mount(options = {}) {
         return button;
     }
 
-    if (options.keys) {
-        const bar = options.keys;
+    if (spec.keys) {
+        const bar = spec.keys;
         makeKey(bar, "Esc", named("Escape"), 0);
         makeKey(bar, "Tab", named("Tab"), 0);
         ctrlButton = makeKey(bar, "Ctrl", 0, MOD_CTRL);
@@ -602,10 +598,147 @@ export function mount(options = {}) {
         makeKey(bar, "→", named("ArrowRight"), 0);
     }
 
+    return {
+        canvas,
+        term,
+
+        focus() {
+            focusSink();
+        },
+
+        focused() {
+            return document.activeElement === sink;
+        },
+
+        // What the mouse has marked, which is what the copy chord writes.
+        selection() {
+            return selection;
+        },
+
+        // The worker's answer to a drag or a select-all, which the menu's Copy
+        // acts on — so the mirror follows the grid.
+        deliver(text) {
+            selection = text;
+            resetSink();
+        },
+
+        dispose() {
+            clearTimeout(armed);
+            observer.disconnect();
+            canvas.removeEventListener("focus", focusSink);
+            canvas.removeEventListener("click", focusSink);
+            canvas.removeEventListener("pointerdown", onPointerDown);
+            canvas.removeEventListener("pointermove", onPointerMove);
+            canvas.removeEventListener("pointerup", onPointerUp);
+            canvas.removeEventListener("pointercancel", onPointerUp);
+            canvas.removeEventListener("wheel", onWheel);
+            canvas.classList.remove("braam-focus");
+            removeEventListener("paste", onPaste);
+            removeEventListener("copy", onCopy);
+            removeEventListener("cut", onCopy);
+            document.removeEventListener("selectionchange", onSelectAll);
+            // The sink and the buttons go with their listeners; the container
+            // is the page's and stays.
+            sink.remove();
+            for (const button of barKeys)
+                button.remove();
+        },
+    };
+}
+
+// A canvas hands its pixels over exactly once, so a terminal that has been
+// disposed cannot be mounted again on the same element — make a new one.
+export function mount(options = {}) {
+    // One canvas or several. `screens` is the general form and `canvas` the
+    // one-screen shorthand for it; each entry is a terminal of the same kernel,
+    // numbered by its position, with a shell and a console of its own
+    // (Concept.md §3.5). See web/dual.html.
+    const specs = options.screens && options.screens.length
+        ? options.screens
+        : [{ canvas: options.canvas, keys: options.keys }];
+
+    for (const spec of specs) {
+        if (!spec || !spec.canvas)
+            throw new Error("braam: mount needs a canvas");
+        if (!spec.canvas.transferControlToOffscreen)
+            throw new Error("braam: this browser has no OffscreenCanvas");
+    }
+
+    const onLog = options.onLog || ((text) => console.log(text));
+    const onError = options.onError || ((text) => console.error(text));
+
+    const worker = new Worker(new URL(options.workerUrl || "./worker.js", import.meta.url),
+                              { type: "module" });
+
+    // Until the worker names a step of its own.
+    let stage = "loading the worker";
+    let spoke = false;
+    const stall = setTimeout(() => {
+        onError(`braam: boot is stuck ${stage} (${BOOT_STALL_MS / 1000}s).`
+                + " A blocking extension or a proxy can hold a fetch open for ever;"
+                + " try a private window or a profile with extensions off.");
+    }, BOOT_STALL_MS);
+
+    // First of all: the worker fetches nothing until it knows what to fetch.
+    worker.postMessage({
+        kind: "options",
+        options: {
+            wasmUrl: options.wasmUrl,
+            rootfsUrl: options.rootfsUrl,
+            procWorkerUrl: options.procWorkerUrl,
+            palette: options.palette,
+            fontFamily: options.fontFamily,
+            fontSize: options.fontSize,
+        },
+    });
+
+    // navigator.storage.persist() exists only on the main thread (Concept.md
+    // §A.2), and asking for it is what keeps files from being evicted without
+    // warning. Boot waits for it, so it is answered twice when it is slow: once
+    // provisionally, once for real.
+    let answered = false;
+    const grace = setTimeout(() => {
+        if (!answered)
+            worker.postMessage({ kind: "persisted", value: false });
+    }, PERSIST_GRACE_MS);
+
+    persistOnce(options.persist !== false).then((granted) => {
+        answered = true;
+        clearTimeout(grace);
+        worker.postMessage({ kind: "persisted", value: granted });
+    });
+
+    // What the panes of this mount share. A mutable record rather than
+    // closures, because the clipboard wait moves between panes.
+    const session = {
+        worker,
+        options,
+        onLog,
+        onError,
+        live: true,
+        pasteWaiter: null,
+    };
+
+    const screens = specs.map((spec, term) => makePane(session, spec, term));
+
+    // Reading the clipboard is only allowed from inside a user-gesture handler,
+    // and a command reaches this page long after its keystroke returned — so
+    // the async API is refused by design in some browsers. A paste is itself
+    // the gesture, and needs no permission at all, so a refused read waits for
+    // one — on whichever pane has the focus when it arrives.
+    function awaitPaste() {
+        return new Promise((resolve) => {
+            if (session.pasteWaiter)
+                session.pasteWaiter(""); // a superseded wait answers empty, not never
+            session.pasteWaiter = resolve;
+        });
+    }
+
     // The three host services a worker cannot perform itself: navigator.
     // clipboard, <input type="file"> and a download all need the DOM
     // (Concept.md §5.4). The worker asks by id and the answer goes straight
-    // back.
+    // back. One of each for the mount: whichever screen asked, the file
+    // dialogue and the clipboard are the page's.
     let picker = options.picker || null;
     let ownPicker = false;
 
@@ -653,47 +786,6 @@ export function mount(options = {}) {
         setTimeout(() => URL.revokeObjectURL(url), 10000);
     }
 
-    // Reading the clipboard is only allowed from inside a user-gesture handler,
-    // and a command reaches this page long after its keystroke returned — so
-    // the async API is refused by design in some browsers. A paste is itself
-    // the gesture, and needs no permission at all, so a refused read waits for
-    // one.
-    let pasteWaiter = null;
-
-    // Cmd+V, or Ctrl+V where that is the chord: the browser hands the text over
-    // and the terminal types it. A `pbpaste` that is waiting takes it instead —
-    // it asked for exactly this gesture, and a program reading the clipboard
-    // wants the text rather than the keystrokes.
-    //
-    // The paste event is the document's, not the canvas's, so an embedded
-    // terminal only claims one when it holds the focus; otherwise the paste
-    // belongs to whatever field the page focused.
-    function onPaste(event) {
-        if (document.activeElement !== sink)
-            return;
-        const text = event.clipboardData ? event.clipboardData.getData("text") : "";
-        if (pasteWaiter) {
-            const resolve = pasteWaiter;
-            pasteWaiter = null;
-            event.preventDefault();
-            resolve(text);
-            return;
-        }
-        if (!text)
-            return;
-        event.preventDefault();
-        worker.postMessage({ kind: "paste", codes: pasted(text) });
-    }
-    addEventListener("paste", onPaste);
-
-    function awaitPaste() {
-        return new Promise((resolve) => {
-            if (pasteWaiter)
-                pasteWaiter(""); // a superseded wait answers empty, not never
-            pasteWaiter = resolve;
-        });
-    }
-
     async function service(data) {
         switch (data.svc) {
         case "clipRead":
@@ -723,8 +815,9 @@ export function mount(options = {}) {
             clearTimeout(stall);
         }
         if (data.kind === "selection") {
-            selection = data.text;
-            resetSink(); // the menu's Copy acts on this, so it follows the grid
+            const pane = screens[data.term >>> 0];
+            if (pane)
+                pane.deliver(data.text);
             return;
         }
         if (data.kind === "svc") {
@@ -752,42 +845,28 @@ export function mount(options = {}) {
     };
 
     return {
-        canvas,
+        // The first screen's, so a one-screen embedder reads what it always did.
+        canvas: screens[0].canvas,
         worker,
+        screens,
 
-        focus() {
-            focusSink();
+        focus(at = 0) {
+            if (screens[at])
+                screens[at].focus();
         },
 
         // What the mouse has marked, which is what the copy chord writes.
-        selection() {
-            return selection;
+        selection(at = 0) {
+            return screens[at] ? screens[at].selection() : "";
         },
 
         // Everything this page attached, in one place: a host that swaps views
         // must be able to let go of a terminal completely.
         dispose() {
-            live = false;
+            session.live = false;
             clearTimeout(stall);
-            clearTimeout(armed);
-            observer.disconnect();
-            canvas.removeEventListener("focus", focusSink);
-            canvas.removeEventListener("click", focusSink);
-            canvas.removeEventListener("pointerdown", onPointerDown);
-            canvas.removeEventListener("pointermove", onPointerMove);
-            canvas.removeEventListener("pointerup", onPointerUp);
-            canvas.removeEventListener("pointercancel", onPointerUp);
-            canvas.removeEventListener("wheel", onWheel);
-            canvas.classList.remove("braam-focus");
-            removeEventListener("paste", onPaste);
-            removeEventListener("copy", onCopy);
-            removeEventListener("cut", onCopy);
-            document.removeEventListener("selectionchange", onSelectAll);
-            // The sink and the buttons go with their listeners; the container
-            // is the page's and stays.
-            sink.remove();
-            for (const button of barKeys)
-                button.remove();
+            for (const pane of screens)
+                pane.dispose();
             if (ownPicker && picker.parentNode)
                 picker.parentNode.removeChild(picker);
             worker.onmessage = null;

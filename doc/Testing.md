@@ -122,6 +122,11 @@ keystrokes is the thing under test — and it is what the rules are about.
    `persist`, which is about surviving a reload, and one in `pkg-crash`, which
    is about a tab dying mid-transaction.
 2. **`language` is last.** It runs `exit 7`, which ends the shell for good.
+   `dual` is the case before it: it makes a second terminal, drives a second
+   shell on it, and **exits that shell again before it returns**, because
+   `net.peak` and `others()` count instances and one left running would move
+   both. It is also the one case that passes a terminal to `resize`, `screen`,
+   `submit` and `press` — every other case takes their default of 0.
 3. **`respawn` is indivisible.** Every block in it takes a worker away, and they
    must be **at least a second apart on the `run()` clock** or `RESPAWN_TRIES`
    and `RESPAWN_FLOOR_MS` in `src/user/boot.cpp` see a crash loop.

@@ -3,10 +3,16 @@
 #pragma once
 
 #include "kernel/host.h"
+#include "kernel/screen.h"
 #include "kernel/str.h"
 #include "kernel/task.h"
 #include "kernel/traits.h"
 #include "kernel/types.h"
+
+// Terminal 0, which every case that touches a screen or a console uses. The
+// suite never makes a second one: two terminals need a program to run, and
+// that is test/system/.
+Term &t0();
 
 // Runs a task that is known not to suspend and takes its value. Every
 // filesystem the unit tests mount is in memory, so nothing they call parks;

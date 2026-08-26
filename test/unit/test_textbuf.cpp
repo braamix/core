@@ -8,10 +8,10 @@ namespace {
 
 Str row(u32 y, char *out, usize cap)
 {
-    const Cell *cells = screen_cells();
+    const Cell *cells = screen_cells(t0());
     usize n           = 0;
-    for (u32 x = 0; x < screen().cols && n < cap; x++) {
-        char32_t ch = cells[y * screen().cols + x].ch;
+    for (u32 x = 0; x < screen(t0()).cols && n < cap; x++) {
+        char32_t ch = cells[y * screen(t0()).cols + x].ch;
         out[n++]    = ch && ch < 0x80 ? char(ch) : ' ';
     }
     while (n && out[n - 1] == ' ')
@@ -82,14 +82,14 @@ void test_textbuf()
     CHECK(b.line(0) == "a b");
 
     // A view over the buffer, painted into a pane over the test's own grid.
-    screen_reset();
-    CHECK(screen_resize(4, 3) != 0);
+    screen_reset(t0());
+    CHECK(screen_resize(t0(), 4, 3) != 0);
     CHECK(b.load("one\ntwo\nthree\nfour\nfive").is_ok());
 
     Grid g;
-    g.cells = screen_cells();
-    g.cols  = screen().cols;
-    g.rows  = screen().rows;
+    g.cells = screen_cells(t0());
+    g.cols  = screen(t0()).cols;
+    g.rows  = screen(t0()).rows;
 
     TextView v;
     Pane p = Pane::of(g);
@@ -130,5 +130,5 @@ void test_textbuf()
     v.paint(p, b);
     CHECK(row(2, buf, sizeof(buf)) == "ee");
 
-    screen_reset();
+    screen_reset(t0());
 }

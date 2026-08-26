@@ -23,7 +23,7 @@ bool claimed;
 // prompt both are.
 Task<i32> claimant()
 {
-    KeyInput claim(7);
+    KeyInput claim(t0(), 7);
     if (!claim.ok())
         co_return 1;
     claimed = true;
@@ -67,7 +67,7 @@ Str got_text()
 // The foreground's stdin.
 Task<i32> drain()
 {
-    Source in = console_input();
+    Source in = console_input(t0());
     for (;;) {
         Result<String> r = co_await in.read();
         if (r.is_err()) {
@@ -83,7 +83,7 @@ Task<i32> drain()
 
 void press(u32 code, u32 mods = 0)
 {
-    keys().try_send(Key{ code, mods });
+    keys(0).try_send(Key{ code, mods });
 }
 
 void type(Str s)
@@ -110,14 +110,14 @@ void test_console()
     test_begin("console");
 
     sched_reset();
-    keys().clear();
-    screen_reset();
-    CHECK(screen_resize(40, 10));
-    console_fg_clear();
+    keys(0).clear();
+    screen_reset(t0());
+    CHECK(screen_resize(t0(), 40, 10));
+    console_fg_clear(t0());
     drained_n = 0;
 
-    CHECK(sched_spawn(console_pump(), "tty") != 0);
-    CHECK_EQ(console_fg_count(), 0u);
+    CHECK(sched_spawn(console_pump(t0()), "tty") != 0);
+    CHECK_EQ(console_fg_count(t0()), 0u);
 
     // With nobody in front, ^C is an ordinary key and reaches the claimant.
     // That is the whole reason a shell can be a process: the alternative is
@@ -129,12 +129,12 @@ void test_console()
     settle();
     CHECK(claimed);
 
-    u32 before = console_interrupts();
+    u32 before = console_interrupts(t0());
     press('c', MOD_CTRL);
     settle();
     CHECK_EQ(got_n, 1u);
     CHECK_EQ(got[0], u32('c'));
-    CHECK_EQ(console_interrupts(), before);
+    CHECK_EQ(console_interrupts(t0()), before);
 
     // A burst longer than the ring still arrives whole. The pump never
     // suspends while the channel has something in it, so without a yield the
@@ -149,45 +149,45 @@ void test_console()
 
     sched_cancel(cpid);
     settle();
-    CHECK(tty_raw() == nullptr);
+    CHECK(tty_raw(t0()) == nullptr);
 
     // Scrollback is the pump's: the history is the kernel's grid, and no
     // program is holding it. Half a screen a press.
-    screen_clear();
+    screen_clear(t0());
     for (u32 i = 0; i < 20; i++)
-        screen_write("row\n"); // twice the ten rows there are
-    CHECK(screen_history() >= 10);
-    CHECK_EQ(screen_view(), 0u);
+        screen_write(t0(), "row\n"); // twice the ten rows there are
+    CHECK(screen_history(t0()) >= 10);
+    CHECK_EQ(screen_view(t0()), 0u);
 
     press(KEY_PAGE_UP, MOD_SHIFT);
     settle();
-    CHECK_EQ(screen_view(), 5u);
+    CHECK_EQ(screen_view(t0()), 5u);
     press(KEY_PAGE_UP, MOD_SHIFT);
     settle();
-    CHECK_EQ(screen_view(), 10u);
+    CHECK_EQ(screen_view(t0()), 10u);
     press(KEY_PAGE_DOWN, MOD_SHIFT);
     settle();
-    CHECK_EQ(screen_view(), 5u);
+    CHECK_EQ(screen_view(t0()), 5u);
 
     // Shift with an arrow is the same chord a row at a time — what a wheel
     // notch arrives as (web/worker.js).
     press(KEY_UP, MOD_SHIFT);
     settle();
-    CHECK_EQ(screen_view(), 6u);
+    CHECK_EQ(screen_view(t0()), 6u);
     press(KEY_UP, MOD_SHIFT);
     settle();
-    CHECK_EQ(screen_view(), 7u);
+    CHECK_EQ(screen_view(t0()), 7u);
     press(KEY_DOWN, MOD_SHIFT);
     settle();
-    CHECK_EQ(screen_view(), 6u);
+    CHECK_EQ(screen_view(t0()), 6u);
     press(KEY_PAGE_DOWN, MOD_SHIFT);
     settle();
-    CHECK_EQ(screen_view(), 1u);
+    CHECK_EQ(screen_view(t0()), 1u);
 
     // Unshifted it is an ordinary key, and any ordinary key is the way back.
     press(KEY_PAGE_UP);
     settle();
-    CHECK_EQ(screen_view(), 0u);
+    CHECK_EQ(screen_view(t0()), 0u);
 
     // A claimant never sees the chord, and the prompt is a claimant — but the
     // key that brings the view home is still delivered.
@@ -200,43 +200,43 @@ void test_console()
     press(KEY_PAGE_UP, MOD_SHIFT);
     settle();
     CHECK_EQ(got_n, 0u);
-    CHECK_EQ(screen_view(), 5u);
+    CHECK_EQ(screen_view(t0()), 5u);
     press(KEY_UP, MOD_SHIFT);
     settle();
     CHECK_EQ(got_n, 0u);
-    CHECK_EQ(screen_view(), 6u);
+    CHECK_EQ(screen_view(t0()), 6u);
     press('k');
     settle();
-    CHECK_EQ(screen_view(), 0u);
+    CHECK_EQ(screen_view(t0()), 0u);
     CHECK_EQ(got_n, 1u);
     CHECK_EQ(got[0], u32('k'));
 
     // With the screen claimed the chord belongs to the program: less and edit
     // page a grid of their own.
     {
-        FullScreen *alt = heap_new<FullScreen>(7);
+        FullScreen *alt = heap_new<FullScreen>(t0(), 7);
         CHECK(alt && alt->ok());
         got_n = 0;
         press(KEY_PAGE_UP, MOD_SHIFT);
         settle();
         CHECK_EQ(got_n, 1u);
         CHECK_EQ(got[0], u32(KEY_PAGE_UP));
-        CHECK_EQ(screen_view(), 0u);
+        CHECK_EQ(screen_view(t0()), 0u);
         // The row chord goes the same way, which is how the wheel scrolls a
         // pager: less reads the arrow and ignores the modifier.
         press(KEY_UP, MOD_SHIFT);
         settle();
         CHECK_EQ(got_n, 2u);
         CHECK_EQ(got[1], u32(KEY_UP));
-        CHECK_EQ(screen_view(), 0u);
+        CHECK_EQ(screen_view(t0()), 0u);
         heap_delete(alt);
     }
 
     sched_cancel(cpid2);
     settle();
-    CHECK(tty_raw() == nullptr);
-    screen_reset();
-    CHECK(screen_resize(40, 10));
+    CHECK(tty_raw(t0()) == nullptr);
+    screen_reset(t0());
+    CHECK(screen_resize(t0(), 40, 10));
 
     // Nothing claimed: keys are cooked, a line at a time, and reach whatever is
     // reading the console's own stdin.
@@ -267,11 +267,11 @@ void test_console()
     CHECK(vpid != 0);
     settle();
     CHECK(alive);
-    CHECK(console_fg_add(vpid, 1));
-    CHECK_EQ(console_fg_count(), 1u);
-    CHECK(console_fg_has(vpid));
-    CHECK(!console_fg_has(vpid + 1000));
-    CHECK_EQ(console_fg_owner(), 1u); // whoever armed it, not what is in front
+    CHECK(console_fg_add(t0(), vpid, 1));
+    CHECK_EQ(console_fg_count(t0()), 1u);
+    CHECK(console_fg_has(t0(), vpid));
+    CHECK(!console_fg_has(t0(), vpid + 1000));
+    CHECK_EQ(console_fg_owner(t0()), 1u); // whoever armed it, not what is in front
 
     dpid = sched_spawn(drain());
     CHECK(dpid != 0);
@@ -284,20 +284,20 @@ void test_console()
 
     // ^C reaches what is in front, is counted rather than delivered, and the
     // count is what the shell samples around a pipeline.
-    before = console_interrupts();
+    before = console_interrupts(t0());
     press('c', MOD_CTRL);
     settle();
-    CHECK_EQ(console_interrupts(), before + 1);
+    CHECK_EQ(console_interrupts(t0()), before + 1);
     CHECK(!alive);
 
     // One more than there is room for is refused rather than dropped.
-    console_fg_clear();
+    console_fg_clear(t0());
     for (usize i = 0; i < CONSOLE_FG_MAX; i++)
-        CHECK(console_fg_add(u32(i + 1), 1));
-    CHECK(!console_fg_add(CONSOLE_FG_MAX + 1, 1));
-    console_fg_clear();
-    CHECK_EQ(console_fg_count(), 0u);
-    CHECK_EQ(console_fg_owner(), 0u);
+        CHECK(console_fg_add(t0(), u32(i + 1), 1));
+    CHECK(!console_fg_add(t0(), CONSOLE_FG_MAX + 1, 1));
+    console_fg_clear(t0());
+    CHECK_EQ(console_fg_count(t0()), 0u);
+    CHECK_EQ(console_fg_owner(t0()), 0u);
 
     sched_reset();
 }

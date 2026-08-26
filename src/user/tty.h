@@ -5,15 +5,16 @@
 // reach an array screen_write already fills, and would put terminal output
 // behind something that can drop.
 //
-// The keyboard is the other way round: it is one Channel with one receiver
-// (channel.h), and that receiver is the console pump, for good (console.h). A
-// program therefore does not take the keyboard — it asks the pump to route to
-// it, which is what the claims below are, and the prompt is no exception.
+// The keyboard is the other way round: it is one Channel per terminal with one
+// receiver (channel.h), and that receiver is that terminal's console pump, for
+// good (console.h). A program therefore does not take the keyboard — it asks
+// the pump to route to it, which is what the claims below are, and the prompt
+// is no exception.
 //
-// Each of the two routes — raw keys and the screen — has one holder at a time,
-// kernel-side, named by the pid that took it. A second claim is refused with
-// Err(Perm) rather than nested, and a claim clears the route only if it is
-// still the holder, so two claimants may die in either order.
+// Each of the two routes — raw keys and the screen — has one holder at a time
+// per terminal, kernel-side, named by the pid that took it. A second claim is
+// refused with Err(Perm) rather than nested, and a claim clears the route only
+// if it is still the holder, so two claimants may die in either order.
 #pragma once
 
 #include "io.h"
@@ -21,12 +22,12 @@
 #include "kernel/screen.h"
 #include "prog.h"
 
-// What init enters /bin/sh with: out and err are the grid, and stdin is the
-// console's cooked input (console.h) — which is what makes `cat` with no
+// What init enters /bin/sh with: out and err are the terminal's grid, and stdin
+// is its console's cooked input (console.h) — which is what makes `cat` with no
 // argument read what is typed, one level below the shell that spawned it.
-Stdio stdio_console();
+Stdio stdio_console(Term &t);
 
-// Whether a stream is the grid rather than a pipe or a file: the sink
+// Whether a stream is a grid rather than a pipe or a file: the sink
 // stdio_console() installs is the whole of the difference. Sys::Tty's caller.
 bool tty_is_console(const Stream &s);
 
@@ -44,7 +45,7 @@ using KeyRing = Channel<Key, KEY_RING>;
 // The ring is a heap block because a KeyRing inside a coroutine frame would
 // push it past the allocator's top size class and cost a whole 64 KiB span.
 struct KeyInput {
-    explicit KeyInput(u32 pid);
+    KeyInput(Term &t, u32 pid);
 
     KeyInput(const KeyInput &)            = delete;
     KeyInput &operator=(const KeyInput &) = delete;
@@ -62,14 +63,15 @@ struct KeyInput {
     KeyRing::Recv next() { return ring_->recv(); }
 
 private:
+    Term *term_    = nullptr;
     KeyRing *ring_ = nullptr;
     Error err_     = Error::NoMemory;
 };
 
-// The alternate screen, as RAII: whoever holds this has the grid for as long
-// as it lives, and the shell's screen comes back when it dies. A destructor
-// rather than a call at the end, so that a process killed mid-paint gets its
-// screen restored anyway — ~Proc in proctab.h is what runs it.
+// The alternate screen, as RAII: whoever holds this has the terminal's grid for
+// as long as it lives, and the shell's screen comes back when it dies. A
+// destructor rather than a call at the end, so that a process killed mid-paint
+// gets its screen restored anyway — ~Proc in proctab.h is what runs it.
 //
 // There is no second grid: the cells are copied to a heap block and copied
 // back, which is what "alternate screen" means when the terminal is an array
@@ -77,7 +79,7 @@ private:
 // because all three answer the same question — who owns the terminal while a
 // program has it.
 struct FullScreen {
-    explicit FullScreen(u32 pid);
+    FullScreen(Term &t, u32 pid);
 
     FullScreen(const FullScreen &)            = delete;
     FullScreen &operator=(const FullScreen &) = delete;
@@ -92,6 +94,7 @@ struct FullScreen {
     Error error() const { return err_; }
 
 private:
+    Term *term_  = nullptr;
     Error err_   = Error::NoMemory;
     Cell *saved_ = nullptr;
     u32 cols_ = 0, rows_ = 0;
@@ -99,20 +102,27 @@ private:
     bool cursor_on_ = false;
 };
 
-// What the pump consults before it cooks. Null when nothing is claimed.
+// What this terminal's pump consults before it cooks. Null when nothing is
+// claimed.
 //
 // There were three routes and there are two. The cooked one was `fg`'s, which
 // borrowed the pump of the pipeline it was a stage of to feed the job it
 // adopted; a shell that is a process feeds its own children through a pipe it
 // holds, and `fg` is Sys::Fg and a wait.
-KeyRing *tty_raw();
+KeyRing *tty_raw(const Term &t);
 
-// Who holds each of the two claims a process makes, or 0 when it is free.
-u32 tty_keys_owner();
-u32 tty_screen_owner();
+// Who holds each of the two claims a process makes on this terminal, or 0 when
+// it is free.
+u32 tty_keys_owner(const Term &t);
+u32 tty_screen_owner(const Term &t);
 
-// SIG_WINCH to the foreground and to whoever holds a route, once the grid has
-// changed shape. Geometry rides on every terminal reply, so this is for the
-// program parked on a key rather than asking — the reply it would learn from
-// is the one that never comes.
-void tty_resized();
+// Whether this pid holds a route on any terminal — /proc, which reports a
+// process without holding its record.
+bool tty_keys_held_by(u32 pid);
+bool tty_screen_held_by(u32 pid);
+
+// SIG_WINCH to this terminal's foreground and to whoever holds a route on it,
+// once its grid has changed shape. Geometry rides on every terminal reply, so
+// this is for the program parked on a key rather than asking — the reply it
+// would learn from is the one that never comes.
+void tty_resized(Term &t);

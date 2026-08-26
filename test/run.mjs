@@ -13,6 +13,7 @@ import { fail, hasRootfs, init, kernel } from "./system/harness.mjs";
 import * as abi from "./system/abi.mjs";
 import * as boot from "./system/boot.mjs";
 import * as cwd from "./system/cwd.mjs";
+import * as dual from "./system/dual.mjs";
 import * as entry from "./system/entry.mjs";
 import * as flow from "./system/flow.mjs";
 import * as fullscreen from "./system/fullscreen.mjs";
@@ -110,6 +111,7 @@ const CASES = [
     ["path",       path.check],
     ["unzip",      unzip.check],
     ["entry",      entry.check],
+    ["dual",       dual.check],       // leaves a second shell up, so others() gains one
     ["language",   language.check],   // last: it exits the shell for good
 ];
 

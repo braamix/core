@@ -28,8 +28,11 @@ let u32 = null;
 let instance = null;
 let module = null;
 let name = "run.mjs";
-let addr = 0;
 let tick_count = 0;
+
+// One descriptor address per terminal, since resize() is the only thing that
+// says where a grid is. Terminal 0 is the one every case but dual.mjs drives.
+const addr = [0, 0, 0, 0];
 
 // Whether the archive came along: the cases that read /etc or /pkg are
 // skipped without it, and run.mjs gates the rest off the same flag.
@@ -68,8 +71,8 @@ const imports = {
         random(ptr, len) {
             bytes().set(fakeEntropy(net, len), ptr);
         },
-        present(x, y, w, h) {
-            presented.push({ x, y, w, h });
+        present(term, x, y, w, h) {
+            presented.push({ term, x, y, w, h });
         },
         ...makeFakeImports(mem, store, () => instance.exports),
         svc: makeFakeSvc(mem, net, () => instance.exports),
@@ -231,22 +234,25 @@ export function descriptor(at) {
 // hands the next one a grid at a new address, and `submit` below reads it. The
 // convention is that a case restores 60x16 before it returns. Returns what the
 // export returned, 0 included, since a refused geometry is asserted on.
-export function resize(cols, rows_) {
-    addr = kernel().resize(cols, rows_);
-    return addr;
+//
+// Resizing a terminal the kernel has not seen before is what makes one, so this
+// is also how dual.mjs gets a second shell.
+export function resize(cols, rows_, term = 0) {
+    addr[term] = kernel().resize(term, cols, rows_);
+    return addr[term];
 }
 
-export const screen = () => descriptor(addr);
+export const screen = (term = 0) => descriptor(addr[term]);
 
 // The address itself, which only web/render.js's attach() has any use for.
-export const gridAddr = () => addr;
+export const gridAddr = (term = 0) => addr[term];
 
 // A resize with the refusal checked, since a geometry the kernel will not
 // honour hands back 0 and every reader after it would be reading address zero.
-export function regrid(cols, rows_, why) {
-    if (resize(cols, rows_) === 0)
+export function regrid(cols, rows_, why, term = 0) {
+    if (resize(cols, rows_, term) === 0)
         fail(why);
-    return screen();
+    return screen(term);
 }
 
 // One cell is {ch: u32, fg|bg|attrs|pad: u32} — the layout render.js assumes.
@@ -315,18 +321,18 @@ export const KEY = {
 export const CTRL = 2;
 export const SHIFT = 1;
 
-export const type = (text) => {
+export const type = (text, term = 0) => {
     for (const ch of text)
-        instance.exports.key(ch.codePointAt(0), 0);
+        instance.exports.key(term, ch.codePointAt(0), 0);
 };
 
-export const press = (code, mods = 0) => instance.exports.key(code, mods);
+export const press = (code, mods = 0, term = 0) => instance.exports.key(term, code, mods);
 
-export const submit = (text, now) => {
-    type(text);
-    press(KEY.ENTER);
+export const submit = (text, now, term = 0) => {
+    type(text, term);
+    press(KEY.ENTER, 0, term);
     run(now);
-    return descriptor(addr);
+    return descriptor(addr[term]);
 };
 
 // A clock and the two shapes almost every case asserts in: a cleared screen,

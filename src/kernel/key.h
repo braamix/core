@@ -57,5 +57,7 @@ struct Key {
     }
 };
 
-// The one keyboard queue. key() fills it; a reader task drains it.
-Channel<Key> &keys();
+// A terminal's keyboard queue, one per terminal. key() fills it; that
+// terminal's console pump is its one reader. Ids past TERM_MAX give terminal
+// 0's, which nothing can reach: key() drops those before it asks.
+Channel<Key> &keys(u32 term);

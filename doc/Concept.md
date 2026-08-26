@@ -189,20 +189,22 @@ ever resumes a coroutine.
 ### 3.4 The JS boundary
 
 The whole surface is nine exports and seven imports, asserted exactly in
-[test/system/abi.mjs](../test/system/abi.mjs). Drift is a bug.
+[test/system/abi.mjs](../test/system/abi.mjs) — the names, and each export's
+argument count, since an argument added to one of these is drift a matching list
+of names would not catch. Drift is a bug.
 
 ```
 init(heap_base)                         // host -> kernel
 wake(token, payload_ptr, payload_len)   // host signals an event
 tick(now_ms)                            // drains the ready queue; ms to the next timer
-key(code, mods) -> u32                  // fast path; 0 if the ring was full
-resize(cols, rows)                      // returns the screen descriptor's address
+key(term, code, mods) -> u32            // fast path; 0 if the ring was full
+resize(term, cols, rows)                // returns the screen descriptor's address
 ref(slot, obj)                          // host deposits a JS object (§3.7)
 sys(pid, op, a0, a1, a2) -> i32         // a process's synchronous syscall (§4.3)
 sys_async(pid, op, token, len) -> i32   // a process's asynchronous syscall (§4.3)
 
 host_now(), host_log(ptr, len)          // kernel -> host, all non-blocking
-host_present(x, y, w, h)                // the dirty rectangle
+host_present(term, x, y, w, h)          // one terminal's dirty rectangle
 host_fs(op, token, req)                 // storage, async  (§5.2)
 host_fs_sync(op, handle, ptr, len, off) // storage, sync   (§5.2)
 host_random(ptr, len)                   // entropy, sync   (§2.2)
@@ -237,6 +239,22 @@ canvas. Damage is a dirty rectangle handed to the host once per `tick`. Rows
 that scroll off the top are kept in a ring, and a keyboard chord pages a view
 over that history by pointing the descriptor at a different block of cells.
 
+**There may be more than one of these, and the host decides how many.** A
+*terminal* is a grid and everything sticky about it, plus a console of its own:
+a keyboard channel, a pump, a cooked-input pipe, a foreground set and the two
+claims below. `resize(term, …)` for a terminal nothing has named yet is what
+makes one — the kernel spawns its pump, init starts a `/bin/sh` on it, and every
+export and import that touches a grid names which. A page with one canvas
+therefore has exactly one shell, and a page with two has two
+([web/dual.html](../web/dual.html)).
+
+**What terminals do not divide is the system.** One scheduler, one heap, one
+VFS and one `/home` underneath all of them: a process belongs to a terminal, and
+that is the whole of what it inherits — which grid it paints, which console its
+`^C` comes from, and what `Sys::Tty` measures. Two *kernels* on a page is the
+other arrangement ([web/embed.html](../web/embed.html)), and it divides
+everything except the origin's storage, which is the one thing it cannot.
+
 **The layout layer over the grid is a library a process binary links**, and the
 kernel does not link it at all. A full-screen program paints its own grid in its
 own address space and blits the damaged part across with one syscall.
@@ -246,14 +264,16 @@ lands in a channel. **No control characters exist anywhere in the system**: `^C`
 is `'c'` with the control modifier set, and the reader decides what that means.
 Line editing is a userland coroutine, not a termios state machine.
 
-The one task receiving that channel is a console pump that init spawns and that
-never ends, because something must hold the keyboard while nothing is running. A
-program **claims a route through the pump** rather than taking the keyboard, and
-each route — raw keys, and the screen — has **one holder at a time**. **`^C`
-cancels the foreground if there is one, and reaches the claimant if there is
-not**, which lets a line editor abandon the line being typed instead of being
-killed by it. What the pump does not route it cooks: echo, a line at a time,
-into the stdin of whatever is in front.
+The one task receiving a terminal's channel is that terminal's console pump,
+spawned when the terminal is made and never ending, because something must hold
+the keyboard while nothing is running. A program **claims a route through the
+pump** rather than taking the keyboard, and each route — raw keys, and the
+screen — has **one holder at a time per terminal**. **`^C` cancels the
+foreground if there is one, and reaches the claimant if there is not**, which
+lets a line editor abandon the line being typed instead of being killed by it.
+What the pump does not route it cooks: echo, a line at a time, into the stdin of
+whatever is in front. All of that is one terminal's: `^C` on one screen is not
+felt on another.
 
 **Selection, copy, paste and the wheel are the page's business, and the kernel
 is told nothing.** A drag never reaches wasm, a paste is fed in as a run of

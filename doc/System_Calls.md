@@ -1442,10 +1442,19 @@ destructor of its own, so a program that had taken the screen and then met `^C`
 would otherwise leave the shell painting into a grid it does not own. Giving
 them back is politeness; the destructor is the guarantee.
 
-**One holder of each, system-wide, named by pid.** A second `ScreenEnter` or
-`KeyClaim` is `Err(Perm)` rather than nesting, whether it comes from the process
-that already holds the route or from another one — a parent and its child
-included. A claim clears its route only if it is still the holder, so the two
+**No call here names a screen, and that is deliberate.** A process is on a
+terminal — `Proc::term`, inherited at spawn like `cwd` — so `Tty`, `Fg`,
+`Cursor`, `Style`, `Echo`, `ScreenBlit`, `ScreenClear`, `ScreenEnter` and
+`KeyClaim` all resolve the *caller's* terminal from its record. That is why a
+page with two screens (Concept.md §3.5) moved no wire format and did not move
+`PROC_ABI`: a program cannot paint another terminal's grid, and there is nothing
+in the process ABI that would let it try.
+
+**One holder of each per terminal, named by pid.** A second `ScreenEnter` or
+`KeyClaim` on the same terminal is `Err(Perm)` rather than nesting, whether it
+comes from the process that already holds the route or from another one — a
+parent and its child included. Two full-screen programs on two screens are two
+holders and neither is refused. A claim clears its route only if it is still the holder, so the two
 may be destroyed in either order. Nesting would mean restoring a predecessor
 that has already gone, and for `ScreenEnter` it would mean snapshotting the
 blanked grid the first claimant is painting, which loses the shell's screen

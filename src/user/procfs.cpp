@@ -55,11 +55,11 @@ Str worker_of(const ProcState &st)
 // The foreground and the two console claims, which `ps` prints as STAT.
 void flags_of(Buf<8> &b, u32 pid)
 {
-    if (console_fg_has(pid))
+    if (console_fg_anywhere(pid))
         b.put('+');
-    if (tty_keys_owner() == pid)
+    if (tty_keys_held_by(pid))
         b.put('k');
-    if (tty_screen_owner() == pid)
+    if (tty_screen_held_by(pid))
         b.put('s');
     if (b.str().empty())
         b.put('-');
@@ -202,11 +202,14 @@ bool generate(Str name, String &out)
     // the kernel knows for itself; the rest the host said at boot and boot kept,
     // since a browser does not change under a running tab.
     //
-    // The screen is read fresh every time — it moves with the window. Storage is
-    // not here at all: quota and usage are live figures, and `df` asks for them.
+    // The screen is read fresh every time — it moves with the window. Terminal
+    // 0's, since this file is the machine and not the caller; a process asks
+    // Sys::Tty for its own. Storage is not here at all: quota and usage are live
+    // figures, and `df` asks for them.
     if (name == "host") {
+        const Screen &s0 = screen(*term_open(0));
         b.put("system   braam\nrelease  ").put(BRAAM_VERSION);
-        b.put("\nmachine  wasm32\nscreen   ").put(screen().cols).put('x').put(screen().rows);
+        b.put("\nmachine  wasm32\nscreen   ").put(s0.cols).put('x').put(s0.rows);
         b.put('\n');
         return out.append(b.str()) && out.append(host_facts());
     }

@@ -154,7 +154,7 @@ export function check() {
         const codes = pasted(`echo ${"z".repeat(80)}\r\n`);
         let at = 0, turns = 0;
         while (at < codes.length && turns++ < 40) {
-            while (at < codes.length && kernel().key(codes[at], 0))
+            while (at < codes.length && kernel().key(0, codes[at], 0))
                 at++;
             run(1055);
         }

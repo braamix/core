@@ -5,6 +5,7 @@
 // and /bin is in the store this mounts.
 #pragma once
 
+#include "kernel/screen.h"
 #include "kernel/task.h"
 #include "kernel/types.h"
 
@@ -19,8 +20,14 @@ constexpr Str MOTD = "/etc/motd";
 
 // False when there is no store to run on — a browser with no OPFS, which is
 // fatal now rather than a memory fallback (Concept.md §5.2). `pid` is init's,
-// for the claim the upgrade prompt takes on the keyboard.
-Task<bool> boot_filesystem(const u32 &pid);
+// for the claim the upgrade prompt takes on the keyboard, and `term` is where
+// it says so.
+Task<bool> boot_filesystem(Term &term, const u32 &pid);
+
+// A terminal the host has just made: its console pump, and a shell of its own
+// once the store is up. Terminal 0 is not one of these — init runs its shell
+// itself, under init's own pid.
+void init_term_up(Term &term);
 
 // What the host said about itself at boot, as `name value` lines with a blank
 // line splitting what the banner showed from the rest (src/svc/svc.h). Cached
