@@ -10,8 +10,10 @@
 #include "solve.h"
 #include "zip.h"
 
-// The most a package may unpack to when its stanza carries no I.
-constexpr u64 UNPACK_MAX = 16u << 20;
+// The most a package may unpack to when its stanza carries no I. Above what a
+// process holds: the unpack writes an entry at a time, so only one inflated
+// file is resident.
+constexpr u64 UNPACK_MAX = 50u << 20;
 
 // apk's verb, or empty for a change that changes nothing — which is also the
 // test for whether a change is work.

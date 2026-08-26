@@ -155,7 +155,7 @@ P:less
 | `P` | name | required |
 | `V` | version (§7) | required |
 | `S` | the zip's exact size in bytes | required |
-| `I` | unpacked size; caps the unpack when below 16 MiB (§5.1) | optional |
+| `I` | unpacked size; caps the unpack when below 50 MiB (§5.1) | optional |
 | `T` | description | optional |
 | `D` | depends — a dependency list (§6) | optional |
 | `p` | provides — a dependency list, and §6.1's generated names | optional |
@@ -274,8 +274,10 @@ can be metadata, so `bin/.keep` is an ordinary file.
   `/pkg/store/<name>-<version>/` under its own name and recorded in §8.1's file
   list like any payload file — `.pre-deinstall` runs at a removal, when the
   archive is gone. `.PKGINFO` is not kept; the record supersedes it.
-- **The unpack is capped** at `I` when it is set and below 16 MiB, otherwise at
-  16 MiB, summed over the kept entries and applied to each one.
+- **The unpack is capped** at `I` when it is set and below 50 MiB, otherwise at
+  50 MiB, summed over the kept entries and applied to each one. The cap is the
+  store's, not the heap's: an entry is written as it is inflated, so only one
+  inflated file is resident however large the total.
 
 Scripts run as Package_Management.md §11 describes, with apk's argv convention:
 the new version, and on an upgrade the old one after it. A removal passes the
