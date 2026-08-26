@@ -13,8 +13,8 @@ that is not in this tree. One part of the tree is not ours: `src/math/` is
 musl's libm, vendored under an MIT licence, and it is the only third-party code
 here.
 
-Two things must never regress: the wasm ABI of six imports and nine exports, and
-the three passing CTest cases.
+Two things must never regress: the wasm ABI of seven imports and nine exports,
+and the three passing CTest cases.
 
 ## Documents
 
@@ -123,7 +123,7 @@ make clean
   load-bearing** — it is one cumulative session, so state crosses cases and an
   entry that depends on an earlier one says so beside it. The kernel's exact
   imports (`host.fs`, `host.fs_sync`, `host.log`, `host.now`, `host.present`,
-  `host.svc`), its exports (`init`, `key`, `memory`, `ref`, `resize`, `sys`,
+  `host.random`, `host.svc`), its exports (`init`, `key`, `memory`, `ref`, `resize`, `sys`,
   `sys_async`, `tick`, `wake`) and every binary's surface and `braam` section
   are [test/system/abi.mjs](test/system/abi.mjs); the boot to a prompt is
   `boot.mjs`; `rootfs/etc/help` against the builtin table and the archive's

@@ -161,7 +161,7 @@ is the guide and [examples/hello/](examples/hello/) is the worked example.
 
 ## Status
 
-Version 0.6. Everything above works and the tests pass. A tablet works too: tap
+Version 0.7. Everything above works and the tests pass. A tablet works too: tap
 to type, drag to select, with a row of buttons for the keys a touch keyboard
 does not have.
 
