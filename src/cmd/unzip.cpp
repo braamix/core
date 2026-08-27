@@ -10,7 +10,12 @@
 
 namespace {
 
-constexpr Str USAGE = "usage: unzip [-l] [-p] [-d <dir>] <archive> [<name>...]\n";
+constexpr Str USAGE = "Usage:\n"
+                      "    unzip [-l] [-p] [-d <dir>] <archive> [<name>...]\n"
+                      "Options:\n"
+                      "    -l    list files\n"
+                      "    -p    extract files to pipe, no messages\n"
+                      "    -d    extract files into dir\n";
 
 // Nothing named takes every entry.
 bool wanted(Args names, Str entry)

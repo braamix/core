@@ -57,8 +57,14 @@ export function check() {
     // for.
     submit("clear", at());
     let s = submit("unzip", at());
-    if (!rows(s).includes("usage: unzip [-l] [-p] [-d <dir>] <archive> [<name>...]"))
-        fail(`unzip printed ${JSON.stringify(rows(s))}, expected a usage line`);
+    for (const want of ["Usage:",
+                        "    unzip [-l] [-p] [-d <dir>] <archive> [<name>...]",
+                        "Options:",
+                        "    -l    list files",
+                        "    -p    extract files to pipe, no messages",
+                        "    -d    extract files into dir"])
+        if (!rows(s).includes(want))
+            fail(`unzip printed ${JSON.stringify(rows(s))}, expected ${JSON.stringify(want)}`);
     if (!rows(s).includes(prompt(2)))
         fail(`unzip left ${row(s, s.cursor_y)}, expected ${prompt(2)}`);
 

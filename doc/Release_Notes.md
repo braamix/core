@@ -29,6 +29,23 @@ first:
 
 ---
 
+## A usage message that says what the options do
+
+`unzip`'s usage was one line naming three options and explaining none of them,
+which is the shape thirty-odd programs in `src/cmd/` print. It is enough where
+the option letters are the familiar ones — `ls -l`, `rm -r`, `cp -i` — and it is
+not enough here: `-p` is not "print", it is "extract to a pipe and say nothing
+else", and a reader with only the line in front of them cannot tell that from
+`-l`. So it grew a block, `Usage:` then `Options:` with a row per letter.
+
+The shape is not new. `/bin/pkg` has printed it since 0.4
+([src/cmd/pkg/pkg.cpp](../src/cmd/pkg/pkg.cpp)), where a table of twelve
+subcommands left no choice, and taking it for `unzip` costs a longer string
+constant and nothing else — the same one write to stderr, the same status 2.
+The rest of `src/cmd/` keeps its one-liners. What decides between them is
+whether an option's name gives its meaning away, not how many there are, and
+that is a judgement per program rather than a rule to apply across the tree.
+
 ## Two screens of one kernel
 
 `web/dual.html` splits a window between two terminals: the upper two thirds and
