@@ -245,8 +245,10 @@ a keyboard channel, a pump, a cooked-input pipe, a foreground set and the two
 claims below. `resize(term, …)` for a terminal nothing has named yet is what
 makes one — the kernel spawns its pump, init starts a `/bin/sh` on it, and every
 export and import that touches a grid names which. A page with one canvas
-therefore has exactly one shell, and a page with two has two
-([web/dual.html](../web/dual.html)).
+therefore has exactly one shell, a page with two has two
+([web/dual.html](../web/dual.html)), and a page with four has four
+([web/quad.html](../web/quad.html)), which is `TERM_MAX` and the most there can
+be.
 
 **What terminals do not divide is the system.** One scheduler, one heap, one
 VFS and one `/home` underneath all of them: a process belongs to a terminal, and

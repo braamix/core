@@ -3,11 +3,10 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 //
-// After `entry`, and before `language`, which exits terminal 0's shell for
-// good. The second shell is exited again at the end: `net.peak` and `others()`
-// count instances, and a case that left one running would move both.
+// After `entry`, and before `quad`, which takes the second shell over: it wants
+// four terminals alive at once and exits all three above terminal 0.
 
-import { CTRL, fail, net, output, press, regrid, resize, row, rows, run, screen, submit } from
+import { CTRL, fail, output, press, regrid, resize, row, rows, run, screen, submit } from
     "./harness.mjs";
 
 // The terminal this case makes. Terminal 0 is the one every other case drives.
@@ -101,18 +100,8 @@ export function check() {
     if (press("x".codePointAt(0), 0, 9) !== 0)
         fail("a keystroke for a terminal that does not exist was taken");
 
-    // The second shell exits and is not replaced — a shell that ended on its
-    // own terms is the end of that session, terminal 0's rule exactly. The
-    // instance goes with it, which is what leaves the count where this case
-    // found it.
-    const live = net.proc.live();
-    submit("exit", 31400, T);
-    settle(31500, () => net.proc.live() < live, `terminal ${T}'s shell did not exit`);
-    s = screen(T);
-    if (!rows(s).some((line) => line.includes("the shell exited")))
-        fail(`terminal ${T} did not report the exit: ${JSON.stringify(rows(s))}`);
-
-    // Back to the geometry the next case expects on terminal 0.
+    // Back to the geometry the next case expects on terminal 0. The shell on
+    // terminal T stays up; `quad` counts it and exits it.
     regrid(60, 16, "the first terminal would not size back");
     if (row(screen(T), 0) === undefined)
         fail(`terminal ${T} lost its grid`);

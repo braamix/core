@@ -129,7 +129,8 @@ make clean
   [test/system/abi.mjs](test/system/abi.mjs); the boot to a prompt is
   `boot.mjs`; `rootfs/etc/help` against the builtin table and the archive's
   `bin/` is `help.mjs`; a second terminal, a second shell and the one
-  filesystem under both is `dual.mjs`.
+  filesystem under both is `dual.mjs`, and all four of `TERM_MAX` at once is
+  `quad.mjs`.
 - `unit` — `test/run.mjs --tests` over `tests.wasm`, with `rootfs.zip` alongside
   so that `src/cmd/pkg/zip.cpp` and `web/fs.js` are compared over the same bytes
   rather than each trusted against its own reading of the format. New core code
@@ -242,7 +243,8 @@ Further constraints, easy to violate by habit:
   canvas has exactly one shell. A process carries `Proc::term`, inherited at
   spawn like `cwd`; **there is no "current terminal" global, and adding one is
   the bug this shape exists to prevent** — a syscall server awaits.
-  `web/dual.html` is two screens of one kernel; `web/embed.html` is two kernels.
+  `web/dual.html` is two screens of one kernel and `web/quad.html` four;
+  `web/embed.html` is two kernels.
 - **One receiver per `Channel`; a terminal's keyboard has its console pump** —
   permanent, spawned when the terminal is made
   ([src/user/console.h](src/user/console.h)). A program claims a route through

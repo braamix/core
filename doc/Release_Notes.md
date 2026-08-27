@@ -29,6 +29,54 @@ first:
 
 ---
 
+## Four screens, and the ceiling reached
+
+`web/quad.html` is a 2×2 of four terminals of one kernel, each with a grid, a
+console, a `^C` and a `/bin/sh` of its own. It is a page and nothing else — no
+kernel change, no JS change, not a line of `web/braam.js` or `web/worker.js` —
+and that is the whole of what it demonstrates. `mount({ screens: [ … ] })`
+already maps its array index to a terminal id, `worker.js` already grows its
+`screens[]` on demand, and `resize(term, …)` for a terminal nothing has named
+already makes one. Two screens were the first plural; four are the proof that
+the plural has no arithmetic in it.
+
+**The ceiling is reached now, not merely bounded.** `TERM_MAX` has been 4 since
+dual.html and nothing had ever asked for the fourth. That is the awkward kind of
+constant: it is an *id-space* bound rather than a resource one — the arrays it
+sizes are a `Term`, a `Channel<Key>`, a `Con` and a `Claims` each, and four of
+each cost nothing worth counting — so the number was never load-bearing except
+at its own edge, which no caller had touched. `test/system/quad.mjs` touches it:
+it pins the refusal at id 4 rather than at `dual`'s id 9, which is the first id
+that does not fit rather than one comfortably past it, and the difference is
+whether an off-by-one in `term_open` would have been caught.
+
+Four shells alive at once needed the suite rearranged, since it is one
+cumulative session and a shell that exits is not replaced. `dual` used to retire
+terminal 1's shell before it returned; it now hands it over, and `quad` makes
+terminals 2 and 3, runs with four, and exits all three above terminal 0. The
+count `language` starts from is unmoved, which was the reason `dual` cleaned up
+in the first place — the cleanup moved, not the rule.
+
+**Four grounds, because only one screen wears a ring.** The focus border tells
+you where your keystrokes go; it cannot tell three unfocused screens apart from
+each other, and with two screens dual.html did not have to. So each screen has a
+background of its own — and *only* that: entry 0 of the palette, the one
+`web/render.js` paints the default background with, and the fifteen other
+colours shared from one array. A screen that recoloured its text would stop
+being the same system in a different corner and start being a different system,
+which is what `web/embed.html`'s second kernel is for. The three tints are
+permutations of one set of dark components, so no pane reads as brighter or more
+important than the others.
+
+**What the layout costs.** Two columns instead of two rows, `#status` spanning
+both so the four panes sit above one status line rather than beside it, and
+everything dual.html says about `overflow: hidden` and `min-height: 0` on both
+the row and the canvas still true and still load-bearing — a canvas's intrinsic
+300×150 box floors a grid row, and four of them on a short window would push the
+page past the viewport into a scrollbar that narrows the canvases that made it
+appear. Four panes make that failure four times as easy to reach, which is the
+only sense in which the page is harder than two.
+
 ## A status line that is not the colour of text
 
 `less` and `edit` painted their bottom line black on `COLOR_WHITE`, which is the

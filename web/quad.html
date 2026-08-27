@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
+<title>braam — four screens</title>
+<style>
+    html { color-scheme: dark; }
+    /* No page scroll: a scrollbar appearing would narrow a canvas, which the
+       resize watch would answer by reflowing the grid that made it appear. */
+    html, body { overflow: hidden; }
+    body {
+        margin: 0;
+        height: 100vh;
+        height: 100dvh;
+        box-sizing: border-box;
+        padding: 1.25em 1.5em;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: 1fr 1fr auto;
+        gap: 0.75em;
+        background: #111111;
+        color: #aaaaaa;
+        font: 13px/1.5 'Andale Mono', 'DejaVu Sans Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    /* min-height on both the row and the canvas: a canvas is a replaced element
+       with an intrinsic 300x150 box, which would otherwise set the row's floor
+       and push the page past the viewport on a short window. */
+    .pane { display: grid; grid-template-rows: 1fr auto; min-height: 0; }
+    .pane canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        cursor: text;
+        border: 1px solid #242632;
+        touch-action: none; /* a drag over the grid selects; it does not scroll */
+        -webkit-touch-callout: none; /* no magnifier on a long press */
+    }
+    /* The focus is on braam.js's hidden input, so canvas:focus never matches. */
+    .pane canvas.braam-focus { border-color: #4a5a8a; outline: none; }
+    /* The keys a touch keyboard does not have: one bar per screen, the focused
+       one shown. */
+    .keys { display: none; }
+    @media (any-pointer: coarse) {
+        body[data-pane="nw"] #keys-nw,
+        body[data-pane="ne"] #keys-ne,
+        body[data-pane="sw"] #keys-sw,
+        body[data-pane="se"] #keys-se {
+            display: flex;
+            flex: 0 0 auto;
+            gap: 0.4rem;
+            padding: 0.4rem 0 0;
+        }
+    }
+    .braam-key {
+        flex: 1 1 0;
+        padding: 0.6rem 0;
+        font: inherit;
+        color: #aaaaaa;
+        background: #1a1c26;
+        border: 1px solid #242632;
+        border-radius: 4px;
+        touch-action: manipulation;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+    }
+    .braam-key-on { color: #111111; background: #6f7488; }
+    /* Both are grid children of the body: neither belongs in one column. */
+    noscript { grid-column: 1 / -1; }
+    #status {
+        grid-column: 1 / -1;
+        margin: 0;
+        padding: 0.35rem 0;
+        border-top: 1px solid #24263200;
+        color: #6f7488;
+        white-space: pre-wrap;
+    }
+    #status:not(:empty) { border-top-color: #242632; }
+    .error { color: #ff5555; }
+</style>
+</head>
+<body data-pane="nw">
+<!-- Two columns lay these out as NW NE / SW SE. -->
+<div class="pane"><canvas id="nw"></canvas><div class="keys" id="keys-nw"></div></div>
+<div class="pane"><canvas id="ne"></canvas><div class="keys" id="keys-ne"></div></div>
+<div class="pane"><canvas id="sw"></canvas><div class="keys" id="keys-sw"></div></div>
+<div class="pane"><canvas id="se"></canvas><div class="keys" id="keys-se"></div></div>
+<pre id="status"></pre>
+<!-- With scripting off, nothing below runs. This is the only thing that speaks. -->
+<noscript>
+<div class="error">braam: JavaScript is off for this page, so nothing here can run.
+Allow scripting for this site — an extension such as a script blocker can hold it
+off even while the extension itself is disabled.</div>
+</noscript>
+<!-- Classic, not a module: no fetch of its own, so it runs when braam.js's never
+     answers. braam.js disarms it and takes the watch over from there. One for
+     the page, since one module load serves all four screens. -->
+<script>
+const BRAAM_STALL_MS = 5000; // BOOT_STALL_MS in braam.js, which takes over
+window.braamStage = "fetching braam.js";
+setTimeout(() => {
+    if (!window.braamStage)
+        return;
+    const line = document.createElement("div");
+    line.className = "error";
+    line.textContent = `braam: nothing happened in ${BRAAM_STALL_MS / 1000}s while `
+        + `${window.braamStage}. The page loaded but its script did not.`
+        + " A blocking extension or a proxy can hold a fetch open for ever;"
+        + " try a private window or a profile with extensions off.";
+    document.getElementById("status").appendChild(line);
+}, BRAAM_STALL_MS);
+</script>
+<script type="module">
+import { mount } from "./braam.js";
+
+window.braamStage = null; // disarms the watchdog above
+
+const status = document.getElementById("status");
+
+function note(text, cls) {
+    const line = document.createElement("div");
+    if (cls) line.className = cls;
+    line.textContent = text;
+    status.appendChild(line);
+}
+
+// iOS does not shrink the layout viewport for the software keyboard and
+// ignores interactive-widget, so the page sizes itself from the visual
+// viewport. A shorter body is four shorter canvases, which braam.js re-measures.
+const vv = window.visualViewport;
+if (vv) {
+    const fit = () => { document.body.style.height = `${vv.height}px`; };
+    vv.addEventListener("resize", fit);
+    vv.addEventListener("scroll", fit);
+    fit();
+}
+
+// A screen's ground, so the four are told apart when none wears the focus ring.
+// Only entry 0 differs: web/render.js paints the default background with it.
+const REST = [
+    "#aa1111", "#11aa11", "#aa5511",
+    "#1111aa", "#aa11aa", "#11aaaa", "#aaaaaa",
+    "#555555", "#ff5555", "#55ff55", "#ffff55",
+    "#5555ff", "#ff55ff", "#55ffff", "#ffffff",
+];
+const ground = (bg) => [bg, ...REST];
+
+const pane = (id, bg) => ({
+    canvas: document.getElementById(id),
+    keys: document.getElementById(`keys-${id}`),
+    ...(bg ? { palette: ground(bg) } : {}),
+});
+
+// Four screens of one kernel — TERM_MAX exactly: one scheduler, one filesystem,
+// one /home, and a shell, a console and a ^C of its own on each (Concept.md
+// §3.5). Several *kernels* on a page is the other arrangement: web/embed.html.
+try {
+    const term = mount({
+        screens: [
+            pane("nw"),                // render.js's own ground
+            pane("ne", "#0b1220"),     // the blue web/dual.html's lower screen has
+            pane("sw", "#0b1a12"),
+            pane("se", "#1a120b"),
+        ],
+        onLog: (text) => console.log(text),
+        onError: (text) => {
+            console.error(text);
+            note(text, "error");
+        },
+    });
+
+    // braam.js moves the focus and the ring on a click; this keeps the page's
+    // own flag in step, which is what shows the right key bar on a touch screen.
+    const names = ["nw", "ne", "sw", "se"];
+    for (let i = 0; i < term.screens.length; i++)
+        term.screens[i].canvas.addEventListener("pointerdown", () => {
+            document.body.dataset.pane = names[i];
+        });
+
+    term.focus(0);
+} catch (e) {
+    note(e.message, "error");
+}
+</script>
+</body>
+</html>

@@ -84,7 +84,8 @@ your own.
 `mount({ canvas })`. `web/embed.html` is a working example, and
 `web/dual.html` splits a window between two screens of one kernel —
 `mount({ screens: [ … ] })`, a shell and a `^C` of its own on each, over one
-filesystem.
+filesystem. `web/quad.html` is the same in a 2×2 of four, which is as many
+terminals as there can be.
 
 ## Building
 
