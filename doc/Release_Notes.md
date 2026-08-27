@@ -96,6 +96,47 @@ per waiter and removes the failed handle entirely. This was always a race — tw
 terminals only made it routine, and it is why `less /etc/help` on both screens
 at once works, which is the thing two kernels could never have done.
 
+**The screen left `/proc/host`.** The second thing two terminals found: `uname
+-a` printed `screen 124x28` on both, because the file it reformats built that
+line from `screen(*term_open(0))`. The comment above it argued the case — the
+file is the machine and not the caller, and a process asks `Sys::Tty` for its
+own — and the argument was sound while there was one screen and wrong the moment
+there were two. A machine with up to `TERM_MAX` grids has no geometry of its
+own, so the field was not per-caller, it was *not a machine fact at all*, and
+`/proc/host` now stops at `system`, `release`, `machine` and what the host said
+at boot.
+
+Three other shapes were considered and rejected. Plumbing the reader into
+procfs: `/proc` is generated at open and cannot know who is reading — that is
+why `cwd` is per-pid rather than the kernel's — and threading a caller through
+the VFS for one line is a large change to buy a small one. Keeping the line as
+terminal 0's and letting `uname` override it: `cat /proc/host` would still
+answer the wrong number on the lower screen, and a file that is only right when
+reformatted is worse than no field. Listing every terminal: it makes `uname -a`
+answer a question nobody asked, and `vmstat` still could not tell which of the
+list it was printing into.
+
+So `uname -a` prints the terminal it is running on after `machine`, where the
+field always was, and a one-screen page's output is byte-identical to what it
+was. Taking the field out did expose a second thing: the stored description
+carries a blank line, `cat /proc/host` had been showing it as a gap all along,
+and with nothing after `machine` it read as the hole the screen had left. It is
+not a row of the table — it is `banner_half`'s marker for how far down the boot
+grid the fields go — so procfs drops it on the way out and boot keeps reading it
+in the string it was always in.
+
+`uname -g` is the geometry on its own, the shape `-s`, `-r` and `-m` already
+had for the fields that are in the file, and the only one of the five that does
+not read `/proc/host` at all. It is what a script wants — `$(uname -g)` rather
+than `uname -a | grep screen` — and it is the answer to a question the file
+could not have held even before this: a size that is the caller's, not the
+machine's. Off the grid it prints nothing and exits 1, which is what a field
+that is not there already did. `vmstat`'s header repeat moved the same
+way and is more correct for it: it was sizing its output to terminal 0 and
+re-reading terminal 0 on every `SIG_WINCH`, and now follows the window the rows
+actually land in. Down a pipe both print no geometry, since `Sys::Tty` answers
+zero and a pipe has no width — the rule `ls` has always run by.
+
 **What is not here.** No way to move a process between terminals, no `chvt`, and
 no terminal that outlives the page. A second terminal's shell that exits is not
 replaced — the same rule terminal 0 has always had — and the page is what

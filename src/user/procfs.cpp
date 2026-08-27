@@ -7,7 +7,6 @@
 #include "kernel/alloc.h"
 #include "kernel/fmt.h"
 #include "kernel/sched.h"
-#include "kernel/screen.h"
 #include "kernel/text.h"
 #include "kernel/traits.h"
 #include "kernel/version.h"
@@ -198,20 +197,29 @@ bool generate(Str name, String &out)
         return out.append(b.str());
     }
 
-    // What this is and what it runs on, which `uname` reformats. The first four
+    // What this is and what it runs on, which `uname` reformats. The first three
     // the kernel knows for itself; the rest the host said at boot and boot kept,
     // since a browser does not change under a running tab.
     //
-    // The screen is read fresh every time — it moves with the window. Terminal
-    // 0's, since this file is the machine and not the caller; a process asks
-    // Sys::Tty for its own. Storage is not here at all: quota and usage are live
-    // figures, and `df` asks for them.
+    // No screen: a terminal is a process's (Proc::term), and Sys::Tty answers
+    // it. No storage: quota and usage are live, and `df` asks for them.
     if (name == "host") {
-        const Screen &s0 = screen(*term_open(0));
         b.put("system   braam\nrelease  ").put(BRAAM_VERSION);
-        b.put("\nmachine  wasm32\nscreen   ").put(s0.cols).put('x').put(s0.rows);
-        b.put('\n');
-        return out.append(b.str()) && out.append(host_facts());
+        b.put("\nmachine  wasm32\n");
+        if (!out.append(b.str()))
+            return false;
+
+        // The blank line in the stored text is banner_half's marker for how far
+        // the boot grid goes, not a row of this table.
+        Str rest = host_facts();
+        while (!rest.empty()) {
+            usize nl = rest.find('\n');
+            Str line = nl == Str::npos ? rest : rest.substr(0, nl + 1);
+            rest     = nl == Str::npos ? Str() : rest.substr(nl + 1);
+            if (line != "\n" && !out.append(line))
+                return false;
+        }
+        return true;
     }
 
     // prefix, kind, rw|ro, and the bytes the mount holds — which is what `df`

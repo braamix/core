@@ -36,7 +36,7 @@ export function check() {
     // string, so the whole file is deterministic.
     s = submit("clear", 1182);
     s = submit("cat /proc/host", 1183);
-    const host = rows(s);
+    const host = output(s);
     // A plain table, colons and all left to the boot banner: `uname` reads a
     // field out of this with next_field, so a name must not carry punctuation.
     if (host.some((line) => /^[a-z]+:/.test(line)))
@@ -46,8 +46,14 @@ export function check() {
             fail(`/proc/host is missing ${JSON.stringify(want)}: ${JSON.stringify(host)}`);
     if (!host.some((line) => /^release  \d+\.\d+\.\d+/.test(line)))
         fail(`/proc/host did not report the release: ${JSON.stringify(host)}`);
-    if (!host.includes(`screen   ${s.cols}x${s.rows}`))
-        fail(`/proc/host did not report the geometry: ${JSON.stringify(host)}`);
+    // No geometry in here: a terminal is a process's, and `uname -a` asks
+    // Sys::Tty for its own, which is checked below.
+    if (host.some((line) => line.startsWith("screen")))
+        fail(`/proc/host reports a geometry: ${JSON.stringify(host)}`);
+    // Every row is a field: the blank line in the stored text is how far the
+    // boot banner goes, and boot is the only reader of it.
+    if (host.some((line) => !line))
+        fail(`/proc/host has a blank row: ${JSON.stringify(host)}`);
 
     // `mount` is the same arrangement over /proc/mounts, and until now nothing
     // ran it. Every row the table publishes comes back reformatted.
@@ -90,13 +96,31 @@ export function check() {
     if (!rows(s).includes("wasm32"))
         fail(`uname -m printed ${JSON.stringify(rows(s))}, expected wasm32`);
 
-    // -a is every field, and the blank line splitting the banner's half from
-    // the rest is a marker rather than something to print.
+    // -g is the geometry alone, and the one field that is not in the file. Off
+    // the grid there is nothing to print, which is a missing field's status.
+    s = submit("clear", 1184.31);
+    s = submit("uname -g", 1184.32);
+    if (output(s).join("|") !== `${s.cols}x${s.rows}`)
+        fail(`uname -g printed ${JSON.stringify(output(s))}, expected ${s.cols}x${s.rows}`);
+    s = submit("clear", 1184.33);
+    s = submit("uname -g > /dev/null; echo $?", 1184.34);
+    if (output(s).join("|") !== "1")
+        fail(`uname -g into /dev/null printed ${JSON.stringify(output(s))}, expected 1`);
+
+    // -a is every field, with this terminal's geometry after `machine`, which
+    // is where the kernel's own end and the host's begin.
     s = submit("clear", 1184.4);
     s = submit("uname -a", 1184.5);
     const all = rows(s).filter((line) => line && !line.includes("$"));
     if (!all.includes("system   braam") || !all.includes("agent    fake"))
         fail(`uname -a printed ${JSON.stringify(all)}`);
+    if (all[all.indexOf("machine  wasm32") + 1] !== `screen   ${s.cols}x${s.rows}`)
+        fail(`uname -a did not report this terminal after machine: ${JSON.stringify(all)}`);
+
+    // Down a pipe there is no window to name, and the line is left out.
+    s = submit("clear", 1184.55);
+    if (output(submit("uname -a | cat", 1184.56)).some((line) => line.startsWith("screen")))
+        fail(`uname -a reported a geometry into a pipe: ${JSON.stringify(rows(s))}`);
     s = submit("uname -z", 1184.6);
     if (!rows(s).some((line) => line.startsWith("usage: uname ")))
         fail(`uname -z printed ${JSON.stringify(rows(s))}, expected a usage line`);

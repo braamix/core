@@ -82,7 +82,8 @@ Programs in /bin
   truncate  [-co] [-r <rfile>] [-s [+-<>/%]<size>] <file>...
             — set a file's length, growing it with zeros or shrinking it
   true      do nothing, and succeed
-  uname     [-a|-s|-r|-m] — name the system, and with -a the host it runs on
+  uname     [-a|-s|-r|-m|-g] — name the system, with -a the host it runs on
+            and -g this terminal's geometry
   unzip     [-l] [-p] [-d <dir>] <archive> [<name>...]
             — extract a zip, list it with -l, or print one entry with -p
   vmstat    [-s] [-m] [<secs> [<count>]] — what the kernel is doing, as rates

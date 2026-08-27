@@ -1,6 +1,7 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
 #include "proc/file.h"
+#include "proc/io.h"
 
 // The counters in /proc/stat as rates, the way BSD's vmstat prints them: one
 // open per row, the first row averaged over uptime and each later one over the
@@ -238,19 +239,6 @@ Task<Result<void>> summary(Str text)
     co_return {};
 }
 
-// The window's rows, for the header repeat. /proc/host says `screen <cols>x<rows>`.
-usize screen_rows(Str host)
-{
-    Str screen = value_of(host, "screen");
-    usize at   = 0;
-    while (at < screen.size() && screen[at] != 'x')
-        at++;
-    if (at == screen.size())
-        return FALLBACK_ROWS;
-    Option<u32> rows = parse_u32(screen.substr(at + 1));
-    return rows && rows.value() > 2 ? usize(rows.value()) : FALLBACK_ROWS;
-}
-
 constexpr Str USAGE = "usage: vmstat [-s] [-m] [-w <secs>] [-c <count>] [<secs> [<count>]]\n";
 
 } // namespace
@@ -350,17 +338,16 @@ Task<i32> proc_main(Args args)
         co_return 0;
     }
 
-    // The rows the window holds. SIG_WINCH is what BSD's vmstat needs a signal
-    // for and did not have here: the sleep between rows answers Err(Intr) and
-    // the count is asked for again.
+    // The rows this process's own terminal holds. SIG_WINCH is what BSD's
+    // vmstat needs a signal for and did not have here: the sleep between rows
+    // answers Err(Intr) and the count is asked for again.
     auto window = []() -> Task<usize> {
-        usize n = FALLBACK_ROWS;
-        if (Task<Result<String>> t = read_file("/proc/host")) {
-            Result<String> host = co_await t;
-            if (host.is_ok())
-                n = screen_rows(host.value().str());
-        }
-        co_return n;
+        Result<TtyInfo> tty = Err(Error::Unsupported);
+        if (Task<Result<TtyInfo>> t = tty_of(SYS_STDOUT))
+            tty = co_await t;
+        if (tty.is_err() || !tty.value().console || tty.value().at.rows <= 2)
+            co_return FALLBACK_ROWS;
+        co_return usize(tty.value().at.rows);
     };
 
     usize rows = FALLBACK_ROWS;

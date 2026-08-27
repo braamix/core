@@ -69,6 +69,19 @@ export function check() {
     if (out !== "shared")
         fail(`the first terminal read ${JSON.stringify(out)} of the second's file`);
 
+    // `uname -a` names the terminal it runs on, not terminal 0's: the geometry
+    // comes from Sys::Tty and the rest from /proc/host.
+    submit("clear", 30920, T);
+    const mine = output(submit("uname -a", 30930, T));
+    if (!mine.includes(`screen   ${screen(T).cols}x${screen(T).rows}`))
+        fail(`terminal ${T} named ${JSON.stringify(mine)}, expected its own 48x12`);
+    submit("clear", 30940);
+    const other = output(submit("uname -a", 30950));
+    if (!other.includes(`screen   ${screen(0).cols}x${screen(0).rows}`))
+        fail(`terminal 0 named ${JSON.stringify(other)}, expected its own grid`);
+    if (mine.join("|") === other.join("|"))
+        fail(`both terminals reported one geometry: ${JSON.stringify(mine)}`);
+
     // ^C is the console's, and each terminal has one. It cancels what is in
     // front of this terminal and leaves the other terminal's prompt alone.
     submit("clear", 31000, T);
