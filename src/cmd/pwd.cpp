@@ -1,4 +1,14 @@
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    pwd\n";
+
+} // namespace
 
 // A syscall rather than /proc/cwd, which is where this read until every process
 // got a working directory of its own (Concept.md §5.1). /proc is generated at
@@ -6,10 +16,11 @@
 // shell's cwd and only the kernel can say what *this* process's is.
 Task<i32> proc_main(Args args)
 {
-    if (args.size() > 1) {
-        co_await write_all(SYS_STDERR, "usage: pwd\n");
-        co_return 2;
-    }
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
+    if (args.size() > 1)
+        co_return co_await usage_error(USAGE);
 
     Result<String> r = Err(Error::NoMemory);
     if (Task<Result<String>> t = cwd_get())

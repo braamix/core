@@ -1,9 +1,22 @@
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    pbcopy [<file>...]\n";
+
+} // namespace
 
 // The clipboard belongs to the page, not the worker, so this crosses two
 // boundaries; a browser that refuses without a user gesture reports Perm.
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     Input files(args.tail(), SYS_STDIN, "pbcopy");
 
     String text;

@@ -81,7 +81,7 @@ export function check() {
 
     s = submit("clear", 1183.87);
     s = submit("mount /dev/zero; echo $?", 1183.88);
-    if (!rows(s).includes("usage: mount [special mount_point]"))
+    if (!rows(s).includes("    mount [<special> <dir>]"))
         fail(`mount of one printed ${JSON.stringify(rows(s))}`);
     if (!rows(s).includes("2"))
         fail(`mount of one exited ${JSON.stringify(rows(s))}, expected 2`);
@@ -122,7 +122,7 @@ export function check() {
     if (output(submit("uname -a | cat", 1184.56)).some((line) => line.startsWith("screen")))
         fail(`uname -a reported a geometry into a pipe: ${JSON.stringify(rows(s))}`);
     s = submit("uname -z", 1184.6);
-    if (!rows(s).some((line) => line.startsWith("usage: uname ")))
+    if (!rows(s).some((line) => line.startsWith("    uname ")))
         fail(`uname -z printed ${JSON.stringify(rows(s))}, expected a usage line`);
     if (!rows(s).includes(prompt(2)))
         fail(`uname -z left ${row(s, s.cursor_y)}, expected ${prompt(2)}`);

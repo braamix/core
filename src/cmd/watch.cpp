@@ -1,5 +1,7 @@
 #include "kernel/text.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 // Runs a command over and over, showing only its latest output. The one caller
 // of Sys::Pipe, and the reason the operation exists: a supervisor that wants
@@ -76,10 +78,20 @@ Task<Result<i32>> once(Args cmd, String &out)
     co_return done.value().status;
 }
 
+constexpr Str USAGE =
+    "Usage:\n"
+    "    watch [-m] [-n <seconds>] <command> [<arg>...]\n"
+    "Options:\n"
+    "    -n    seconds between runs, two by default\n"
+    "    -m    -n is milliseconds\n";
+
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     // -m and -n in either order, up to the command's first word.
     bool milli = false, bad = false;
     Option<u32> n = None;
@@ -105,8 +117,7 @@ Task<i32> proc_main(Args args)
     if (n.has_value() && !milli && n.value() > MAX_SECS)
         bad = true;
     if (bad || args.size() <= first) {
-        co_await write_all(SYS_STDERR, "usage: watch [-m] [-n <seconds>] <command> [<arg>...]\n");
-        co_return 2;
+        co_return co_await usage_error(USAGE);
     }
     u32 ms = DEFAULT_SECS * 1000;
     if (n.has_value())

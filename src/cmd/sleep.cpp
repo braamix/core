@@ -1,5 +1,7 @@
 #include "kernel/text.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 // Seconds, or milliseconds with -m.
 
@@ -7,10 +9,19 @@ namespace {
 
 constexpr u32 MAX_SECS = 4294967; // as many as convert to ms inside a u32
 
+constexpr Str USAGE =
+    "Usage:\n"
+    "    sleep [-m] <seconds>\n"
+    "Options:\n"
+    "    -m    the number is milliseconds\n";
+
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     usize i    = 1;
     bool milli = i < args.size() && args[i] == "-m";
     if (milli)
@@ -18,8 +29,7 @@ Task<i32> proc_main(Args args)
 
     Option<u32> n = args.size() == i + 1 ? parse_u32(args[i]) : None;
     if (!n.has_value() || (!milli && n.value() > MAX_SECS)) {
-        co_await write_all(SYS_STDERR, "usage: sleep [-m] <seconds>\n");
-        co_return 2;
+        co_return co_await usage_error(USAGE);
     }
     u32 ms = milli ? n.value() : n.value() * 1000;
 

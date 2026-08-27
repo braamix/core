@@ -2,10 +2,19 @@
 #include "proc/io.h"
 #include "proc/opt.h"
 #include "proc/size.h"
+#include "proc/usage.h"
 
 namespace {
 
-constexpr Str USAGE = "usage: truncate [-co] [-r <rfile>] [-s <size>] <file>...\n";
+constexpr Str USAGE =
+    "Usage:\n"
+    "    truncate [-co] [-r <rfile>] [-s <size>] <file>...\n"
+    "Options:\n"
+    "    -s    the length; K M G T are 1024, KB MB GB TB 1000\n"
+    "          + - < > / % before it work off the length now\n"
+    "    -r    take the length from this file instead\n"
+    "    -o    -s counts 512-byte blocks, not bytes\n"
+    "    -c    do not create a file that is not there\n";
 
 struct Want {
     SizeSpec spec;
@@ -62,6 +71,9 @@ Task<Result<void>> one(const Want &w, Str path)
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     Want w;
     Str rfile;
     bool blocks = false;
@@ -77,8 +89,7 @@ Task<i32> proc_main(Args args)
                 .put(o.name)
                 .put('\n');
             co_await write_all(SYS_STDERR, b.str());
-            co_await write_all(SYS_STDERR, USAGE);
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!r.value())
             break;
@@ -112,10 +123,8 @@ Task<i32> proc_main(Args args)
     }
 
     Args rest = p.rest();
-    if (rest.size() == 0 || (!w.sized && !w.ref)) {
-        co_await write_all(SYS_STDERR, USAGE);
-        co_return 2;
-    }
+    if (rest.size() == 0 || (!w.sized && !w.ref))
+        co_return co_await usage_error(USAGE);
 
     if (w.ref) {
         Result<FileInfo> st = Err(Error::NoMemory);

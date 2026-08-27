@@ -2,12 +2,17 @@
 #include "kernel/fmt.h"
 #include "proc/io.h"
 #include "proc/opt.h"
+#include "proc/usage.h"
 
 namespace {
 
 constexpr Str USAGE =
-    "usage: basename <path> [<suffix>]\n"
-    "       basename [-a] [-s <suffix>] <path>...\n";
+    "Usage:\n"
+    "    basename <path> [<suffix>]\n"
+    "    basename [-a] [-s <suffix>] <path>...\n"
+    "Options:\n"
+    "    -a    every operand is a path, none of them a suffix\n"
+    "    -s    strip this suffix, and imply -a\n";
 
 // Text, not a path: nothing here opens anything. path.cpp's path_basename
 // takes a normalised absolute path, so the trailing slashes go first.
@@ -34,6 +39,9 @@ Task<i32> proc_main(Args args)
     bool all = false;
     Str suffix;
 
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     OptParse p(args, Opts{ "a", "s" });
     for (Opt o;;) {
         Result<bool> r = p.next(o);
@@ -45,8 +53,7 @@ Task<i32> proc_main(Args args)
                 .put(o.name)
                 .put('\n');
             co_await write_all(SYS_STDERR, b.str());
-            co_await write_all(SYS_STDERR, USAGE);
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!r.value())
             break;
@@ -58,10 +65,8 @@ Task<i32> proc_main(Args args)
     // Without either flag a second operand is the suffix, and there is no third.
     Args rest  = p.rest();
     usize take = rest.size();
-    if (take == 0 || (!all && take > 2)) {
-        co_await write_all(SYS_STDERR, USAGE);
-        co_return 2;
-    }
+    if (take == 0 || (!all && take > 2))
+        co_return co_await usage_error(USAGE);
     if (!all && take == 2) {
         suffix = rest[1];
         take   = 1;

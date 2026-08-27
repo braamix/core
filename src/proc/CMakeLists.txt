@@ -13,6 +13,7 @@ add_library(braam_proc STATIC
     screen.cpp
     size.cpp
     time.cpp
+    usage.cpp
     ../fs/path.cpp
     ../kernel/alloc.cpp
     ../kernel/result.cpp

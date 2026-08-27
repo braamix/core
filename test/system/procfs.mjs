@@ -60,7 +60,7 @@ export function check() {
     if (ps.some((line) => Number(line.trim().split(" ")[0]) > 999999))
         fail(`ps listed a task outside the pid space: ${JSON.stringify(ps)}`);
     s = submit("ps -x", 1185.3);
-    if (!rows(s).includes("usage: ps") || !rows(s).includes(prompt(2)))
+    if (!rows(s).includes("    ps") || !rows(s).includes(prompt(2)))
         fail(`ps -x printed ${JSON.stringify(rows(s))}, expected a usage line`);
 
     // vmstat is the same counters as rates. This is the only place the rate
@@ -94,7 +94,7 @@ export function check() {
         fail(`vmstat -s did not total the syscalls: ${JSON.stringify(rows(s))}`);
 
     s = submit("vmstat -s 1", 1185.8);
-    if (!rows(s).includes("usage: vmstat [-s] [-m] [-w <secs>] [-c <count>] [<secs> [<count>]]"))
+    if (!rows(s).includes("    vmstat [-s] [-m] [-w <secs>] [-c <count>] [<secs> [<count>]]"))
         fail(`vmstat -s with an interval printed ${JSON.stringify(rows(s))}`);
 
     // BSD's other spelling of the same thing, and -c counts the first row, so

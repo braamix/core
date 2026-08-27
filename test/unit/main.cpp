@@ -50,6 +50,7 @@ void test_parse();
 void test_expand();
 void test_match();
 void test_opt();
+void test_help();
 void test_size();
 void test_path();
 void test_hostfs();
@@ -121,6 +122,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_match();
     test_cond();
     test_opt();
+    test_help();
     test_size();
     test_math();
     test_ftoa(); // after math: it stands on frexp, fmod and scalbn

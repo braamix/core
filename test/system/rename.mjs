@@ -55,7 +55,9 @@ export function check() {
         t.is("mv /home/m/gone /home/m/z", "mv: /home/m/gone: not found");
         t.is("mv /home/m/c /proc/x", "mv: /home/m/c: permission denied");
         t.is("mv /home/m/e /home/m/c", "mv: /home/m/e: not a directory");
-        t.is("mv /home/m/c /home/m/moved /home/m/e/x", "usage: mv [-fi] <src>... <dir>");
+        t.is("mv /home/m/c /home/m/moved /home/m/e/x", "Usage:|    mv [-fi] <src> <dst>|    mv [-fi] <src>... <dir>|Options:|" +
+                "    -f    replace what stands at the destination|" +
+                "    -i    ask before replacing it");
 
         // -i asks before it clobbers, and the answer decides.
         t.is("echo n | mv -i /home/m/c /home/m/e/x", "overwrite /home/m/e/x?");

@@ -39,8 +39,17 @@ export function check() {
     line("cp -r d f");
     is("test -h f/l && cat f/l", "one");
 
+    // Bare is asking rather than getting it wrong: 0, and nothing removed.
+    is("rm; echo $?", "Usage:|    rm [-r] <path>...|Options:|" +
+                      "    -r    remove directories, and what is in them|0");
+    is("cat a", "one");
+
     // Several sources need a directory to land in.
-    is("cp a n c", "usage: cp [-r] [-fi] [-n] <src>... <dir>");
+    is("cp a n c", "Usage:|    cp [-r] [-fi] [-n] <src> <dst>|    cp [-r] [-fi] [-n] <src>... <dir>|Options:|" +
+                "    -r    copy directories, and what is in them|" +
+                "    -f    replace what stands at the destination|" +
+                "    -i    ask before replacing it|" +
+                "    -n    keep it, and copy nothing over it");
     line("mkdir g");
     line("cp a n g");
     is("cat g/a g/n", "one|new");

@@ -314,7 +314,7 @@ Task<i32> proc_main(Args args)
 }
 ```
 
-Four conventions there, and every program in `src/cmd/` follows them:
+Five conventions there, and every program in `src/cmd/` follows them:
 
 - `Input` decides files-or-stdin in its constructor, and opens each named file
   only when the read reaches it, closing it before the next. A file that will
@@ -328,6 +328,22 @@ Four conventions there, and every program in `src/cmd/` follows them:
   to a `File` (`proc/file.h`), which is what stops each one costing a syscall.
   Where the whole output is one write, `write_all` is already that, and a
   `File` would only add a buffer to flush.
+
+- **A usage message is a block, and asking for one is not an error.** The text
+  is a `Usage:` heading, the synopsis indented four spaces, then `Options:`
+  and a row per letter. `usage_asked(USAGE)` writes it to stdout and returns 0;
+  `usage_error(USAGE)` writes it to stderr and returns 2. A program whose whole
+  command line is empty, or is `-h` or `--help`, is being asked rather than
+  getting it wrong:
+
+  ```cpp
+  if (args.size() == 1 || help_asked(args))
+      co_return co_await usage_asked(USAGE);
+  ```
+
+  A program that does real work with no arguments — `cat`, `ls`, `ps` — drops
+  the first half and keeps `help_asked`. Where `-h` is already the program's own
+  (`ls`, `df`), only `--help` asks.
 
 There is no `main`, no `argc`/`argv`, no `printf`, no `errno` and no exceptions.
 `args[0]` is the name the program was invoked by; `args.tail()` is everything
@@ -526,6 +542,9 @@ for (;;) {
 }
 Args paths = opts.rest();
 ```
+
+`help_asked(args)` is here too: true when `-h` or `--help` is the whole command
+line, so a file named `-h` is still an operand beside anything else.
 
 Two rules about descriptors, both of which the kernel enforces rather than
 trusts:

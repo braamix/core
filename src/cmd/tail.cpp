@@ -1,6 +1,8 @@
 #include "kernel/text.h"
 #include "kernel/vec.h"
 #include "proc/file.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 // A ring of the last `want` lines, so the input is read once and only the
 // answer is held.
@@ -10,6 +12,12 @@
 // syscalls, and its ring is in sixteen megabytes that are nobody else's.
 
 namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    tail [-n <count>] [<file>...]\n"
+    "Options:\n"
+    "    -n    how many lines; ten without it\n";
 
 // The most the window may grow to before the whole file is read instead.
 constexpr u64 TAIL_WINDOW_MAX = 1u << 20;
@@ -106,19 +114,20 @@ Task<Result<String>> tail_window(u32 fd, u32 want)
 
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     u32 want    = 10;
     usize first = 1;
     if (args.size() >= 3 && args[1] == "-n") {
         Option<u32> n = parse_u32(args[2]);
         if (!n.has_value()) {
-            co_await write_all(SYS_STDERR, "usage: tail [-n <count>] [<file>...]\n");
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         want  = n.value();
         first = 3;
     } else if (args.size() >= 2 && args[1].starts_with("-")) {
-        co_await write_all(SYS_STDERR, "usage: tail [-n <count>] [<file>...]\n");
-        co_return 2;
+        co_return co_await usage_error(USAGE);
     }
 
     Args paths{ args.v.subspan(first) };

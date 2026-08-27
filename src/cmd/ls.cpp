@@ -6,6 +6,7 @@
 #include "proc/file.h"
 #include "proc/opt.h"
 #include "proc/time.h"
+#include "proc/usage.h"
 
 // A listing, laid out for whatever stdout turns out to be: columns on the
 // terminal, one name per line into a pipe. The trailing slash on a directory is
@@ -19,7 +20,19 @@ constexpr Opts LS_OPTS{ "1CRSdhlrt", "" };
 constexpr usize GAP         = 2;   // between columns
 constexpr u32 WIDTH_DEFAULT = 80;  // -C with no terminal to measure
 constexpr u64 BLOCK         = 512; // FS_BLOCK, which is what `total` counts
-constexpr Str USAGE         = "usage: ls [-1CRSdhlrt] [<path>...]\n";
+constexpr Str USAGE =
+    "Usage:\n"
+    "    ls [-1CRSdhlrt] [<path>...]\n"
+    "Options:\n"
+    "    -l    one line each: kind, size, time, name\n"
+    "    -C    in columns; the default on a terminal\n"
+    "    -1    one name per line\n"
+    "    -R    descend into the directories listed\n"
+    "    -d    the directory itself, not what is in it\n"
+    "    -t    newest first\n"
+    "    -S    largest first\n"
+    "    -r    reverse whichever order is in force\n"
+    "    -h    scale the sizes for a reader\n";
 
 // "Mmm DD HH:MM" or "Mmm DD  YYYY", the two BSD forms, and the width of both.
 constexpr usize STAMP_W  = 12;
@@ -440,6 +453,10 @@ Task<i32> run(Lister &st, Args paths)
 
 Task<i32> proc_main(Args args)
 {
+    // -h is this program's own, so only the long spelling asks.
+    if (args.size() == 2 && args[1] == "--help")
+        co_return co_await usage_asked(USAGE);
+
     Lister *st = heap_new<Lister>();
     if (!st) {
         co_await write_all(SYS_STDERR, "ls: out of memory\n");
@@ -460,8 +477,7 @@ Task<i32> proc_main(Args args)
             Buf<64> b;
             b.put("ls: illegal option -- ").put(o.name).put('\n');
             co_await write_all(SYS_STDERR, b.str());
-            co_await write_all(SYS_STDERR, USAGE);
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!more.value())
             break;

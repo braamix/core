@@ -1,6 +1,8 @@
 #include "kernel/string.h"
 #include "proc/io.h"
+#include "proc/opt.h"
 #include "proc/rt.h"
+#include "proc/usage.h"
 
 // Prints the environment, or runs a command with it changed. The assignments a
 // shell's `x=1 prog` prefix does for one stage, spelled out — and the only way
@@ -46,10 +48,19 @@ bool build(Args adds, bool clean, String &store, Vec<Str> &out)
     return true;
 }
 
+constexpr Str USAGE =
+    "Usage:\n"
+    "    env [-i] [<name>=<value>...] [<command> [<arg>...]]\n"
+    "Options:\n"
+    "    -i    start from an empty environment\n";
+
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     usize at   = 1;
     bool clean = false;
     if (at < args.size() && args[at] == "-i") {

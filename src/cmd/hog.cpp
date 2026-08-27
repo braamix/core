@@ -1,12 +1,25 @@
 #include "kernel/alloc.h"
 #include "kernel/fmt.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    hog\n";
+
+} // namespace
 
 // Eats memory until the instance's ceiling refuses to move (Concept.md §4.1).
 // A kernel applet cannot do this experiment: its heap is the kernel's, and the
 // answer would be a dead system rather than a number.
-Task<i32> proc_main(Args)
+Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     // Whole spans, so the allocator asks memory.grow every time rather than
     // handing back a size class it already owns.
     constexpr usize CHUNK = 64 * 1024;

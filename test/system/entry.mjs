@@ -45,8 +45,14 @@ export function check() {
     t.is("sh -x -c 'echo hi'", "+ echo hi|hi");
     t.is("sh -e /home/s9/err.sh", "");
     t.is("sh /home/nosuch.sh; echo $?", "sh: /home/nosuch.sh: not found|127");
-    t.is("sh -z", "usage: sh [-eux] [-s | -c <command> | <file>] [<arg>...]");
-    t.is("sh -c", "usage: sh [-eux] [-s | -c <command> | <file>] [<arg>...]");
+    const shUsage = "Usage:|    sh [-eux] [-s | -c <command> | <file>] [<arg>...]|Options:|" +
+                    "    -c    run the argument as a command|" +
+                    "    -s    read commands from the input|" +
+                    "    -e    stop at the first command that fails|" +
+                    "    -u    a name that is not set is an error|" +
+                    "    -x    trace each command before it runs";
+    t.is("sh -z", shUsage);
+    t.is("sh -c", shUsage);
     // Parsed whole, as `.` is: a syntax error anywhere runs none of it.
     t.is("sh /home/s9/bad.sh; echo $?", "syntax error: expected 'then'|2");
     // ${x?} ends a script, which is what S9 decided and v7 does. The line it

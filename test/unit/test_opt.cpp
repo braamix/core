@@ -142,3 +142,38 @@ void test_opt()
         CHECK(err == Error::Invalid);
     }
 }
+
+void test_help()
+{
+    // Both spellings, and only as the whole line.
+    {
+        Str argv[] = { "rm", "-h" };
+        CHECK(help_asked(Args{ argv }));
+    }
+    {
+        Str argv[] = { "rm", "--help" };
+        CHECK(help_asked(Args{ argv }));
+    }
+    {
+        Str argv[] = { "rm" };
+        CHECK(!help_asked(Args{ argv }));
+    }
+    // A file named `-h` is still an operand, and a value is never argv[1].
+    {
+        Str argv[] = { "rm", "-h", "x" };
+        CHECK(!help_asked(Args{ argv }));
+    }
+    {
+        Str argv[] = { "basename", "-s", "-h", "x" };
+        CHECK(!help_asked(Args{ argv }));
+    }
+    // Neither is any other spelling of it.
+    {
+        Str argv[] = { "rm", "-help" };
+        CHECK(!help_asked(Args{ argv }));
+    }
+    {
+        Str argv[] = { "rm", "--h" };
+        CHECK(!help_asked(Args{ argv }));
+    }
+}

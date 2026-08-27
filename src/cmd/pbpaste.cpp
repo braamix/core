@@ -1,11 +1,21 @@
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    pbpaste\n";
+
+} // namespace
 
 Task<i32> proc_main(Args args)
 {
-    if (args.size() != 1) {
-        co_await write_all(SYS_STDERR, "usage: pbpaste\n");
-        co_return 2;
-    }
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+    if (args.size() != 1)
+        co_return co_await usage_error(USAGE);
 
     Result<String> got = Err(Error::NoMemory);
     if (Task<Result<String>> t = clip_get(false))

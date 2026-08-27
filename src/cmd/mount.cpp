@@ -1,11 +1,24 @@
 #include "kernel/fmt.h"
 #include "proc/file.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    mount [<special> <dir>]\n";
+
+} // namespace
 
 // Listing the table is /proc/mounts, which the kernel publishes as text, so no
 // operand reformats that rather than asking for an operation. Two operands are
 // the operation: Sys::Mount, which refuses until §5.4 has an Fs to build.
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     if (args.size() == 3) {
         Result<void> r = Err(Error::NoMemory);
         if (Task<Result<void>> t = mount_at(args[1], args[2]))
@@ -18,10 +31,8 @@ Task<i32> proc_main(Args args)
             co_await e;
         co_return 1;
     }
-    if (args.size() > 1) {
-        co_await write_all(SYS_STDERR, "usage: mount [special mount_point]\n");
-        co_return 2;
-    }
+    if (args.size() > 1)
+        co_return co_await usage_error(USAGE);
 
     Result<String> r = Err(Error::NoMemory);
     if (Task<Result<String>> t = read_file("/proc/mounts"))

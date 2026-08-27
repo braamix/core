@@ -1,11 +1,22 @@
 #include "fs/path.h"
 #include "proc/io.h"
 #include "proc/opt.h"
+#include "proc/usage.h"
 
 // The copy itself is proc/io.h's, shared with /bin/mv, which falls back to it
 // wherever the store will not rename.
 
 namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    cp [-r] [-fi] [-n] <src> <dst>\n"
+    "    cp [-r] [-fi] [-n] <src>... <dir>\n"
+    "Options:\n"
+    "    -r    copy directories, and what is in them\n"
+    "    -f    replace what stands at the destination\n"
+    "    -i    ask before replacing it\n"
+    "    -n    keep it, and copy nothing over it\n";
 
 struct Flags {
     bool recurse = false; // -r
@@ -101,13 +112,16 @@ Task<Result<void>> copy_one(Str from, Str to, Flags f, LineReader &answers)
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     Flags f;
     OptParse p(args, Opts{ "rRfin", "" });
     for (Opt o;;) {
         Result<bool> r = p.next(o);
         if (r.is_err()) {
             co_await write_all(SYS_STDERR, "cp: bad option\n");
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!r.value())
             break;
@@ -122,10 +136,8 @@ Task<i32> proc_main(Args args)
     }
 
     Args rest = p.rest();
-    if (rest.size() < 2) {
-        co_await write_all(SYS_STDERR, "usage: cp [-r] [-fi] [-n] <src>... <dst>\n");
-        co_return 2;
-    }
+    if (rest.size() < 2)
+        co_return co_await usage_error(USAGE);
 
     // Absolute throughout: copy_one compares its two paths, and a relative one
     // would not compare.
@@ -149,8 +161,7 @@ Task<i32> proc_main(Args args)
 
     bool into_dir = s.is_ok() && s.value().kind == SYS_KIND_DIR;
     if (!into_dir && rest.size() > 2) {
-        co_await write_all(SYS_STDERR, "usage: cp [-r] [-fi] [-n] <src>... <dir>\n");
-        co_return 2;
+        co_return co_await usage_error(USAGE);
     }
 
     Input replies(Args{}, SYS_STDIN, "cp");

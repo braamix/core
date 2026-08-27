@@ -1,4 +1,6 @@
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 // Sending and receiving are two waits at once, which is the whole reason a
 // process may have more than one task: the receiver is parked on the socket
@@ -34,14 +36,19 @@ Task<i32> receive(i32 fd)
     }
 }
 
+constexpr Str USAGE =
+    "Usage:\n"
+    "    chat <url> [<nick>]\n";
+
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
-    if (args.size() < 2 || args.size() > 3) {
-        co_await write_all(SYS_STDERR, "usage: chat <url> [<nick>]\n");
-        co_return 2;
-    }
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
+    if (args.size() > 3)
+        co_return co_await usage_error(USAGE);
 
     Result<i32> sock = Err(Error::NoMemory);
     if (Task<Result<i32>> t = ws_connect(args[1]))

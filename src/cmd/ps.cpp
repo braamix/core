@@ -1,6 +1,8 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
 #include "proc/file.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 // The tasks the scheduler is running that have a pid, from /proc/tasks — one
 // open, so every row describes the same moment. A worker is exactly a process,
@@ -14,6 +16,10 @@
 // column: nothing meters one.
 
 namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    ps\n";
 
 // A row inside eighty columns, the cwd taking whatever is left. NAME holds an
 // argv[0] and one space; a longer one is cut to the column. The two pid columns
@@ -122,10 +128,11 @@ Str last_field(Str line)
 
 Task<i32> proc_main(Args args)
 {
-    if (args.size() > 1) {
-        co_await write_all(SYS_STDERR, "usage: ps\n");
-        co_return 2;
-    }
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
+    if (args.size() > 1)
+        co_return co_await usage_error(USAGE);
 
     Result<String> r = Err(Error::NoMemory);
     if (Task<Result<String>> t = read_file("/proc/tasks"))

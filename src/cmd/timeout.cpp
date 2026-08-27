@@ -1,5 +1,7 @@
 #include "kernel/text.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 // Runs a command and kills it if it is still going after a delay. The first
 // program that supervises another one, which is what the process family of
@@ -32,10 +34,19 @@ Task<i32> alarm(u32 pid, u32 ms)
     co_return 0;
 }
 
+constexpr Str USAGE =
+    "Usage:\n"
+    "    timeout [-m] <seconds> <command> [<arg>...]\n"
+    "Options:\n"
+    "    -m    the number is milliseconds\n";
+
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     usize i    = 1;
     bool milli = i < args.size() && args[i] == "-m";
     if (milli)
@@ -43,8 +54,7 @@ Task<i32> proc_main(Args args)
 
     Option<u32> n = args.size() >= i + 2 ? parse_u32(args[i]) : None;
     if (!n.has_value() || (!milli && n.value() > MAX_SECS)) {
-        co_await write_all(SYS_STDERR, "usage: timeout [-m] <seconds> <command> [<arg>...]\n");
-        co_return 2;
+        co_return co_await usage_error(USAGE);
     }
     u32 ms = milli ? n.value() : n.value() * 1000;
     i++;

@@ -1,5 +1,10 @@
 #include "opt.h"
 
+bool help_asked(Args args)
+{
+    return args.size() == 2 && (args[1] == "-h" || args[1] == "--help");
+}
+
 Result<bool> OptParse::next(Opt &out)
 {
     if (at_ >= args_.size())

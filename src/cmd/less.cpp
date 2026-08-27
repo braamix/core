@@ -5,11 +5,17 @@
 #include "kernel/alloc.h"
 #include "kernel/fmt.h"
 #include "kernel/traits.h"
+#include "proc/opt.h"
 #include "proc/screen.h"
+#include "proc/usage.h"
 #include "ui/textbuf.h"
 #include "ui/view.h"
 
 namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    less [<file>]\n";
 
 // A heap block, not locals: a TextBuf and a TextView in the coroutine frame
 // would push it past the allocator's top size class (Concept.md §8.2).
@@ -43,10 +49,11 @@ void paint(Pager &p, ProcScreen &fs)
 
 Task<i32> proc_main(Args args)
 {
-    if (args.size() > 2) {
-        co_await write_all(SYS_STDERR, "usage: less [file]\n");
-        co_return 2;
-    }
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
+    if (args.size() > 2)
+        co_return co_await usage_error(USAGE);
 
     // Before the keyboard claim: a stage that will not page must not take the
     // keys from one that will.

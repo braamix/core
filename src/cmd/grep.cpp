@@ -1,4 +1,17 @@
 #include "proc/file.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    grep [-i] [-v] <text> [<file>...]\n"
+    "Options:\n"
+    "    -i    ignore case\n"
+    "    -v    print the lines that do not match\n";
+
+} // namespace
 
 namespace {
 
@@ -35,6 +48,9 @@ bool contains(Str hay, Str needle, bool fold)
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     bool invert = false, fold = false;
     usize i = 1;
     for (; i < args.size(); i++) {
@@ -45,10 +61,8 @@ Task<i32> proc_main(Args args)
         else
             break;
     }
-    if (i >= args.size()) {
-        co_await write_all(SYS_STDERR, "usage: grep [-i] [-v] <text> [<file>...]\n");
-        co_return 2;
-    }
+    if (i >= args.size())
+        co_return co_await usage_error(USAGE);
 
     Str pattern = args[i];
     Input files(Args{ args.v.subspan(i + 1) }, SYS_STDIN, "grep");

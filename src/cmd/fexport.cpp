@@ -1,14 +1,25 @@
 #include "fs/path.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    fexport <file> [<name>]\n";
+
+} // namespace
 
 // The way out (Concept.md §5.4): the file becomes a Blob and the browser
 // downloads it. The whole file is buffered, because a download is one Blob.
 Task<i32> proc_main(Args args)
 {
-    if (args.size() < 2 || args.size() > 3) {
-        co_await write_all(SYS_STDERR, "usage: fexport <file> [<name>]\n");
-        co_return 2;
-    }
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
+    if (args.size() > 3)
+        co_return co_await usage_error(USAGE);
 
     Input files(Args{ args.v.subspan(1, 1) }, SYS_STDIN, "fexport");
 

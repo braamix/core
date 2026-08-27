@@ -1,14 +1,22 @@
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    touch <file>...\n";
+
+} // namespace
 
 // Moves an existing file's mtime to now, and creates one that is not there. It
 // exists because `> file` is the only other way to make an empty file, and that
 // reads like a mistake.
 Task<i32> proc_main(Args args)
 {
-    if (args.size() < 2) {
-        co_await write_all(SYS_STDERR, "usage: touch <file>...\n");
-        co_return 2;
-    }
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
 
     i32 status = 0;
     for (usize i = 1; i < args.size(); i++) {

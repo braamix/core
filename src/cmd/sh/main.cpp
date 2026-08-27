@@ -2,6 +2,7 @@
 #include "kernel/text.h"
 #include "proc/io.h"
 #include "proc/opt.h"
+#include "proc/usage.h"
 #include "shell.h"
 
 // The shell, as a program like any other (Concept.md §4). There is no in-kernel
@@ -14,7 +15,15 @@
 // a script file is its own $0, and otherwise $0 is argv[0].
 namespace {
 
-constexpr Str USAGE = "usage: sh [-eux] [-s | -c <command> | <file>] [<arg>...]\n";
+constexpr Str USAGE =
+    "Usage:\n"
+    "    sh [-eux] [-s | -c <command> | <file>] [<arg>...]\n"
+    "Options:\n"
+    "    -c    run the argument as a command\n"
+    "    -s    read commands from the input\n"
+    "    -e    stop at the first command that fails\n"
+    "    -u    a name that is not set is an error\n"
+    "    -x    trace each command before it runs\n";
 
 } // namespace
 
@@ -22,13 +31,16 @@ Task<i32> proc_main(Args args)
 {
     ShellStart s;
 
+    // Bare `sh` is a shell, so only the long spelling asks.
+    if (args.size() == 2 && args[1] == "--help")
+        co_return co_await usage_asked(USAGE);
+
     OptParse opts(args, Opts{ "seux", "c" });
     Opt o;
     for (;;) {
         Result<bool> more = opts.next(o);
         if (more.is_err()) {
-            co_await write_all(SYS_STDERR, USAGE);
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!more.value())
             break;

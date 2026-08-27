@@ -1,11 +1,24 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    wc [<file>...]\n";
+
+} // namespace
 
 // Counts over the raw chunks, so nothing here depends on where a chunk breaks
 // — and a chunk now breaks where a syscall does rather than where a pipe did.
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     Input in(args.tail(), SYS_STDIN, "wc");
 
     u32 lines = 0, words = 0, bytes = 0;

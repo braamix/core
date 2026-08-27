@@ -1,6 +1,16 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    spin [<millions>]\n";
+
+} // namespace
 
 // A program that will not stop being asked to. It is what the worker is for
 // (Concept.md §4.2): between syscalls the kernel has no hold on a process at
@@ -12,6 +22,9 @@
 //                 exercised without waiting for a kill
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     // volatile because an infinite loop with no side effect is not required to
     // make progress, and clang is entitled to delete this one outright — the
     // demonstration would then quietly exit and prove nothing.

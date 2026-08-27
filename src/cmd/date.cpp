@@ -1,8 +1,16 @@
 #include "kernel/fmt.h"
 #include "proc/io.h"
+#include "proc/opt.h"
 #include "proc/time.h"
+#include "proc/usage.h"
 
 namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    date [-u]\n"
+    "Options:\n"
+    "    -u    UTC, rather than the local time\n";
 
 void put2(Buf<64> &b, u32 v)
 {
@@ -16,11 +24,12 @@ void put2(Buf<64> &b, u32 v)
 // syscall, so `date` asks each time rather than caching an origin.
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     bool utc = args.size() > 1 && args[1] == "-u";
-    if (args.size() > 2 || (args.size() == 2 && !utc)) {
-        co_await write_all(SYS_STDERR, "usage: date [-u]\n");
-        co_return 2;
-    }
+    if (args.size() > 2 || (args.size() == 2 && !utc))
+        co_return co_await usage_error(USAGE);
 
     Result<Clock> got = Err(Error::NoMemory);
     if (Task<Result<Clock>> t = clock_now())

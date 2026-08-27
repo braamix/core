@@ -3,6 +3,7 @@
 #include "kernel/fmt.h"
 #include "proc/io.h"
 #include "proc/opt.h"
+#include "proc/usage.h"
 
 // /bin/pkg's zip reader over an archive that need not be a package
 // (Package_Formats.md §5.2). §5.2 refuses an absolute, backslashed,
@@ -10,12 +11,13 @@
 
 namespace {
 
-constexpr Str USAGE = "Usage:\n"
-                      "    unzip [-l] [-p] [-d <dir>] <archive> [<name>...]\n"
-                      "Options:\n"
-                      "    -l    list files\n"
-                      "    -p    extract files to pipe, no messages\n"
-                      "    -d    extract files into dir\n";
+constexpr Str USAGE =
+    "Usage:\n"
+    "    unzip [-l] [-p] [-d <dir>] <archive> [<name>...]\n"
+    "Options:\n"
+    "    -l    list files\n"
+    "    -p    extract files to pipe, no messages\n"
+    "    -d    extract files into dir\n";
 
 // Nothing named takes every entry.
 bool wanted(Args names, Str entry)
@@ -189,6 +191,10 @@ Error why_of(ZipRead r)
 
 Task<i32> proc_main(Args args)
 {
+    // Asking, rather than getting it wrong: the block on stdout, and 0.
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     bool list = false, pipe = false;
     Str dest;
 
@@ -203,8 +209,7 @@ Task<i32> proc_main(Args args)
                 .put(o.name)
                 .put('\n');
             co_await write_all(SYS_STDERR, b.str());
-            co_await write_all(SYS_STDERR, USAGE);
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!r.value())
             break;
@@ -219,10 +224,8 @@ Task<i32> proc_main(Args args)
     // -l says what is in there and -p writes it out; asking for both says
     // nothing about which stdout is for.
     Args rest = p.rest();
-    if (rest.size() == 0 || (list && pipe)) {
-        co_await write_all(SYS_STDERR, USAGE);
-        co_return 2;
-    }
+    if (rest.size() == 0 || (list && pipe))
+        co_return co_await usage_error(USAGE);
 
     Str archive = rest[0];
     Args names{ rest.v.subspan(1) };

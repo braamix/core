@@ -38,13 +38,18 @@ export function check() {
     is("dirname /a /b/c", "/|/b");
     is("echo [$(dirname '')]", "[.]");
 
-    // Usage on stderr, and the status that says so. The second line of
-    // basename's is a continuation, so only the first is compared.
-    has("basename", "usage: basename <path> [<suffix>]");
-    is("basename a b c; echo $?", "usage: basename <path> [<suffix>]|" +
-                                  "       basename [-a] [-s <suffix>] <path>...|2");
-    is("basename -q x", "basename: illegal option -- q|" +
-                        "usage: basename <path> [<suffix>]|" +
-                        "       basename [-a] [-s <suffix>] <path>...");
-    is("dirname; echo $?", "usage: dirname <path>...|2");
+    // Asking is stdout and 0; getting it wrong is stderr and 2.
+    const base = "Usage:|    basename <path> [<suffix>]|" +
+                 "    basename [-a] [-s <suffix>] <path>...|Options:|" +
+                 "    -a    every operand is a path, none of them a suffix|" +
+                 "    -s    strip this suffix, and imply -a";
+    is("basename; echo $?", `${base}|0`);
+    is("basename -h; echo $?", `${base}|0`);
+    is("basename --help; echo $?", `${base}|0`);
+    is("basename a b c; echo $?", `${base}|2`);
+    is("basename -q x", `basename: illegal option -- q|${base}`);
+    is("dirname; echo $?", "Usage:|    dirname <path>...|0");
+    is("dirname -h; echo $?", "Usage:|    dirname <path>...|0");
+    // A file named -h is still an operand when it is not the only word.
+    is("dirname -h x", ".|.");
 }

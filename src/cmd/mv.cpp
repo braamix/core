@@ -1,8 +1,17 @@
 #include "fs/path.h"
 #include "proc/io.h"
 #include "proc/opt.h"
+#include "proc/usage.h"
 
 namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    mv [-fi] <src> <dst>\n"
+    "    mv [-fi] <src>... <dir>\n"
+    "Options:\n"
+    "    -f    replace what stands at the destination\n"
+    "    -i    ask before replacing it\n";
 
 struct Flags {
     bool force = false; // -f
@@ -104,13 +113,16 @@ Task<Result<void>> move_one(Str from, Str to, Flags f, LineReader &answers)
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     Flags f;
     OptParse p(args, Opts{ "fi", "" });
     for (Opt o;;) {
         Result<bool> r = p.next(o);
         if (r.is_err()) {
             co_await write_all(SYS_STDERR, "mv: bad option\n");
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!r.value())
             break;
@@ -121,10 +133,8 @@ Task<i32> proc_main(Args args)
     }
 
     Args rest = p.rest();
-    if (rest.size() < 2) {
-        co_await write_all(SYS_STDERR, "usage: mv [-fi] <src>... <dst>\n");
-        co_return 2;
-    }
+    if (rest.size() < 2)
+        co_return co_await usage_error(USAGE);
 
     // Absolute throughout: move_one compares its two paths, and a relative one
     // would not compare.
@@ -148,8 +158,7 @@ Task<i32> proc_main(Args args)
 
     bool into_dir = s.is_ok() && s.value().kind == SYS_KIND_DIR;
     if (!into_dir && rest.size() > 2) {
-        co_await write_all(SYS_STDERR, "usage: mv [-fi] <src>... <dir>\n");
-        co_return 2;
+        co_return co_await usage_error(USAGE);
     }
 
     Input replies(Args{}, SYS_STDIN, "mv");

@@ -1,8 +1,16 @@
 #include "fs/path.h"
 #include "proc/io.h"
 #include "proc/opt.h"
+#include "proc/usage.h"
 
 namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    ln -s [-f] <target> <name>\n"
+    "Options:\n"
+    "    -s    make a symbolic link, the only kind there is\n"
+    "    -f    replace a name already standing there\n";
 
 // One link, replacing what stands there when `force`.
 Task<Result<void>> link_one(Str target, Str name, bool force)
@@ -21,13 +29,16 @@ Task<Result<void>> link_one(Str target, Str name, bool force)
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     bool sym = false, force = false;
     OptParse p(args, Opts{ "sf", "" });
     for (Opt o;;) {
         Result<bool> r = p.next(o);
         if (r.is_err()) {
             co_await write_all(SYS_STDERR, "ln: bad option\n");
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!r.value())
             break;
@@ -38,10 +49,8 @@ Task<i32> proc_main(Args args)
     }
 
     Args rest = p.rest();
-    if (rest.size() < 2) {
-        co_await write_all(SYS_STDERR, "usage: ln -s <target> <name>\n");
-        co_return 2;
-    }
+    if (rest.size() < 2)
+        co_return co_await usage_error(USAGE);
 
     // No hard links: OPFS keeps no link count (Concept.md §5.2).
     if (!sym) {

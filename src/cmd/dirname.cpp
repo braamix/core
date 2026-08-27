@@ -1,8 +1,12 @@
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 namespace {
 
-constexpr Str USAGE = "usage: dirname <path>...\n";
+constexpr Str USAGE =
+    "Usage:\n"
+    "    dirname <path>...\n";
 
 // Text, not a path: nothing here opens anything. path.cpp's path_dirname takes
 // a normalised absolute path and answers "f" for "foo".
@@ -30,10 +34,8 @@ Str dir_of(Str p)
 
 Task<i32> proc_main(Args args)
 {
-    if (args.size() < 2) {
-        co_await write_all(SYS_STDERR, USAGE);
-        co_return 2;
-    }
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
 
     String out;
     for (usize i = 1; i < args.size(); i++)

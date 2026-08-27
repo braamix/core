@@ -16,7 +16,12 @@ const put = (name, text) => store.files.set(`${DIR}/${name}`, new TextEncoder().
 // which no terminal shows.
 const bytes = (name) => Array.from(store.files.get(`${DIR}/${name}`) ?? []).join(",");
 
-const USAGE = "usage: truncate [-co] [-r <rfile>] [-s <size>] <file>...";
+const USAGE = "Usage:|    truncate [-co] [-r <rfile>] [-s <size>] <file>...|Options:|" +
+              "    -s    the length; K M G T are 1024, KB MB GB TB 1000|" +
+              "          + - < > / % before it work off the length now|" +
+              "    -r    take the length from this file instead|" +
+              "    -o    -s counts 512-byte blocks, not bytes|" +
+              "    -c    do not create a file that is not there";
 
 // What `wc` says of a file with no whitespace in it: one word unless empty.
 const wc = (n) => (n ? `0 1 ${n}` : "0 0 0");
@@ -78,7 +83,10 @@ export function check() {
     is("truncate -s 1 n/x a; echo $?", "truncate: n/x: not found|1");
     is("wc a", wc(1));
 
-    // Neither -s nor -r is a usage error, and so is a size that is not one.
+    // Bare is asking: stdout and 0. An operand with neither -s nor -r is a
+    // usage error, and so is a size that is not one.
+    is("truncate; echo $?", `${USAGE}|0`);
+    is("truncate --help; echo $?", `${USAGE}|0`);
     is("truncate a; echo $?", `${USAGE}|2`);
     is("truncate -s zz a; echo $?", "truncate: zz: invalid|2");
     is("truncate -s /0 a; echo $?", "truncate: a: invalid|1");

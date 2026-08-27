@@ -39,17 +39,17 @@ export function check() {
     // A fraction has no parser, and a value that would not convert is refused.
     s = submit("clear", 1213);
     s = submit("sleep 0.5", 1214);
-    if (!rows(s).some((line) => line.startsWith("usage: sleep")))
+    if (!rows(s).some((line) => line.startsWith("    sleep ")))
         fail(`a fractional sleep gave ${JSON.stringify(rows(s))}, expected the usage line`);
     if (!rows(s).includes(prompt(2)))
         fail(`a fractional sleep left ${row(s, s.cursor_y)}, expected ${prompt(2)}`);
     s = submit("clear", 1215);
     s = submit("sleep 4294968", 1216);
-    if (!rows(s).some((line) => line.startsWith("usage: sleep")))
+    if (!rows(s).some((line) => line.startsWith("    sleep ")))
         fail(`a sleep past the millisecond range gave ${JSON.stringify(rows(s))}`);
     s = submit("clear", 1217);
     s = submit("sleep -m", 1218);
-    if (!rows(s).some((line) => line.startsWith("usage: sleep")))
+    if (!rows(s).some((line) => line.startsWith("    sleep ")))
         fail(`-m without a number gave ${JSON.stringify(rows(s))}, expected the usage line`);
 
     // An asynchronous reply really does park the task: hold the reply back and

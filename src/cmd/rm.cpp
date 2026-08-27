@@ -1,7 +1,22 @@
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    rm [-r] <path>...\n"
+    "Options:\n"
+    "    -r    remove directories, and what is in them\n";
+
+} // namespace
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     bool all = false;
     usize i  = 1;
     for (; i < args.size(); i++) {
@@ -10,10 +25,8 @@ Task<i32> proc_main(Args args)
         else
             break;
     }
-    if (i >= args.size()) {
-        co_await write_all(SYS_STDERR, "usage: rm [-r] <path>...\n");
-        co_return 2;
-    }
+    if (i >= args.size())
+        co_return co_await usage_error(USAGE);
 
     i32 status = 0;
     for (; i < args.size(); i++) {

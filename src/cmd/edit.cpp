@@ -9,7 +9,9 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
 #include "kernel/traits.h"
+#include "proc/opt.h"
 #include "proc/screen.h"
+#include "proc/usage.h"
 #include "ui/textbuf.h"
 #include "ui/view.h"
 
@@ -167,14 +169,19 @@ void set_want(Editor &e)
     e.want = e.buf.column(e.row, e.off);
 }
 
+constexpr Str USAGE =
+    "Usage:\n"
+    "    edit <file>\n";
+
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
-    if (args.size() != 2) {
-        co_await write_all(SYS_STDERR, "usage: edit <file>\n");
-        co_return 2;
-    }
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
+    if (args.size() != 2)
+        co_return co_await usage_error(USAGE);
 
     Editor *e = heap_new<Editor>();
     if (!e) {

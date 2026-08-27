@@ -1,16 +1,27 @@
 #include "fs/path.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    fimport [<dir>]\n";
+
+} // namespace
 
 // The universally available way in (Concept.md §5.4): a file picker, and the
 // bytes land in /import. The picker needs the page's transient activation,
 // which the keystroke that ran this command still holds.
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     Str dest = args.size() > 1 ? args[1] : Str("/import");
-    if (args.size() > 2) {
-        co_await write_all(SYS_STDERR, "usage: fimport [<dir>]\n");
-        co_return 2;
-    }
+    if (args.size() > 2)
+        co_return co_await usage_error(USAGE);
 
     Result<Chosen> got = Err(Error::NoMemory);
     if (Task<Result<Chosen>> t = pick())

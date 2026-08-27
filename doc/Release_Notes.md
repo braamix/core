@@ -29,6 +29,63 @@ first:
 
 ---
 
+## Every program says what it takes, and asking is not a mistake
+
+The entry below this one gave `unzip` a `Usage:` / `Options:` block and then
+drew a line: "the rest of `src/cmd/` keeps its one-liners… a judgement per
+program rather than a rule to apply across the tree." That was wrong, and this
+entry supersedes it. What changed the answer is `-h`: once a program can be
+*asked* for its usage, the message stops being what a reader gets after a
+mistake and becomes documentation, and documentation that is a block in one
+program and a line in the next is worse than either shape applied everywhere.
+So all forty-four binaries carry the block now, and the ones with no options
+carry the heading and the synopsis alone.
+
+The status is the larger half. `unzip` with no arguments printed its usage and
+exited 2, which says the user got something wrong. They did not — they asked a
+question, and 2 is the wrong answer to it. `/bin/pkg` has had the right one
+since 0.4: a bare `pkg` writes the block to **stdout** and returns **0**, and
+only a wrong option or an unknown command goes to stderr with 2. That split now
+holds for every program. It is two functions in
+[src/proc/usage.cpp](../src/proc/usage.cpp) — `usage_asked` and `usage_error` —
+rather than the two open-coded lines each site had, because sixty sites sharing
+a *policy* is not the same as two sites sharing a convenience: what is factored
+here is which stream and which status, and that is exactly what would drift.
+
+`-h` and `--help` are recognised as the whole command line and nowhere else —
+`help_asked` in [src/proc/opt.h](../src/proc/opt.h), which is where a command
+line is already read, and which is in the suite's syscall-free half, so it is a
+unit test rather than a system one. The narrowness is deliberate twice over.
+Requiring it to be `argv[1]` means a valued option's argument can never be
+mistaken for it: `basename -s -h x` strips `-h` as a suffix, as it always did,
+and nothing in `OptParse` or in any hand-rolled flag loop ever reads a value out
+of `argv[1]`. Requiring it to be the *only* word means `grep -h f` still
+searches for the literal `-h`, and `rm -h x` still removes a file called `-h`.
+What is lost is `-h` as a program's sole operand — `./-h` still reaches it.
+
+Five programs are left out, each because `-h` already means something there.
+`ls -h` and `df -h` scale their sizes, so only `--help` asks; `sh` is a shell
+when run bare, so it takes `--help` alone as well. `echo` must print its
+arguments verbatim, `test` reads `-h` as a file primary, and `true` and `false`
+ignore arguments by definition — those four take neither spelling. The first
+four also ship as shell builtins, and a builtin and its `/bin` twin cannot
+disagree.
+
+The cost is real and is accepted rather than overlooked: a bare `rm`, `cp`,
+`mkdir` or `touch` now succeeds. `rm $files` with an empty, unquoted `$files`
+was a status 2 and is now a silent 0. Nothing in this tree does that — the only
+script in `rootfs/` is `/bin/help` — and it is the same trade `/bin/pkg` took
+four releases ago. Treating a bare call as a question is not compatible with
+treating it as an error, and of the two the question is what people actually
+type.
+
+`/bin/pkg` itself is untouched, subcommand usage lines included: it was already
+this shape, and its rule differs in reading the command word after `-v` is
+stripped. The shell's twenty-six builtins keep their one-liners, which
+[doc/Shell.md](Shell.md) still describes correctly — a builtin has no `-h` to
+give, because a builtin that took one would shadow the name at a prompt and
+nowhere else.
+
 ## Four screens, and the ceiling reached
 
 `web/quad.html` is a 2×2 of four terminals of one kernel, each with a grid, a

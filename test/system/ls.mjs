@@ -109,6 +109,17 @@ export function check() {
     if (!rows(s).includes(prompt(2)))
         fail(`an unknown flag left ${row(s, s.cursor_y)}, expected ${prompt(2)}`);
 
+    // -h is this program's own, so only the long spelling asks. A bare ls
+    // lists, and asking is stdout and 0.
+    s = submit("clear", 1186.82);
+    s = submit("ls --help", 1186.83);
+    if (!output(s).includes("    ls [-1CRSdhlrt] [<path>...]") || !rows(s).includes(prompt(0)))
+        fail(`ls --help printed ${JSON.stringify(output(s))}, expected the usage block`);
+    s = submit("clear", 1186.84);
+    s = submit("ls -h /home/t", 1186.85);
+    if (output(s).some((line) => line.startsWith("Usage:")))
+        fail(`ls -h printed a usage block: ${JSON.stringify(output(s))}`);
+
     submit("rm -r /home/t", 1186.9);
 
     // mkdir -p: the walk over the components, which is make_dir_all in

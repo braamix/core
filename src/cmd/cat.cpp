@@ -1,9 +1,22 @@
 #include "proc/file.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    cat [<file>...]\n";
+
+} // namespace
 
 // Chunks, not lines: cat is byte-exact, so a last line without a newline stays
 // that way. Named files are read end to end as one stream.
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     Input files(args.tail(), SYS_STDIN, "cat");
     File in(files);
     File &out = File::stdout();

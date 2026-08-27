@@ -25,6 +25,9 @@ struct Opt {
     Str value;
 };
 
+// `-h` or `--help` as the whole command line.
+bool help_asked(Args args);
+
 // A cursor over argv, starting at argv[1]. The spec is held by value.
 struct OptParse {
     OptParse(Args args, Opts spec) : args_(args), spec_(spec) {}

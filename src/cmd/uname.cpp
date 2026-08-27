@@ -1,6 +1,8 @@
 #include "kernel/fmt.h"
 #include "proc/file.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 // The kernel publishes what the system is and what it runs on as /proc/host,
 // so this reformats that file rather than asking for an operation of its own —
@@ -15,7 +17,15 @@
 
 namespace {
 
-constexpr Str USAGE = "usage: uname [-a|-s|-r|-m|-g]\n";
+constexpr Str USAGE =
+    "Usage:\n"
+    "    uname [-a|-s|-r|-m|-g]\n"
+    "Options:\n"
+    "    -a    every field, and the host this runs on\n"
+    "    -s    the system name, which is what no flag prints\n"
+    "    -r    the release\n"
+    "    -m    the machine\n"
+    "    -g    this terminal's geometry\n";
 
 // The value of one `name value` line, or empty when the file has no such name.
 Str field(Str text, Str want)
@@ -66,17 +76,16 @@ Task<Result<Geometry>> grid()
 
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     Str flag;
-    if (args.size() > 2) {
-        co_await write_all(SYS_STDERR, USAGE);
-        co_return 2;
-    }
+    if (args.size() > 2)
+        co_return co_await usage_error(USAGE);
     if (args.size() == 2) {
         flag = args[1];
-        if (flag != "-a" && flag != "-s" && flag != "-r" && flag != "-m" && flag != "-g") {
-            co_await write_all(SYS_STDERR, USAGE);
-            co_return 2;
-        }
+        if (flag != "-a" && flag != "-s" && flag != "-r" && flag != "-m" && flag != "-g")
+            co_return co_await usage_error(USAGE);
     }
 
     // -g asks the terminal and not the file, so it is answered before the read.

@@ -107,7 +107,7 @@ export function check() {
         fail(`timeout in seconds left ${row(s, s.cursor_y)}, expected a bare prompt`);
     s = submit("clear", 9148.2);
     s = submit("watch -n 4294968 echo tick", 9148.3);
-    if (!rows(s).includes("usage: watch [-m] [-n <seconds>] <command> [<arg>...]"))
+    if (!rows(s).includes("    watch [-m] [-n <seconds>] <command> [<arg>...]"))
         fail(`a watch interval past the millisecond range gave ${JSON.stringify(rows(s))}`);
     if (others() !== 0)
         fail(`${others()} instances outlived watch`);

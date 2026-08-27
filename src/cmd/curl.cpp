@@ -1,5 +1,20 @@
 #include "kernel/fmt.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    curl [-i] [-X <method>] [-H <header>] [-d <data>] <url>\n"
+    "Options:\n"
+    "    -i    print the response headers before the body\n"
+    "    -X    the request method; GET by default, POST with -d\n"
+    "    -H    a request header, and again for a second\n"
+    "    -d    a request body\n";
+
+} // namespace
 
 // A relative URL resolves against the page, so `curl /index.html` works with no
 // network at all. A cross-origin one needs CORS, which is the wall a user meets
@@ -7,6 +22,9 @@
 // dead network, so `Perm` and `Io` each get the hint that fits.
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     bool show_head = false;
     String spec;
     String method;
@@ -32,11 +50,8 @@ Task<i32> proc_main(Args args)
         }
     }
 
-    if (i + 1 != args.size()) {
-        co_await write_all(SYS_STDERR,
-                           "usage: curl [-i] [-X <method>] [-H <header>] [-d <data>] <url>\n");
-        co_return 2;
-    }
+    if (i + 1 != args.size())
+        co_return co_await usage_error(USAGE);
 
     if (method.empty() && !method.assign(data.empty() ? Str("GET") : Str("POST")))
         co_return 1;

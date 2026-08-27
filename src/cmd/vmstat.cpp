@@ -2,6 +2,8 @@
 #include "kernel/text.h"
 #include "proc/file.h"
 #include "proc/io.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
 
 // The counters in /proc/stat as rates, the way BSD's vmstat prints them: one
 // open per row, the first row averaged over uptime and each later one over the
@@ -239,12 +241,22 @@ Task<Result<void>> summary(Str text)
     co_return {};
 }
 
-constexpr Str USAGE = "usage: vmstat [-s] [-m] [-w <secs>] [-c <count>] [<secs> [<count>]]\n";
+constexpr Str USAGE =
+    "Usage:\n"
+    "    vmstat [-s] [-m] [-w <secs>] [-c <count>] [<secs> [<count>]]\n"
+    "Options:\n"
+    "    -s    the totals since boot, instead of rates\n"
+    "    -m    the interval is milliseconds\n"
+    "    -w    seconds between samples\n"
+    "    -c    how many samples; without it, until ^C\n";
 
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     bool sum = false, milli = false, bad = false;
     u32 interval = 0, reps = 0; // reps 0 is "until ^C"
 
@@ -305,10 +317,8 @@ Task<i32> proc_main(Args args)
     if (!milli && interval > MAX_SECS)
         bad = true;
 
-    if (bad) {
-        co_await write_all(SYS_STDERR, USAGE);
-        co_return 2;
-    }
+    if (bad)
+        co_return co_await usage_error(USAGE);
 
     // A count without an interval paces itself, as BSD's does; a second either way.
     if (reps && !interval)

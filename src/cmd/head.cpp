@@ -1,26 +1,40 @@
 #include "kernel/text.h"
 #include "proc/file.h"
+#include "proc/opt.h"
+#include "proc/usage.h"
+
+namespace {
+
+constexpr Str USAGE =
+    "Usage:\n"
+    "    head [-n <count>] [-c <count>] [<file>...]\n"
+    "Options:\n"
+    "    -n    how many lines; ten without it\n"
+    "    -c    how many bytes instead\n";
+
+} // namespace
 
 // Returning early is what stops the producer upstream: the stage runner hangs
 // up this program's input, and the next write on the other side reports Closed.
 // That is also what ends `cat /dev/random | head -c 8`.
 Task<i32> proc_main(Args args)
 {
+    if (help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     u32 want    = 10;
     bool bytes  = false;
     usize first = 1;
     if (args.size() >= 3 && (args[1] == "-n" || args[1] == "-c")) {
         Option<u32> n = parse_u32(args[2]);
         if (!n.has_value()) {
-            co_await write_all(SYS_STDERR, "usage: head [-n <count>] [-c <count>] [<file>...]\n");
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         bytes = args[1] == "-c";
         want  = n.value();
         first = 3;
     } else if (args.size() >= 2 && args[1].starts_with("-")) {
-        co_await write_all(SYS_STDERR, "usage: head [-n <count>] [-c <count>] [<file>...]\n");
-        co_return 2;
+        co_return co_await usage_error(USAGE);
     }
 
     Input files(Args{ args.v.subspan(first) }, SYS_STDIN, "head");

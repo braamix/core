@@ -1,6 +1,7 @@
 #include "kernel/fmt.h"
 #include "kernel/text.h"
 #include "proc/file.h"
+#include "proc/usage.h"
 
 // The mount table (Concept.md §5.3), as BSD prints it. The mounts come from
 // /proc, which is text; the quota and the usage are a syscall, because ProcFs
@@ -49,15 +50,23 @@ void put_human(Buf<128> &out, u64 bytes, usize w)
     out.put_right(t.str(), w);
 }
 
+constexpr Str USAGE =
+    "Usage:\n"
+    "    df [-h]\n"
+    "Options:\n"
+    "    -h    scale the sizes for a reader\n";
+
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
+    // -h is this program's own, so only the long spelling asks.
+    if (args.size() == 2 && args[1] == "--help")
+        co_return co_await usage_asked(USAGE);
+
     bool human_sizes = false;
-    if (args.size() > 2 || (args.size() == 2 && args[1] != "-h")) {
-        co_await write_all(SYS_STDERR, "usage: df [-h]\n");
-        co_return 2;
-    }
+    if (args.size() > 2 || (args.size() == 2 && args[1] != "-h"))
+        co_return co_await usage_error(USAGE);
     if (args.size() == 2)
         human_sizes = true;
 

@@ -53,20 +53,30 @@ export function check() {
     is("unzip /home/junk.zip", "unzip: /home/junk.zip: invalid");
     is("unzip /home/z", "unzip: /home/z: is a directory");
 
-    // A usage error is 2, and -l with -p says nothing about which stdout is
-    // for.
+    // Bare is asking, not getting it wrong: the block on stdout, and 0. A
+    // usage error is 2, and -l with -p says nothing about which stdout is for.
+    const block = ["Usage:",
+                   "    unzip [-l] [-p] [-d <dir>] <archive> [<name>...]",
+                   "Options:",
+                   "    -l    list files",
+                   "    -p    extract files to pipe, no messages",
+                   "    -d    extract files into dir"];
+    for (const word of ["unzip", "unzip -h", "unzip --help"]) {
+        submit("clear", at());
+        let s = submit(word, at());
+        for (const want of block)
+            if (!rows(s).includes(want))
+                fail(`${word} printed ${JSON.stringify(rows(s))}, expected ${JSON.stringify(want)}`);
+        if (rows(s).includes(prompt(2)))
+            fail(`${word} left ${row(s, s.cursor_y)}, expected a status of 0`);
+    }
+
+    // It is stdout, so it redirects.
     submit("clear", at());
-    let s = submit("unzip", at());
-    for (const want of ["Usage:",
-                        "    unzip [-l] [-p] [-d <dir>] <archive> [<name>...]",
-                        "Options:",
-                        "    -l    list files",
-                        "    -p    extract files to pipe, no messages",
-                        "    -d    extract files into dir"])
-        if (!rows(s).includes(want))
-            fail(`unzip printed ${JSON.stringify(rows(s))}, expected ${JSON.stringify(want)}`);
-    if (!rows(s).includes(prompt(2)))
-        fail(`unzip left ${row(s, s.cursor_y)}, expected ${prompt(2)}`);
+    let s = submit("unzip > /home/u.txt; head -n 1 /home/u.txt", at());
+    if (!rows(s).includes("Usage:"))
+        fail(`unzip did not redirect its usage: ${JSON.stringify(rows(s))}`);
+    submit("rm /home/u.txt", at());
 
     submit("clear", at());
     s = submit("unzip -l -p /home/a.zip", at());

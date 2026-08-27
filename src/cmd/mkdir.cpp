@@ -1,15 +1,23 @@
 #include "kernel/fmt.h"
 #include "proc/io.h"
 #include "proc/opt.h"
+#include "proc/usage.h"
 
 namespace {
 
-constexpr Str USAGE = "usage: mkdir [-p] <dir>...\n";
+constexpr Str USAGE =
+    "Usage:\n"
+    "    mkdir [-p] <dir>...\n"
+    "Options:\n"
+    "    -p    make missing parents, and pass over one there\n";
 
 } // namespace
 
 Task<i32> proc_main(Args args)
 {
+    if (args.size() == 1 || help_asked(args))
+        co_return co_await usage_asked(USAGE);
+
     bool parents = false;
     OptParse p(args, Opts{ "p", "" });
     for (Opt o;;) {
@@ -18,8 +26,7 @@ Task<i32> proc_main(Args args)
             Buf<64> b;
             b.put("mkdir: illegal option -- ").put(o.name).put('\n');
             co_await write_all(SYS_STDERR, b.str());
-            co_await write_all(SYS_STDERR, USAGE);
-            co_return 2;
+            co_return co_await usage_error(USAGE);
         }
         if (!r.value())
             break;
@@ -27,10 +34,8 @@ Task<i32> proc_main(Args args)
     }
 
     Args rest = p.rest();
-    if (rest.size() == 0) {
-        co_await write_all(SYS_STDERR, USAGE);
-        co_return 2;
-    }
+    if (rest.size() == 0)
+        co_return co_await usage_error(USAGE);
 
     i32 status = 0;
     for (usize i = 0; i < rest.size(); i++) {
