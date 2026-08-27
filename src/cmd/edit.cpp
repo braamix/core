@@ -146,7 +146,7 @@ void paint(Editor &e, ProcScreen &fs)
         line.put("  ^S saves, ^Q quits");
 
     Pane bar = fs.status();
-    bar.style(COLOR_BLACK, COLOR_WHITE);
+    bar.style(COLOR_BLACK, COLOR_CYAN);
     bar.move(0, 0);
     bar.write(line.str());
     bar.fill_row();

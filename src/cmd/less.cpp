@@ -33,7 +33,7 @@ void paint(Pager &p, ProcScreen &fs)
     line.put(shown == lines ? "END  " : "").put("— q quits, arrows and PgUp/PgDn scroll");
 
     Pane bar = fs.status();
-    bar.style(COLOR_BLACK, COLOR_WHITE);
+    bar.style(COLOR_BLACK, COLOR_CYAN);
     bar.move(0, 0);
     bar.write(line.str());
     bar.fill_row();

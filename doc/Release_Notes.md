@@ -29,6 +29,25 @@ first:
 
 ---
 
+## A status line that is not the colour of text
+
+`less` and `edit` painted their bottom line black on `COLOR_WHITE`, which is the
+white ordinary text is already written in and the white the boot banner uses.
+The bar was in the right place and the right shape, and it still read as a row
+of inverted text rather than as a band belonging to the program. It is now black
+on `COLOR_CYAN` — index 6, a background nothing else in the tree paints on — so
+the one row that is the program's own is the one row no other output can be
+confused with.
+
+Nothing but the two `Pane::style` calls changed. The bar is sticky style plus
+`fill_row`, so the padding past the end of the text carries the colour without
+being told, and the two programs keep the four-line idiom each already had
+rather than gaining a shared helper in `src/ui/`: two call sites is not yet a
+pattern, and factoring one would fix the palette for every full-screen program
+before there is a second kind of bar to weigh it against. The shell prompt and
+the boot banner are deliberately untouched — neither is the bottom line of a
+program that owns the screen.
+
 ## A usage message that says what the options do
 
 `unzip`'s usage was one line naming three options and explaining none of them,
