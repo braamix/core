@@ -29,6 +29,42 @@ first:
 
 ---
 
+## Esc is not a composition, and the keyboard does not end with one
+
+Typing at the shell and then pressing Esc left the terminal deaf: nothing typed
+after it arrived, and the way back was a copy and a paste, or a click on the
+canvas. Two separate faults, both in the hidden textarea `web/braam.js` reads
+the keyboard through, and both about an input method that is not there.
+
+The first is a composition that never closes. The sink guards *both* key routes
+on one — `onKeyDown` returned on `event.isComposing`, and `onInput` returned on
+the `composing` flag `compositionstart` sets — because an IME's keystrokes
+arrive twice otherwise, once as a key and again as the text it composed. Chrome
+cancels a composition on Esc **without firing `compositionend`**, so the flag
+stayed up; worse, every `keydown` after it still reported `isComposing`, so the
+browser's own flag was no more trustworthy than ours. Both routes were then shut
+for good, and `resetSink()` — guarded on the same flag — stopped restoring the
+sentinel, so the sink silently accumulated the text nobody was reading. A paste
+survived because `onPaste` has no such guard and the browser's insertion closes
+the composition, which is why copy-and-paste appeared to repair a keyboard.
+
+So Esc now ends a composition whatever the engine says (`endComposing`), and the
+guard reads what the composition *events* said rather than `event.isComposing`.
+The cost is that an Esc which cancelled a composition also reaches the program.
+For a terminal that is the wanted answer — vi needs the key more than an input
+method needs it swallowed — and braam has no IME integration of its own to
+consult; where `compositionend` does fire it fires first, and the key is guarded
+out as it always was.
+
+The second is the focus. Cancelling a composition blurs the sink on some
+engines, and a blurred sink reads no keys at all — hence the click. `keepFocus`
+takes the focus back a turn after an Esc, a turn because the blur follows the
+handler rather than preceding it. It only ever takes it *back*: a sink that
+still holds the focus is left alone, so nothing is stolen from the rest of the
+page. Neither fault reproduces in headless Chrome without driving
+`Input.imeSetComposition` by hand, which is why the guard was written the way it
+was and why the repair is defensive rather than a condition to detect.
+
 ## Every program says what it takes, and asking is not a mistake
 
 The entry below this one gave `unzip` a `Usage:` / `Options:` block and then

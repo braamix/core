@@ -149,6 +149,14 @@ function makePane(session, spec, term) {
         sink.focus({ preventScroll: true });
     }
 
+    // The focus back, after a turn in which the engine may have dropped it —
+    // cancelling a composition blurs on some. Taken back, never taken: a sink
+    // that still holds it is left alone.
+    function keepFocus() {
+        if (document.activeElement !== sink)
+            focusSink();
+    }
+
     // The right-click menu is the browser's own, and it acts on what the
     // pointer is over — so the sink covers the canvas for the length of a
     // secondary press (§3.5). The timer restores it when no menu follows.
@@ -243,6 +251,17 @@ function makePane(session, spec, term) {
             return;
         sink.value = SENTINEL + selection;
         sink.setSelectionRange(SENTINEL.length, sink.value.length);
+    }
+
+    // A composition the engine opened and never closed: Chrome cancels one on
+    // Esc without firing compositionend, so the flag stays up, every keydown
+    // after it still reports isComposing, and both key routes are shut for
+    // good. Esc ends one whatever the engine says.
+    function endComposing() {
+        if (!composing)
+            return;
+        composing = false;
+        resetSink();
     }
 
     // Any input drops the selection, here as in the worker.
@@ -452,10 +471,20 @@ function makePane(session, spec, term) {
     // Scoped to the sink rather than the window: a terminal shares its page,
     // and two of them must not both read the same keystroke.
     function onKeyDown(event) {
+        // Esc ends a composition (endComposing), and the engine that cancels
+        // one may blur with it. The focus is checked a turn later, since the
+        // blur follows this handler.
+        if (event.key === "Escape") {
+            endComposing();
+            setTimeout(keepFocus, 0);
+        }
+
         // A soft keyboard reports a key it has not decided on yet — GBoard
         // sends keyCode 229 with key "Unidentified". Those arrive as input
-        // events instead.
-        if (event.isComposing || event.keyCode === 229 || event.key === "Unidentified")
+        // events instead. What is open is what the composition events said,
+        // not event.isComposing — an engine leaves that set on every key
+        // after a cancelled composition.
+        if (composing || event.keyCode === 229 || event.key === "Unidentified")
             return;
 
         // Ctrl+C — Cmd+C on a Mac — copies when there is a selection, and is
