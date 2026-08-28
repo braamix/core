@@ -823,3 +823,227 @@ bool FileRead::await_ready()
     }
     return false;
 }
+
+// ------------------------------------------------------------- scanning
+//
+// One byte of lookahead is all these need, and one byte is all the buffer
+// promises to take back: fill_() carries at most four bytes across a refill on
+// an Input-backed stream, so a scanner that wanted a whole field in hand at
+// once could not have it. They read a byte at a time instead and stop on the
+// first that does not belong.
+
+// The next byte without consuming it. Err(Closed) at end of input.
+Task<Result<char>> File::peek_()
+{
+    if (!clean())
+        co_return Err(err_);
+    if (!readable_())
+        co_return Err(fail_(Error::Invalid));
+
+    while (!buf_.ready() || buf_.empty()) {
+        Task<Result<usize>> t = fill_();
+        if (!t)
+            co_return Err(fail_(Error::NoMemory));
+        Result<usize> r = co_await t;
+        if (r.is_err())
+            co_return Err(fail_(r.error()));
+    }
+    co_return buf_.held()[0];
+}
+
+Task<Result<void>> File::skip_space()
+{
+    for (;;) {
+        Task<Result<char>> t = peek_();
+        if (!t)
+            co_return Err(fail_(Error::NoMemory));
+        Result<char> c = co_await t;
+        if (c.is_err())
+            co_return c.error() == Error::Closed ? Result<void>{} : Result<void>(Err(c.error()));
+        if (!is_space(c.value()))
+            co_return Result<void>{};
+        buf_.consume(1);
+    }
+}
+
+Task<Result<bool>> File::scan_lit(char want)
+{
+    Task<Result<char>> t = peek_();
+    if (!t)
+        co_return Err(fail_(Error::NoMemory));
+    Result<char> c = co_await t;
+    if (c.is_err())
+        co_return c.error() == Error::Closed ? Result<bool>(false) : Result<bool>(Err(c.error()));
+    if (c.value() != want)
+        co_return false; // not taken, so nothing to put back
+    buf_.consume(1);
+    co_return true;
+}
+
+// The run both token scanners are: bytes while `keep` accepts them.
+Task<Result<bool>> File::scan_run_(String &out, bool (*keep)(char, Str), Str arg, usize width)
+{
+    usize n = 0;
+
+    out.clear();
+    for (;;) {
+        if (width && n >= width)
+            break;
+        Task<Result<char>> t = peek_();
+        if (!t)
+            co_return Err(fail_(Error::NoMemory));
+        Result<char> c = co_await t;
+        if (c.is_err()) {
+            if (c.error() != Error::Closed)
+                co_return Err(c.error());
+            break;
+        }
+        if (!keep(c.value(), arg))
+            break;
+        if (!out.append(Str(buf_.held().data(), 1)))
+            co_return Err(fail_(Error::NoMemory));
+        buf_.consume(1);
+        n++;
+    }
+    co_return n != 0;
+}
+
+static bool keep_nonspace(char c, Str)
+{
+    return !is_space(c);
+}
+
+static bool keep_outside(char c, Str stop)
+{
+    return stop.find(c) == Str::npos;
+}
+
+Task<Result<bool>> File::scan_token(String &out, usize width)
+{
+    Task<Result<void>> s = skip_space();
+    if (!s)
+        co_return Err(fail_(Error::NoMemory));
+    if (Result<void> r = co_await s; r.is_err())
+        co_return Err(r.error());
+
+    Task<Result<bool>> t = scan_run_(out, keep_nonspace, Str(), width);
+    if (!t)
+        co_return Err(fail_(Error::NoMemory));
+    co_return co_await t;
+}
+
+Task<Result<bool>> File::scan_until(String &out, Str stop, usize width)
+{
+    Task<Result<bool>> t = scan_run_(out, keep_outside, stop, width);
+    if (!t)
+        co_return Err(fail_(Error::NoMemory));
+    co_return co_await t;
+}
+
+// The digits, one at a time. `base` 0 reads C's prefix; a "0x" with no hex
+// digit behind it is Err(Invalid) rather than a zero and a pushed-back 'x',
+// which is the one-pass rule the header states.
+Task<Result<u64>> File::scan_number_(u32 base, usize width, bool &neg)
+{
+    u64 v    = 0;
+    usize n  = 0;
+    bool any = false;
+
+    neg = false;
+
+    Task<Result<void>> sp = skip_space();
+    if (!sp)
+        co_return Err(fail_(Error::NoMemory));
+    if (Result<void> r = co_await sp; r.is_err())
+        co_return Err(r.error());
+
+    auto next = [&]() -> Task<Result<char>> {
+        Task<Result<char>> t = peek_();
+        if (!t)
+            co_return Err(Error::NoMemory);
+        co_return co_await t;
+    };
+
+    Result<char> c = co_await next();
+    if (c.is_ok() && (c.value() == '-' || c.value() == '+') && (!width || n < width)) {
+        neg = c.value() == '-';
+        buf_.consume(1);
+        n++;
+        c = co_await next();
+    }
+
+    if (c.is_ok() && c.value() == '0' && (base == 0 || base == 16 || base == 2)) {
+        buf_.consume(1);
+        n++;
+        v   = 0;
+        any = true;
+        c   = co_await next();
+        if (c.is_ok() && (c.value() == 'x' || c.value() == 'X') && (base == 0 || base == 16)) {
+            base = 16;
+            any  = false;
+            buf_.consume(1);
+            n++;
+            c = co_await next();
+        } else if (c.is_ok() && (c.value() == 'b' || c.value() == 'B') && base == 0) {
+            base = 2;
+            any  = false;
+            buf_.consume(1);
+            n++;
+            c = co_await next();
+        } else if (base == 0) {
+            base = 8;
+        }
+    } else if (base == 0) {
+        base = 10;
+    }
+
+    for (; c.is_ok(); c = co_await next()) {
+        if (width && n >= width)
+            break;
+        u32 d;
+        char ch = c.value();
+        if (ch >= '0' && ch <= '9')
+            d = u32(ch - '0');
+        else if (ch >= 'a' && ch <= 'z')
+            d = u32(ch - 'a') + 10;
+        else if (ch >= 'A' && ch <= 'Z')
+            d = u32(ch - 'A') + 10;
+        else
+            break;
+        if (d >= base)
+            break;
+        v = v * base + d;
+        buf_.consume(1);
+        n++;
+        any = true;
+    }
+    if (c.is_err() && c.error() != Error::Closed)
+        co_return Err(c.error());
+    if (!any)
+        co_return Err(fail_(Error::Invalid));
+    co_return v;
+}
+
+Task<Result<i64>> File::scan_i64(u32 base, usize width)
+{
+    bool neg;
+    Task<Result<u64>> t = scan_number_(base, width, neg);
+    if (!t)
+        co_return Err(fail_(Error::NoMemory));
+    Result<u64> r = co_await t;
+    if (r.is_err())
+        co_return Err(r.error());
+    co_return neg ? -i64(r.value()) : i64(r.value());
+}
+
+Task<Result<u64>> File::scan_u64(u32 base, usize width)
+{
+    bool neg;
+    Task<Result<u64>> t = scan_number_(base, width, neg);
+    if (!t)
+        co_return Err(fail_(Error::NoMemory));
+    Result<u64> r = co_await t;
+    if (r.is_err())
+        co_return Err(r.error());
+    co_return neg ? u64(-i64(r.value())) : r.value();
+}

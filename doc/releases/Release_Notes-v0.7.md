@@ -1114,3 +1114,54 @@ rather than approximately true — and every fix costs either mutable state in a
 file that is pure by design or a shell-specific name list inside an expander
 that deliberately does not know what a shell is. It is documented in Shell.md §8
 and left alone. bash has the same wart.
+
+---
+
+## `scanf` without the format string
+
+`proc/file.h` gave a port `getchar` and `fgets`; the port that arrived next
+wanted `fscanf`. LE reads its keymap, its colour scheme, its menu and forty-odd
+syntax files with twelve `fscanf` calls and twelve `sscanf` calls, over
+`%lu:%u:`, `%3o`, `%255s`, `%d`, `%i`, and two scansets — `%[^"]` and
+`%255[^)\n=]`.
+
+A varargs `scanf` was never a candidate. Nothing else in this tree takes `...`,
+errors here are values rather than a return count, and a format string is a
+second language the compiler cannot check — the one thing a freestanding
+target least wants is a parser that turns a typo into a wild store. So what
+went in is the conversions a format string would have *driven*, one function
+each: `scan_token` is `%s`, `scan_until` is `%[^set]`, `scan_i64` and
+`scan_u64` are the integer family with `base` 0 standing for `%i`'s prefix
+rules, and a literal in the format is `scan_lit`. Twelve call sites fall out of
+these with nothing left over.
+
+They come in two halves for a reason. The `Str` half is in `kernel/text.h`
+beside `parse_u32`, shaped like `scan_f64` in `math/ftoa.h` — a `used`
+out-parameter, which is this tree's spelling of `strtod`'s `endptr` — and it is
+pure computation over bytes in hand, so the whole of the parsing is unit-tested
+without a filesystem. The `File` half is the same conversions with a refill
+behind them, and it is a loop over one byte of lookahead rather than the
+obvious "get the field into the buffer and parse it": `fill_()` carries at most
+four bytes across a refill on an `Input`-backed stream, so a scanner that
+wanted a whole field in hand at once could not have one. One byte is also
+exactly what the buffer promises to take back, which is why `scan_lit` can
+un-take a mismatch and `scan_i64` cannot un-take the whitespace and the sign it
+read before finding no digit.
+
+That second point is the one place these are deliberately not `scanf`. C's
+scanner backtracks; this one answers `Err(Invalid)` and leaves the stream where
+it stopped. Every call site in the port treats a mismatch as a fatal parse
+error and abandons the file, and a general backtracking scanner would need
+unbounded pushback the buffer cannot promise. The other departure is smaller
+and is only written down: leading whitespace follows scanf exactly — the
+numeric conversions and `%s` skip it, a scanset does not.
+
+**What is not covered.** `test_text.cpp` exercises the `Str` half across every
+conversion, both widths, the leading-space rule, an empty field, a malformed
+number and each of C's base prefixes. The `File` half has no unit test and
+cannot have one here: the unit image links `filebuf.cpp`, the half that
+performs no syscall, and `file.cpp` issues them. The case that only the stream
+half can get wrong — a field that straddles a refill — is covered where it
+occurs, in the port's own tests against a syntax file comfortably longer than
+the 512-byte buffer.
+

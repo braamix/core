@@ -154,6 +154,32 @@ struct File {
     // final fragment with no newline is a line.
     Task<Result<bool>> getline(String &out, bool keep_nl = false);
 
+    // ---- scanning ------------------------------------------------------
+    //
+    // scanf's conversions over a stream: the kernel/text.h scanners with a
+    // refill behind them, so a field that straddles the buffer still reads.
+    // Two rules, as there: **leading whitespace follows scanf** — the numeric
+    // ones and scan_token skip it, scan_until does not — and these are **one
+    // pass, with no backtracking**. scan_lit puts its one byte back on a
+    // mismatch, which is all the pushback the buffer promises; a scan_i64 that
+    // took whitespace and a sign before finding no digit answers Err(Invalid)
+    // and does not restore them.
+
+    Task<Result<void>> skip_space();
+
+    // The next byte must be `c`; ok(false) and put back when it is not.
+    Task<Result<bool>> scan_lit(char c);
+
+    // scanf's %s. ok(false) at end of input.
+    Task<Result<bool>> scan_token(String &out, usize width = 0);
+
+    // scanf's %[^set]. ok(false) when the first byte is already in `stop`.
+    Task<Result<bool>> scan_until(String &out, Str stop, usize width = 0);
+
+    // scanf's %d %i %u %o %x; `base` 0 is C's prefix rules.
+    Task<Result<i64>> scan_i64(u32 base = 10, usize width = 0);
+    Task<Result<u64>> scan_u64(u32 base = 10, usize width = 0);
+
     // ---- output --------------------------------------------------------
 
     FilePut put(char32_t c) { return FilePut{ {}, this, c }; }
@@ -206,6 +232,12 @@ private:
     Task<void> put_slow_(char32_t c, Result<void> *out);
     Task<void> write_slow_(Str s, Result<void> *out);
     Task<void> read_slow_(Span<char> into, Result<usize> *out);
+
+    // One byte of lookahead, which is all the scanners need and all the
+    // buffer promises to take back.
+    Task<Result<char>> peek_();
+    Task<Result<bool>> scan_run_(String &out, bool (*keep)(char, Str), Str arg, usize width);
+    Task<Result<u64>> scan_number_(u32 base, usize width, bool &neg);
 
     Task<Result<usize>> read_into_(Span<char> into);
     Task<Result<usize>> fill_();

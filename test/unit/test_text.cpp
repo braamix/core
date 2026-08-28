@@ -131,4 +131,69 @@ void test_text()
     CHECK(!parse_u32(" 1").has_value());
     CHECK(!parse_u32("-1").has_value());
     CHECK_EQ(parse_u32("0000000030").value(), 30);
+
+    // ---- scanning a Str ------------------------------------------------
+
+    usize used;
+
+    CHECK_EQ(scan_space(""), 0u);
+    CHECK_EQ(scan_space("x"), 0u);
+    CHECK_EQ(scan_space(" \t\n x"), 4u);
+
+    // %d, and the leading space scanf skips.
+    CHECK_EQ(scan_i64("42", used).value(), 42);
+    CHECK_EQ(used, 2u);
+    CHECK_EQ(scan_i64("  -7abc", used).value(), -7);
+    CHECK_EQ(used, 4u);
+    CHECK_EQ(scan_i64("+0", used).value(), 0);
+    CHECK_EQ(used, 2u);
+
+    // No digit: None, and nothing consumed.
+    CHECK(!scan_i64("", used).has_value());
+    CHECK_EQ(used, 0u);
+    CHECK(!scan_i64("  -x", used).has_value());
+    CHECK_EQ(used, 0u);
+
+    // The field width, in bytes -- %3o and %1d.
+    CHECK_EQ(scan_u64("1777", used, 8, 3).value(), 0177u);
+    CHECK_EQ(used, 3u);
+    CHECK_EQ(scan_i64("123", used, 10, 1).value(), 1);
+    CHECK_EQ(used, 1u);
+
+    // base 0 is %i: C's prefixes.
+    CHECK_EQ(scan_u64("0x1f", used, 0).value(), 31u);
+    CHECK_EQ(used, 4u);
+    CHECK_EQ(scan_u64("0b101", used, 0).value(), 5u);
+    CHECK_EQ(used, 5u);
+    CHECK_EQ(scan_u64("017", used, 0).value(), 15u);
+    CHECK_EQ(used, 3u);
+    CHECK_EQ(scan_u64("19", used, 0).value(), 19u);
+    CHECK_EQ(used, 2u);
+    // A 0 with no prefix behind it is a zero, not a failure.
+    CHECK_EQ(scan_u64("0", used, 0).value(), 0u);
+    CHECK_EQ(used, 1u);
+    // 0x with no hex digit is the 0 alone; the x is left.
+    CHECK_EQ(scan_u64("0xz", used, 0).value(), 0u);
+    CHECK_EQ(used, 1u);
+
+    // %s: leading space skipped, then non-space.
+    CHECK(scan_token("  hello world", used) == "hello");
+    CHECK_EQ(used, 7u);
+    CHECK(scan_token("  ab", used, 1) == "a");
+    CHECK_EQ(used, 3u);
+    CHECK(scan_token("   ", used).empty());
+    CHECK_EQ(used, 0u);
+
+    // %[^set]: no leading skip, and an empty field is not a failure to read.
+    CHECK(scan_until("abc\"def", "\"", used) == "abc");
+    CHECK_EQ(used, 3u);
+    CHECK(scan_until("  ab)", ")", used) == "  ab");
+    CHECK_EQ(used, 4u);
+    CHECK(scan_until(")x", ")", used).empty());
+    CHECK_EQ(used, 0u);
+    CHECK(scan_until("abcdef", ")", used, 2) == "ab");
+    CHECK_EQ(used, 2u);
+    // LE's own: %255[^)\n=]
+    CHECK(scan_until("name=value", ")\n=", used, 255) == "name");
+    CHECK_EQ(used, 4u);
 }

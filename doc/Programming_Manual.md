@@ -483,6 +483,7 @@ the `File`, so the loop needs no check inside it and `in.failed()` afterwards is
 | --- | --- |
 | Opening | `File::open(path, FileMode::Read \| Write \| Append \| Update)`, `File::of(fd, mode)`, `File(Input &)`, `File::stdin()`, `File::stdout()`, `File::stderr()` |
 | Reading | `get()` one rune, `unget(c)`, `read(span)`, `getline(String &, keep_nl)` |
+| Scanning | `skip_space()`, `scan_lit(c)`, `scan_token(String &, width)`, `scan_until(String &, stop, width)`, `scan_i64(base, width)`, `scan_u64(base, width)` |
 | Writing | `put(c)`, `write(Str)`, `flush()` |
 | The rest | `seek(off, whence)`, `close()`, `detach()`, `err()`, `eof()`, `failed()`, `clean()`, `clear_err()`, `set_buffering()`, `reserve(n)` |
 
@@ -492,6 +493,23 @@ silent truncation. `put()` encodes it again. `rune_lower` and `rune_upper` are
 in `kernel/text.h` beside `utf8_encode` and `utf8_decode`; they cover ASCII,
 Latin-1, Latin Extended-A, Greek and Cyrillic by range, and a mapping that is
 not one codepoint for one comes back unchanged.
+
+The scanning row is `scanf`'s conversions with the format string taken away:
+nothing here takes `...`, errors are values, and a format defeats every check
+the compiler could make. `scan_token` is `%s`, `scan_until` is `%[^set]`,
+`scan_i64`/`scan_u64` are `%d %i %u %o %x` with `base` 0 meaning C's `0x`/`0b`/`0`
+prefixes, and `width` is the field width. The same conversions over a `Str`
+rather than a stream are in `kernel/text.h` — `scan_space`, `scan_i64`,
+`scan_u64`, `scan_token`, `scan_until` — where `used` is the bytes taken, the
+way `scan_f64`'s is.
+
+Two rules they state and scanf does not. **Leading whitespace follows scanf**:
+the numeric ones and `scan_token` skip it, `scan_until` does not. And they are
+**one pass with no backtracking** — `scan_lit` puts its one byte back on a
+mismatch, which is all the pushback the buffer promises, and a `scan_i64` that
+took whitespace and a sign before finding no digit answers `Err(Invalid)`
+rather than restoring them. The `Str` half has no such limit: `used` is 0 when
+nothing matched, so a caller that wants to back up simply does not advance.
 
 `get()` and `put()` are not `Task`s but awaiters, so the common case — the
 buffer already holds a rune, or has room for one — allocates no coroutine frame

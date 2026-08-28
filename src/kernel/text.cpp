@@ -153,3 +153,122 @@ Option<u32> parse_u32(Str s)
     }
     return Option<u32>(v);
 }
+
+// ----------------------------------------------------------- scanning a Str
+
+usize scan_space(Str s)
+{
+    usize n = 0;
+    while (n < s.size() && is_space(s[n]))
+        n++;
+    return n;
+}
+
+namespace {
+
+// The value of `c` in `base`, or -1.
+int digit_in(char c, u32 base)
+{
+    u32 v;
+
+    if (c >= '0' && c <= '9')
+        v = u32(c - '0');
+    else if (c >= 'a' && c <= 'z')
+        v = u32(c - 'a') + 10;
+    else if (c >= 'A' && c <= 'Z')
+        v = u32(c - 'A') + 10;
+    else
+        return -1;
+    return v < base ? int(v) : -1;
+}
+
+// The shared body: whitespace, a sign, a base prefix, then digits. `neg` says
+// whether one was there; `used` counts everything consumed, and is 0 when
+// there was no digit to take.
+bool scan_number(Str s, usize &used, u32 base, usize width, u64 &out, bool &neg)
+{
+    usize i   = scan_space(s);
+    usize end = width ? i + width : s.size();
+
+    used = 0;
+    neg  = false;
+    if (end > s.size())
+        end = s.size();
+    if (i < end && (s[i] == '-' || s[i] == '+'))
+        neg = s[i++] == '-';
+
+    if ((base == 0 || base == 16) && i + 1 < end && s[i] == '0' &&
+        (s[i + 1] == 'x' || s[i + 1] == 'X') && i + 2 < end && digit_in(s[i + 2], 16) >= 0) {
+        base = 16;
+        i += 2;
+    } else if (base == 0 && i + 1 < end && s[i] == '0' && (s[i + 1] == 'b' || s[i + 1] == 'B') &&
+               i + 2 < end && digit_in(s[i + 2], 2) >= 0) {
+        base = 2;
+        i += 2;
+    } else if (base == 0) {
+        base = (i < end && s[i] == '0') ? 8 : 10;
+    }
+
+    u64 v   = 0;
+    bool any = false;
+    for (int d; i < end && (d = digit_in(s[i], base)) >= 0; i++) {
+        v   = v * base + u64(d);
+        any = true;
+    }
+    if (!any)
+        return false;
+    used = i;
+    out  = v;
+    return true;
+}
+
+} // namespace
+
+Option<i64> scan_i64(Str s, usize &used, u32 base, usize width)
+{
+    u64 v;
+    bool neg;
+
+    if (!scan_number(s, used, base, width, v, neg))
+        return None;
+    return Option<i64>(neg ? -i64(v) : i64(v));
+}
+
+Option<u64> scan_u64(Str s, usize &used, u32 base, usize width)
+{
+    u64 v;
+    bool neg;
+
+    if (!scan_number(s, used, base, width, v, neg))
+        return None;
+    return Option<u64>(neg ? u64(-i64(v)) : v);
+}
+
+Str scan_token(Str s, usize &used, usize width)
+{
+    usize i   = scan_space(s);
+    usize beg = i;
+    usize end = width ? i + width : s.size();
+
+    if (end > s.size())
+        end = s.size();
+    while (i < end && !is_space(s[i]))
+        i++;
+    if (i == beg) {
+        used = 0;
+        return Str();
+    }
+    used = i;
+    return s.substr(beg, i - beg);
+}
+
+Str scan_until(Str s, Str stop, usize &used, usize width)
+{
+    usize i   = 0;
+    usize end = width && width < s.size() ? width : s.size();
+
+    while (i < end && stop.find(s[i]) == Str::npos)
+        i++;
+    used = i;
+    return s.substr(0, i);
+}
