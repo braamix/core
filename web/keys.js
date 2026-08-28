@@ -40,6 +40,15 @@ export function normalise(event) {
     if (named !== undefined)
         return { code: named, mods };
 
+    // Alt composes on macOS: Option+Z reports "Ω", so the letter the chord is
+    // named for is gone. Take the physical key, which no layout rewrites;
+    // elsewhere .key is already the letter and this agrees with it.
+    if (event.altKey) {
+        const base = /^Key([A-Z])$/.exec(event.code) || /^Digit([0-9])$/.exec(event.code);
+        if (base)
+            return { code: base[1].toLowerCase().codePointAt(0), mods };
+    }
+
     // A printable key is one whose .key is a single code point; a modifier
     // press on its own, and any dead or composing key, is not one.
     const points = [...event.key];
