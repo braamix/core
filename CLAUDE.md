@@ -151,18 +151,18 @@ performs neither, which is a tab that died with one in flight.
 
 **The in-wasm suite cannot run a program**, and the shell is one. `test/unit/`
 reaches everything *below* a program; the pure shell sources (`parse.cpp`,
-`tokenize.cpp`, `expand.cpp`, `match.cpp`, `cond.cpp`), `proc/opt.cpp`,
-`proc/time.cpp` and the syscall-free half of `src/cmd/pkg/` are compiled
-straight into the suite rather than linked, so a syscall in any of them is a
-link error. `src/cmd/pkg/trust.cpp`, `index.cpp` and `zip.cpp` are in that half
-by taking a `PkgHost` or a `ZipSource` — syscalls from `/bin/pkg`
-(`src/cmd/pkg/host.cpp`), the kernel's own services from the suite
-(`test/unit/fakehost.h`) — which is how a check that
-must be tested keeps out of the half that cannot be. `pkg/unzip.cpp`,
-`store.cpp`, `host.cpp` and `install.cpp` stay out, and `sh/glob.cpp` and
-`sh/condrun.cpp` with them, because they walk the store. `braam_math` is the one
-half that is *linked* instead: it links `braam_flags` alone and has no syscall
-to hide, as `braam_ui` does not. Anything needing a program to run belongs in
+`tokenize.cpp`, `expand.cpp`, `match.cpp`, `cond.cpp`), `proc/filebuf.cpp`,
+`proc/opt.cpp`, `proc/size.cpp`, `proc/time.cpp` and the syscall-free half of
+`src/cmd/pkg/` are compiled straight into the suite rather than linked, so a
+syscall in any of them is a link error. `src/cmd/pkg/trust.cpp`, `index.cpp` and
+`zip.cpp` are in that half by taking a `PkgHost` or a `ZipSource` — syscalls
+from `/bin/pkg` (`src/cmd/pkg/host.cpp`), the kernel's own services from the
+suite (`test/unit/fakehost.h`) — which is how a check that must be tested keeps
+out of the half that cannot be. `pkg/unzip.cpp`, `store.cpp`, `host.cpp` and
+`install.cpp` stay out, and `sh/glob.cpp` and `sh/condrun.cpp` with them,
+because they walk the store. `braam_math` is the one half that is *linked*
+instead: it links `braam_flags` alone and has no syscall to hide, as `braam_ui`
+does not. Anything needing a program to run belongs in
 `test/system/`, as a file and a line in `run.mjs`'s table.
 [doc/Testing.md](doc/Testing.md) is the whole of both suites.
 
@@ -293,6 +293,19 @@ interpreter, which `exec_resolve` chases exactly once.
   carries. A candidate that is not a program does not shadow one further along,
   and a search that found only those is `Err(Invalid)` (126), not
   `Err(NotFound)` (127).
+- **A program's stdio is [src/proc/file.h](src/proc/file.h)** — a buffered
+  `File` over a descriptor, `get()` a rune and not a byte, the error sticky.
+  `~File` does not flush (a destructor cannot `co_await`): `flush()`, `close()`
+  or the exit hook `File::stdout()` and `File::stderr()` install does. A
+  buffered `File` reads ahead past the kernel's own pushback, so a descriptor to
+  be named in a spawn or otherwise shared takes `Buffering::None`.
+- **Every program carries a usage block, and being asked for it is not an
+  error** — `usage_asked` (stdout, 0) and `usage_error` (stderr, 2) in
+  [src/proc/usage.cpp](src/proc/usage.cpp), never open-coded. `-h`/`--help` is
+  recognised only as the *whole* command line (`help_asked` in
+  [src/proc/opt.h](src/proc/opt.h)), so a valued option's argument is never
+  mistaken for it; `ls`, `df` and `sh` take `--help` alone, and `echo`, `test`,
+  `true` and `false` neither.
 - **A host with no worker to give is waited out, not worked around** —
   `Error::Again`, `spawn_process` backs off, and `^C` abandons the await.
 - **A process that loses its worker dies with it, and init replaces the shell**
@@ -372,7 +385,7 @@ argue in Concept.md first.
 - **A new program or builtin updates `rootfs/etc/help` in the same commit.**
   That document is the whole of `help` (`/bin/help` is `#!/bin/sh` over `less
   /etc/help`), nothing notices at run time when it goes stale, and `system`
-  fails on a forgotten line.
+  fails on a forgotten line. A new program carries a usage block with it.
 - Exports are declared with `BRAAM_EXPORT("name")`, imports with
   `BRAAM_IMPORT("name")` — never by linker flag. Either changes the ABI: update
   the expected surface in [test/system/abi.mjs](test/system/abi.mjs) in the same

@@ -56,8 +56,9 @@ editing with history. `^C` stops whatever is running and gives the prompt back.
 **A filesystem.** Everything lives in the browser's private storage and survives
 a reload; `/tmp` is emptied at boot. `/bin` and `/etc` come from an archive
 downloaded with the kernel, and are replaced whenever a new version is opened.
-`/proc` shows what is running. Where the browser will not store files at all,
-the system says so and stops.
+`/proc` shows what is running, and `/dev` has `null`, `zero`, `random` and
+`urandom`. Where the browser will not store files at all, the system says so and
+stops.
 
 **Access to the browser.** `curl` fetches a URL, `chat` talks over a WebSocket,
 `fimport` and `fexport` move files in and out, and `pbcopy` and `pbpaste` reach
@@ -65,6 +66,9 @@ the clipboard.
 
 **Full-screen programs.** `less` and `edit` draw into a grid of their own and
 send only the part that changed. `^C` still reaches them.
+
+**A usage block in every program.** `-h` asks one what it takes, and asking is
+not a mistake: the block goes to the screen and the status is 0.
 
 **Isolated processes.** Each command runs in a worker of its own, with its own
 memory and its own open files. One stuck in a loop is killed outright, without
@@ -111,14 +115,17 @@ Every command is a wasm file, and building one needs nothing private to this
 repository — `make install` puts an SDK under `/usr/local` or `~/.local`.
 
 ```cpp
-#include "proc/io.h"
+#include "proc/file.h"
 
 Task<i32> proc_main(Args)
 {
-    co_await write_all(SYS_STDOUT, "Hello, world!\n");
+    co_await write_out("Hello, world!\n");
     co_return 0;
 }
 ```
+
+`write_out` is the buffered stream `File::stdout()`, flushed when the program
+exits.
 
 ```cmake
 find_package(braam REQUIRED)
