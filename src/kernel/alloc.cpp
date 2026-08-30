@@ -291,6 +291,23 @@ usize heap_block_size(usize n)
     return ((n + SPAN_SIZE - 1) >> SPAN_SHIFT) << SPAN_SHIFT;
 }
 
+usize heap_usable_size(const void *p)
+{
+    if (!p)
+        return 0;
+
+    u32 s = span_of(p);
+    if (s >= MAX_SPANS)
+        panic("heap_usable_size: pointer outside the heap");
+
+    u8 c = h.span_class[s];
+    if (c < NUM_CLASSES)
+        return SIZE_CLASS[c];
+    if (c == SPAN_LARGE)
+        return usize(h.span_run[s]) << SPAN_SHIFT;
+    panic("heap_usable_size: not an allocation");
+}
+
 // Coroutine frames allocate through these (Concept.md §8.2). With
 // -fno-exceptions a failed allocation returns null; callers must check.
 void *operator new(usize n)

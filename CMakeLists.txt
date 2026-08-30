@@ -81,6 +81,7 @@ add_subdirectory(src/ui)
 add_subdirectory(src/math)
 add_subdirectory(src/user)
 add_subdirectory(src/proc)
+add_subdirectory(src/compat)
 
 # The program recipe, shared with the SDK: it names the targets a consumer
 # imports, so this tree aliases them to the same names.
@@ -88,6 +89,10 @@ add_library(braam::math  ALIAS braam_math)
 add_library(braam::proc  ALIAS braam_proc)
 add_library(braam::ui    ALIAS braam_ui)
 add_library(braam::flags ALIAS braam_flags)
+add_library(braam::compat      ALIAS braam_compat)
+add_library(braam::compat_pure ALIAS braam_compat_pure)
+add_library(braam::portflags   ALIAS braam_portflags)
+set(BRAAM_COMPAT_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/src/compat/include)
 set(BRAAM_STAMP ${CMAKE_SOURCE_DIR}/tools/stamp.py)
 set(BRAAM_MKPKG ${CMAKE_SOURCE_DIR}/tools/mkpkg.py)
 set(BRAAM_SYSABI ${CMAKE_SOURCE_DIR}/src/kernel/sysabi.h)
@@ -98,6 +103,9 @@ add_subdirectory(src/cmd)
 # Built like any other program, and not packed into the archive: it is the SDK's
 # worked example, and compiling it here is what keeps it from rotting.
 add_subdirectory(examples/hello)
+
+# The port kit's worked example, and the in-tree caller that keeps it building.
+add_subdirectory(examples/portlet)
 
 # kernel.wasm — main.cpp holds the exports, so it links into the executable
 # directly; --gc-sections would not pull it out of an archive.
@@ -167,12 +175,16 @@ add_custom_target(serve
 # The SDK — doc/Programming_Manual.md. Three libraries and no more: braam_core,
 # braam_fs, braam_svc and braam_user each carry a host import no binary may have.
 install(TARGETS braam_proc braam_ui braam_math braam_flags
+                braam_compat braam_compat_pure braam_portflags
         EXPORT braam-targets
         ARCHIVE DESTINATION ${BRAAM_INSTALL_LIBDIR})
 set_target_properties(braam_math  PROPERTIES EXPORT_NAME math)
 set_target_properties(braam_proc  PROPERTIES EXPORT_NAME proc)
 set_target_properties(braam_ui    PROPERTIES EXPORT_NAME ui)
 set_target_properties(braam_flags PROPERTIES EXPORT_NAME flags)
+set_target_properties(braam_compat      PROPERTIES EXPORT_NAME compat)
+set_target_properties(braam_compat_pure PROPERTIES EXPORT_NAME compat_pure)
+set_target_properties(braam_portflags   PROPERTIES EXPORT_NAME portflags)
 install(EXPORT braam-targets
         NAMESPACE braam::
         DESTINATION ${BRAAM_INSTALL_CMAKEDIR})
@@ -182,13 +194,20 @@ install(EXPORT braam-targets
 # math/musl and math/cvt are excluded: they answer <stdint.h>, <float.h> and
 # <math.h> for the vendored sources, and define errno and the character classes
 # as they need them. Those names under include/braam/ would be a trap.
-foreach(dir kernel fs proc ui math)
+foreach(dir kernel fs proc ui math compat)
     install(DIRECTORY src/${dir}/
             DESTINATION ${BRAAM_INSTALL_INCLUDEDIR}/${dir}
             FILES_MATCHING PATTERN "*.h"
             PATTERN "musl" EXCLUDE
-            PATTERN "cvt" EXCLUDE)
+            PATTERN "cvt" EXCLUDE
+            PATTERN "include" EXCLUDE)
 endforeach()
+# compat/include/ holds the same trapping names, and ships anyway because it is
+# one level further down: include/braam/ is on braam::flags' path and
+# include/braam/compat/include/ is on nobody's but a PORT target's.
+install(DIRECTORY src/compat/include/
+        DESTINATION ${BRAAM_INSTALL_INCLUDEDIR}/compat/include
+        FILES_MATCHING PATTERN "*.h")
 # Generated, and kernel/version.h includes it: the SDK names the revision it
 # was cut from.
 install(FILES ${BRAAM_REVISION_HEADER} DESTINATION ${BRAAM_INSTALL_INCLUDEDIR}/kernel)

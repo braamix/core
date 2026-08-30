@@ -29,6 +29,10 @@ usize heap_origin();
 // Size class a request of n bytes lands in, or n rounded up to whole spans.
 usize heap_block_size(usize n);
 
+// Bytes behind a live allocation. Zero for null; traps on anything else that
+// is not one, as heap_free does. Lets realloc grow in place without a header.
+usize heap_usable_size(const void *p);
+
 // Typed allocation. Plain `new` is unusable here: operator new returns null on
 // failure and -fno-exceptions means the expression would then construct at
 // address zero. These check first, and return null instead.

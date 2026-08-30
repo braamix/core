@@ -13,5 +13,9 @@ struct Civil {
 // Seconds since 1970-01-01 to a calendar date. Negative seconds work.
 Civil civil(i64 secs);
 
+// The inverse. Fields outside their ranges normalise and `weekday` is ignored,
+// which is mktime's contract.
+i64 civil_secs(const Civil &c);
+
 extern const Str TIME_MONTHS[12]; // "Jan" ...
 extern const Str TIME_DAYS[7];    // indexed by Civil::weekday, "Thu" first

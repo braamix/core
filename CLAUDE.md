@@ -8,8 +8,10 @@ code in this repository.
 Braam is a CLI operating system that runs entirely in a browser tab: kernel,
 shell, filesystem, terminal and programs, written from scratch in freestanding
 C++20, compiled to wasm32, deployable as a static site with no server and no
-special HTTP headers. No libc, no Emscripten, no `xterm.js` — nothing is linked
-that is not in this tree. One part of the tree is not ours: `src/math/` is
+special HTTP headers. No libc under the system, no Emscripten, no `xterm.js` —
+nothing is linked that is not in this tree. A *ported* program may opt into
+`braam::compat` ([doc/Compat.md](doc/Compat.md)); nothing in this tree does.
+One part of the tree is not ours: `src/math/` is
 musl's libm, vendored under an MIT licence, and it is the only third-party code
 here.
 
@@ -38,6 +40,9 @@ and the three passing CTest cases.
   order, each entry naming the caller that satisfies §4.3's first rule and
   whether it moves `PROC_ABI`. It also records why the syscall table is *not*
   the gap, so that question is not re-derived.
+- **[doc/Compat.md](doc/Compat.md)** is the opt-in port kit `braam::compat` —
+  what a *ported* Unix program may link, the A/B/C split, and what it costs. The
+  system itself still has no libc, and `PORT` is the whole of the opt-in.
 - **[doc/Testing.md](doc/Testing.md)** is how the two suites are organised, what
   can be tested in which, and the rules the system suite's one cumulative
   session runs by. Read it before adding a case or moving one.

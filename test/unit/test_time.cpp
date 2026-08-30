@@ -13,6 +13,7 @@ void check(i64 secs, i32 year, u32 month, u32 day, u32 hour, u32 min, u32 sec, S
     CHECK_EQ(c.min, min);
     CHECK_EQ(c.sec, sec);
     CHECK(TIME_DAYS[c.weekday] == weekday);
+    CHECK_EQ(civil_secs(c), secs);
 }
 
 } // namespace
@@ -40,4 +41,11 @@ void test_time()
 
     CHECK(TIME_MONTHS[0] == "Jan");
     CHECK(TIME_MONTHS[11] == "Dec");
+
+    // Out-of-range fields normalise, which is what mktime callers rely on.
+    CHECK_EQ(civil_secs({ 1970, 13, 1, 0, 0, 0, 0 }), civil_secs({ 1971, 1, 1, 0, 0, 0, 0 }));
+    CHECK_EQ(civil_secs({ 1970, 0, 1, 0, 0, 0, 0 }), civil_secs({ 1969, 12, 1, 0, 0, 0, 0 }));
+    CHECK_EQ(civil_secs({ 1970, 1, 32, 0, 0, 0, 0 }), civil_secs({ 1970, 2, 1, 0, 0, 0, 0 }));
+    CHECK_EQ(civil_secs({ 1970, 1, 1, 25, 0, 0, 0 }), 25 * 3600);
+    CHECK_EQ(civil_secs({ 2024, 2, 30, 0, 0, 0, 0 }), civil_secs({ 2024, 3, 1, 0, 0, 0, 0 }));
 }

@@ -24,6 +24,8 @@ set_and_check(BRAAM_STAMP       "@PACKAGE_BRAAM_INSTALL_LIBEXECDIR@/stamp.py")
 set_and_check(BRAAM_MKPKG       "@PACKAGE_BRAAM_INSTALL_LIBEXECDIR@/mkpkg.py")
 set_and_check(BRAAM_MKINDEX     "@PACKAGE_BRAAM_INSTALL_LIBEXECDIR@/mkindex.py")
 set_and_check(BRAAM_SYSABI      "@PACKAGE_BRAAM_INSTALL_INCLUDEDIR@/kernel/sysabi.h")
+# The port kit's system header names. On a PORT target's path and no other's.
+set_and_check(BRAAM_COMPAT_INCLUDE_DIR "@PACKAGE_BRAAM_INSTALL_INCLUDEDIR@/compat/include")
 set_and_check(BRAAM_EXAMPLES_DIR "@PACKAGE_BRAAM_INSTALL_EXAMPLESDIR@")
 
 include("${CMAKE_CURRENT_LIST_DIR}/braam-targets.cmake")

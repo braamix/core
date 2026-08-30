@@ -37,11 +37,22 @@ That constraint decides most of the design:
 
 Three things are deliberately not goals:
 
-- **POSIX compatibility.** No `open`/`read`/`write`/`fork`, and no aim to run
-  third-party C. That costs the ability to drop in existing C programs, and buys
-  a system an order of magnitude smaller.
+- **POSIX compatibility *of the system*.** No `open`/`read`/`write`/`fork` in
+  the kernel or in `src/cmd/`, and no aim to run third-party C *unmodified*.
+  That costs the ability to drop in existing C programs, and buys a system an
+  order of magnitude smaller.
 - **A VT100 emulator.** No ANSI escapes, no `xterm.js`.
-- **A general-purpose libc.** Only the foundation our own code needs.
+- **A general-purpose libc *under* the system.** Only the foundation our own
+  code needs.
+
+The first and the last of those are about what the system is *made of*, and
+neither has moved. What the SDK ships *beside* it is a **port kit** — an archive nothing
+links unless it names it, whose headers are not on the default include path,
+which adds no operation, moves no `PROC_ABI` and cannot make a program that does
+not ask for it one byte larger. Seven ported packages each wrote one by hand
+before it existed. A port is still a rewrite and not a recompile: everything
+that blocks is a `co_await`, which is Group B of doc/Compat.md and the reason
+that document exists.
 
 ---
 

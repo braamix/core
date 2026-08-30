@@ -1,7 +1,10 @@
 # How a Braam program is built. Used by src/cmd/ and installed with the SDK, so
 # an out-of-tree program is built the way the system's own are.
 #
-#   braam_add_program(NAME hello SOURCES hello.cpp [LIBS ...])
+#   braam_add_program(NAME hello SOURCES hello.cpp [LIBS ...] [PORT])
+#
+# PORT links the opt-in port kit (doc/Compat.md) and puts its system header
+# names on this target's include path. Without it there is no libc, as before.
 #
 # BRAAM_STAMP names tools/stamp.py, BRAAM_SYSABI the kernel/sysabi.h it reads
 # PROC_ABI from; the includer sets both.
@@ -11,7 +14,7 @@ set(BRAAM_BIN_MAX_PAGES 256)
 math(EXPR BRAAM_BIN_INITIAL_BYTES "${BRAAM_BIN_INITIAL_PAGES} * 65536")
 
 function(braam_add_program)
-    cmake_parse_arguments(P "" "NAME" "SOURCES;LIBS" ${ARGN})
+    cmake_parse_arguments(P "PORT" "NAME" "SOURCES;LIBS" ${ARGN})
     # Compared as strings: one of the programs is named `false`, which
     # if(NOT P_NAME) would dereference to exactly that.
     if("${P_NAME}" STREQUAL "" OR "${P_SOURCES}" STREQUAL "")
@@ -22,6 +25,17 @@ function(braam_add_program)
     add_executable(bin_${P_NAME} ${P_SOURCES})
     set_target_properties(bin_${P_NAME} PROPERTIES OUTPUT_NAME ${P_NAME})
     target_link_libraries(bin_${P_NAME} PRIVATE ${P_LIBS} braam::proc braam::flags)
+
+    # PORT puts the port kit's system header names on this target's path and
+    # nowhere else. BEFORE and on the target itself: a target's own include
+    # directories precede every linked interface's, so <string.h> cannot be
+    # answered by anything but the kit. braam::portflags is linked last, so its
+    # -Wno- lands after braam::flags' -Wall -Wextra -Wshadow.
+    if(P_PORT)
+        target_include_directories(bin_${P_NAME} BEFORE PRIVATE
+                                   ${BRAAM_COMPAT_INCLUDE_DIR})
+        target_link_libraries(bin_${P_NAME} PRIVATE braam::compat braam::portflags)
+    endif()
 
     # --import-memory makes the 16 MB cap the kernel's decision rather than the
     # binary's claim. The stamp repeats the initial size the link used.

@@ -36,6 +36,7 @@ void test_index();
 void test_local();
 void test_math();
 void test_ftoa();
+void test_compat();
 void test_solve();
 void test_plan();
 void test_text();
@@ -126,6 +127,8 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_size();
     test_math();
     test_ftoa(); // after math: it stands on frexp, fmod and scalbn
+    test_compat(); // after alloc, text and ftoa: malloc stands on the heap,
+                   // strtol on the same grammar as scan_i64
     test_encode();
     test_sha256(); // after encode: the vectors are compared as hex
     test_version();

@@ -127,3 +127,31 @@ where several writes coalesce into one syscall. None of the below moves
       at once. `term.mjs`'s two round-trip counts survived the experiment
       untouched, so §4.4 is not what stands in the way — there is simply no
       syscall to save.
+
+## P — the port kit
+
+`braam::compat` ([doc/Compat.md](doc/Compat.md)) is in, and `PORT` is the whole
+of the opt-in. Not to be confused with **D**, which is `src/cmd/` adopting
+`File` and has nothing to do with porting. No entry here moves `PROC_ABI` or
+adds an operation; the caller each names is a **ported package**, since the kit
+exists for callers outside this tree.
+
+- [ ] **P1. Group A's remainder.** `wchar`/`wctype` (`iconv`'s `mbstate_t`, not
+      `le`'s, which cannot hold a split sequence), `strftime`/`mktime` over
+      `civil_secs`, `sscanf`, `fnmatch`, `sys/queue.h`, byte order, `getenv`
+      over one heap block. Callers: `le` and `iconv` for the wide half, `zip`
+      for the calendar, `le` for `fnmatch`.
+- [ ] **P2. Group B.** `FILE` over `proc/file.h`, the `b_*` family, `struct
+      stat`, dirent. `zip` and `le` each wrote this; `vi` is the smallest real
+      surface and the migration to prove it on.
+- [ ] **P3. Migrate `duremark` and `adventure`.** The smallest shims, and
+      `duremark` at 23,601 bytes is the honest size worst case: record both
+      numbers.
+- [ ] **P4. Migrate the rest**, `iconv` last — its own `include/` tree must go
+      in the same commit, and its errno numbers change. `dhrystone` never.
+- [ ] **P5. Make the float arm droppable.** It is 5,367 of `snprintf`'s 8,853
+      bytes and every port pays it for `%d` alone, because the engine is one
+      function. A separate TU behind a weak reference does not work — a weak
+      reference does not pull an archive member, so `%f` would silently print
+      nothing. Wants an OBJECT library the port names, or a strong reference
+      only the float path emits.

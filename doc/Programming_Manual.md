@@ -36,6 +36,8 @@ Either way, this is what you get:
 | `lib/braam/libbraam_proc.a` | the process runtime: the allocator, the strings, the task scheduler, the syscall wrappers |
 | `lib/braam/libbraam_ui.a` | the layout layer, for a program that paints |
 | `lib/braam/libbraam_math.a` | musl's libm, for a program that asks for it (§6) |
+| `lib/braam/libbraam_compat_pure.a` | the opt-in port kit, for a *ported* C program (doc/Compat.md) |
+| `include/braam/compat/include/` | the kit's system header names — on a `PORT` target's path and no other's |
 | `lib/cmake/braam/wasm32-unknown-unknown.cmake` | the toolchain file |
 | `lib/cmake/braam/braamConfig.cmake` | `find_package(braam)` |
 | `lib/cmake/braam/BraamProgram.cmake` | `braam_add_program()` |
@@ -49,8 +51,8 @@ You also need what Braam itself needs: a clang with the wasm32 target and
 `wasm-ld` beside it (`brew install llvm lld`, or `apt install clang lld llvm`),
 CMake 3.24, and Python 3 for the stamp. Nothing is taken from the clang
 distribution but the compiler — no runtime, no headers, no sysroot. There is no
-libc here and there is no way to add one. There is a libm, and §6 says how to
-link it.
+libc *under* the system and no way to put one there. There is a libm, and there
+is an opt-in port kit for ported C; §6 says how to link either.
 
 ---
 
@@ -346,6 +348,7 @@ Five conventions there, and every program in `src/cmd/` follows them:
   (`ls`, `df`), only `--help` asks.
 
 There is no `main`, no `argc`/`argv`, no `printf`, no `errno` and no exceptions.
+(A *ported* program may have the middle three: `braam::compat`, §6.)
 `args[0]` is the name the program was invoked by; `args.tail()` is everything
 after it.
 
@@ -664,10 +667,12 @@ These come from Concept.md §2 and §C.3, and each of them is a compile error, a
 link error or a trap rather than a warning:
 
 - **No exceptions and no RTTI.** Errors are `Result<T, E>`.
-- **No libc.** No `malloc`, no `memcpy` you did not write, no `<cstring>`.
-  `-nostdlib -nostdinc++` is not negotiable, and a construct needing a
-  compiler-rt builtin — 128-bit division, an outlined `memcpy`, anything
-  `long double` — will not link. There *is* a libm: `braam::math`, §6.
+- **No libc by default.** No `malloc`, no `memcpy` you did not write, no
+  `<cstring>`. `-nostdlib -nostdinc++` is not negotiable, and a construct
+  needing a compiler-rt builtin — 128-bit division, an outlined `memcpy`,
+  anything `long double` — will not link. There *is* a libm: `braam::math`, §6.
+  A program being **ported** from Unix may opt into `braam::compat`, which
+  changes nothing for one that does not: doc/Compat.md.
 - **Never `new` anything.** `operator new` returns null on failure and there are
   no exceptions, so the expression would construct at address zero. Use
   `heap_new` and `heap_delete` from `kernel/alloc.h`.

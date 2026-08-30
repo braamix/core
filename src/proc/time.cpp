@@ -34,3 +34,22 @@ Civil civil(i64 secs)
     c.year  = i32(i64(yoe) + era * 400) + (c.month <= 2 ? 1 : 0);
     return c;
 }
+
+// days_from_civil, the same era arithmetic run backwards.
+i64 civil_secs(const Civil &c)
+{
+    // Carry the month into the year: month 0 is December of the year before.
+    i64 mz   = i64(c.month) - 1;
+    i64 adj  = mz >= 0 ? mz / 12 : -((-mz + 11) / 12);
+    i64 y    = i64(c.year) + adj;
+    i64 m    = mz - adj * 12 + 1;
+
+    y -= m <= 2;
+    i64 era  = (y >= 0 ? y : y - 399) / 400;
+    u64 yoe  = u64(y - era * 400);
+    u64 doy  = u64((153 * u64(m > 2 ? m - 3 : m + 9) + 2) / 5) + c.day - 1;
+    u64 doe  = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    i64 days = era * 146097 + i64(doe) - 719468;
+
+    return days * 86400 + i64(c.hour) * 3600 + i64(c.min) * 60 + i64(c.sec);
+}

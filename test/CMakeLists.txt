@@ -7,6 +7,7 @@ add_executable(tests
     unit/test_channel.cpp
     unit/test_cond.cpp
     unit/test_console.cpp
+    unit/test_compat.cpp
     unit/test_coroutine.cpp
     unit/test_db.cpp
     unit/test_dep.cpp
@@ -102,8 +103,11 @@ add_executable(tests
 # braam_math is linked rather than compiled in: the compile-in convention is
 # there so a syscall in sh/ or pkg/ is a link error, and this one links
 # braam_flags alone and has no syscall to hide -- as braam_ui, above, does not.
+# braam_compat_pure is the same shape: Group A of the port kit is pure
+# computation, so a syscall in it is a link error here.
 target_link_libraries(tests PRIVATE
-    braam_user braam_fs braam_svc braam_ui braam_math braam_core braam_flags)
+    braam_user braam_fs braam_svc braam_ui braam_math braam_compat_pure
+    braam_core braam_flags)
 
 find_program(BRAAM_NODE node REQUIRED)
 

@@ -29,6 +29,89 @@ first:
 
 ---
 
+## A libc for the programs beside the system, and none inside it
+
+Seven ported packages each wrote a `braam.h`/`braam.cpp` by hand, and two grew a
+directory of fake system headers besides. That was ~4,000 lines, and it was one
+problem solved seven times rather than seven problems: `le` and `uemacs` shared
+381 identical lines — 95% of uemacs's file — `zip` and `iconv` 350, and `uemacs`
+and `vi` 228, which is 98% of vi's.
+
+Duplication alone would only have been waste. What made it worth fixing is that
+the seven copies **disagreed**, and four of the disagreements were wrong
+answers rather than differences of taste:
+
+- `iconv`'s `printf` swallowed `l` and `z` and then read an `int`, so every
+  `%ld` and `%zu` misread a 64-bit argument.
+- `zip`'s parsed a precision and discarded it, and returned the bytes it wrote
+  where C returns the bytes it would have written — which is the idiom for
+  sizing a buffer.
+- `uemacs`'s took a negative `%*d` width and lost the left-justify.
+- `iconv`'s `strtoul("-1")` was 0 where C gives `ULONG_MAX`; `zip`'s `strtol`
+  accepted a bare `"0x"` and returned 0 past the `x`; none of the three
+  saturated or set `ERANGE`.
+
+None of that could be tested, because all of it lived outside this tree.
+
+**Why this is not the libc §1 rules out.** The non-goal was, and stays, a libc
+*under* the system: the kernel imports nothing new, `src/cmd/` links nothing
+new, `--allow-undefined` is still absent, and an accidental libc dependency is
+still a link error everywhere it was one before. `braam::compat` is an archive
+nothing links unless it names it, whose system header names are reachable only
+from a `PORT` target — verified both ways, in the tree and against an installed
+SDK: without `PORT`, `#include <string.h>` is still "file not found". It adds no
+operation and moves no `PROC_ABI`, so §4.3's first rule, which governs the
+operation table, is untouched. A program that does not ask for it is byte-for-
+byte what it was.
+
+**A port is still a rewrite.** That is the honest half, and it is why the kit is
+stratified rather than pretending to be a libc. Group A — string, memory, ctype,
+conversions, `qsort`, `malloc`, `snprintf` — is pure computation and gets exact
+C signatures. Group B cannot: `int fgetc(FILE *)` is unimplementable here, since
+everything blocking is a `co_await` and there is no Asyncify, no JSPI and no
+stack switching. `zip` carries 1208 `co_await`s, `le` 627, `uemacs` 401, `vi`
+307, and every one of those was found by hand. So the blocking names ship in
+`<stdio.h>` declared `unavailable` with the replacement in the message, and the
+compiler now produces that list in one build. That diagnostic is the kit's best
+idea, and none of the seven had it.
+
+**What was decided, where the copies differed.** `errno` takes musl's numbers,
+the dialect already vendored in `src/math/musl/`, rather than `int(Error::…)`:
+`Error` has fifteen values and cannot name `ERANGE`, `EILSEQ` or `ENAMETOOLONG`,
+and freezing an internal enum into a public C ABI would make `kernel/result.h`
+un-amendable. `qsort` is heapsort, not the O(n²) insertion sort three ports
+shared — O(1) extra memory, so it cannot fail where there are no exceptions, and
+iterative, so it cannot overflow the 128 KiB shadow stack. `strerror` returns
+the POSIX *name*, mirroring `error_name()`.
+
+**`malloc` lost its header.** All five copies carried an 8-byte `struct Head`
+with the same comment, because `heap_block_size` takes a request size and cannot
+recover a block's capacity from a pointer. But `alloc.cpp` has kept a side table
+since the start — `span_class[ptr >> 16]`, which is how `free` needs no header —
+so the capacity was there and merely unexposed. `heap_usable_size` exposes it,
+and the header goes: 8 bytes back per allocation, 16-byte alignment restored
+(the header had made every block 8-mod-16), and the divergence all five shared —
+never rewriting `h->cap` on the in-place grow, so capacity was never reclaimed —
+is now structurally impossible, since the capacity is read rather than
+remembered.
+
+**The tests found one immediately.** The unit case is differential: it asserts
+exactly the inputs the seven engines disagreed about. On its first run `%zu`
+failed — the new engine read `unsigned long long` for `z`, and `size_t` is
+32 bits on wasm32. That is the same bug as iconv's, in the replacement written
+to fix it, caught before it shipped. The lengths now name `ptrdiff_t` and
+`size_t` themselves rather than a guess at their width.
+
+**What it costs.** Against `examples/hello` at 7,769 bytes: `portlet`, using
+`qsort`, `strtol`, `strdup`, `ctype` and `malloc`, is 10,491; `snprintf` with
+integers and strings is 11,255; with the float conversions, 16,622. The float
+arm is 5,367 of those bytes and a port pays it for `%d` alone, because the
+engine is one function and `--gc-sections` works at function granularity. The
+obvious fix — a translation unit of its own behind a weak reference — is *not*
+taken: a weak reference does not pull an archive member, so `%f` would silently
+print nothing in a port that forgot to name it, and a wrong answer is worse than
+5 KB. TODO.md P5 carries the shape a real fix needs.
+
 ## Esc is not a composition, and the keyboard does not end with one
 
 Typing at the shell and then pressing Esc left the terminal deaf: nothing typed
