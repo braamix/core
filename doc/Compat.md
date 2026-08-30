@@ -56,6 +56,17 @@ and rejected — doc/TODO.md), `pthread_create`, `dlopen` (a static module table
 `exit()` and `abort()` trap: a coroutine cannot exit through a return, so return
 a status from `proc_main`.
 
+Beside those, three headers exist because a port asks for them by name and the
+answer is not the kit's own code: `<math.h>` is `braam::math` under the name C
+uses — a `PORT` target links it through the kit, so `sqrt()` needs nothing
+further asked for; `<fenv.h>` is a degenerate stub, honestly so, since wasm has
+no floating-point environment; `<sys/endian.h>` and `<arpa/inet.h>` carry the
+BSD spelling and the `htonl` four. **`<endian.h>`, `<stdint.h>`, `<stddef.h>`,
+`<stdarg.h>`, `<limits.h>` and `<float.h>` are clang's** freestanding headers
+and the kit does not shadow them — `<float.h>` least of all, since `src/math/`
+overrides `LDBL_*` for its own vendored sources and a port must not inherit that
+lie.
+
 ## Where this differs from C, deliberately
 
 - **`strtol` takes `0b` in base 0.** A GNU extension, kept so `strtol` and

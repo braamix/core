@@ -20,10 +20,14 @@ add_library(braam_math STATIC
 
 target_link_libraries(braam_math PUBLIC braam_flags)
 
-# -nostdinc: CMAKE_C_FLAGS_INIT carries -nostdlib but not this, and nothing from
-# the compiler's headers is included in this tree. shim/ answers <stdint.h>,
-# <float.h>, <math.h> and the rest.
+# <stdint.h>, <limits.h>, <float.h> and <stddef.h> are clang's freestanding
+# headers -- part of the compiler, no functions and no runtime. There is still
+# no sysroot, so <stdio.h> does not resolve here either. The -I puts math.h on
+# the path under its own name, and the prologue carries what neither clang nor
+# math.h has: the long-double steer, musl's src/internal macros, and a
+# floating-point environment wasm does not have.
 target_compile_options(braam_math PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-nostdinc -I${CMAKE_CURRENT_SOURCE_DIR}/musl/shim>)
+    $<$<COMPILE_LANGUAGE:C>:-I${CMAKE_CURRENT_SOURCE_DIR}
+                            -include${CMAKE_CURRENT_SOURCE_DIR}/musl_prologue.h>)
 
 set_source_files_properties(${BRAAM_MUSL_SOURCES} PROPERTIES COMPILE_OPTIONS -w)

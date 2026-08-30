@@ -19,14 +19,28 @@ extern "C" {
 #define FP_ILOGB0   (-2147483647 - 1)
 #define FP_ILOGBNAN (-2147483647 - 1)
 
+// clang's freestanding <float.h> defines these identically when it is on the
+// path, which it is for the vendored sources.
+#ifndef INFINITY
 #define INFINITY  __builtin_inff()
+#endif
+#ifndef NAN
 #define NAN       __builtin_nanf("")
+#endif
 #define HUGE_VAL  __builtin_inf()
 #define HUGE_VALF __builtin_inff()
 
 // Errors are IEEE values, not errno: a domain error is NaN, a range error is an
 // infinity or a zero. There is no errno here and no floating-point environment.
 #define math_errhandling 0
+
+// Named at fifteen #if sites in musl/, which until now read it undefined.
+// clang's <float.h> derives 0 for this target; this is the fallback.
+#ifndef FLT_EVAL_METHOD
+#define FLT_EVAL_METHOD 0
+#endif
+typedef double double_t;
+typedef float float_t;
 
 #define M_E        2.7182818284590452354
 #define M_LOG2E    1.4426950408889634074

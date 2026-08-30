@@ -29,6 +29,85 @@ first:
 
 ---
 
+## The other shim, and eleven lines of vendored diff
+
+`src/math/musl/shim/` predated the port kit and overlapped it: eight headers,
+137 lines, answering `<stdint.h>`, `<float.h>`, `<math.h>`, `<endian.h>`,
+`<features.h>`, `<fenv.h>`, `<limits.h>` and `"atomic.h"` for the 148 vendored
+sources, which were compiled `-nostdinc` against it. Reviewing it against what
+clang and `braam::compat` now provide, it divided four ways.
+
+**Two headers were pure duplication.** clang's freestanding `<stdint.h>` and
+`<limits.h>` answer correctly, and the shim's `intptr_t`/`uintptr_t` were
+actually *wrong* against clang's — `unsigned int` where clang says
+`unsigned long`, the same width but a different type. Nothing used them, so the
+conflict never fired.
+
+**One was a deliberate lie, and load-bearing.** `float.h` aliased `LDBL_*` to
+the `__DBL_*__` builtins, which is what put `libm.h:10` and `cvt/floatscan.c:6`
+on their `LDBL_MANT_DIG == 53` paths. Unshadowed, wasm32's `long double` is
+113-bit quad and `libm.h:30` would emit a `union ldshape` over it. The lie had
+to survive, and — this is the part worth stating — it must **not** reach the
+port kit, where a ported program needs clang's truth.
+
+**Three carried content a *port* wants** and could not get: `#include <math.h>`
+simply failed for a ported program. `<math.h>`, `<fenv.h>` and the byte-order
+family are now the kit's, each its own copy, because `braam_compat_pure` links
+`braam_math` and sharing would invert the dependency.
+
+**Two were musl's internals** — `hidden`, `weak_alias`, `a_clz_64` — which are
+toolchain macros, not libc, and have no business in a kit a program links.
+
+What replaces the directory is one force-included
+[src/math/musl_prologue.h](../src/math/musl_prologue.h) holding only what is
+neither clang's nor `math/math.h`'s, plus `-I src/math` so `<math.h>` resolves
+to the real header under its own name. `double_t`/`float_t` moved into
+`math/math.h`, where they always belonged.
+
+**The review turned up two latent defects.** `FLT_EVAL_METHOD` is named at
+fifteen `#if` sites across eight files and was defined nowhere — neither by the
+shim nor by clang's predefines — so every one of them read an undefined
+identifier as 0. That is the right answer for wasm32, but by luck rather than by
+statement, and `-Wundef` would have said so. And `predict_false` was defined
+twice incompatibly, `__builtin_expect(!!(x), 0)` in the shim against
+`__builtin_expect(x, 0)` in `libm.h:97`, a `-Wmacro-redefined` diagnostic
+silenced by the `-w` those sources carry.
+
+**The cost, recorded so a re-sync knows.** Eliminating the directory rather than
+shrinking it means eleven vendored files each lose one `#include` line, so a
+musl re-sync is no longer a plain copy. It is a copy plus this patch:
+
+| file | line to delete after a re-sync |
+| --- | --- |
+| `musl/libm.h` | `#include <endian.h>` |
+| `musl/fma.c` | `#include "atomic.h"` |
+| `musl/fmaf.c`, `musl/lrint.c` | `#include <fenv.h>` |
+| `musl/{exp,exp2f,log,log2,log2f,logf,pow}_data.h` | `#include <features.h>` |
+
+`cvt/cvt.h` also gained `#include <stddef.h>` — the shim non-standardly put
+`size_t` in `<stdint.h>` and cvt leaned on it — but `cvt/` is ours, derived
+rather than verbatim, so that is not a vendored edit.
+
+**What makes editing vendored code defensible here is that it changed nothing.**
+Every one of the 149 C objects was compiled both ways, same flags, and compared
+with `cmp`: all 149 are byte-identical. The `math` unit case, which measures
+against `test/unit/math.data` generated from the host's own libm, reports the
+same worst error it did before — 15 ulp, in `lgamma`.
+
+**A note on what "no libc headers" ever meant.** Dropping `-nostdinc` makes the
+tree use clang's freestanding headers, and four documents said it did not. They
+are amended rather than worked around: a freestanding header is part of the
+*compiler*, declares no functions and pulls in no runtime. There is still no
+sysroot, so `<stdio.h>` does not resolve for anything that has not asked for the
+port kit, and that is the guarantee the rule was protecting. One of those four
+sentences had already gone stale when `compat/include/limits.h` started reaching
+clang's `<limits.h>` with `#include_next`.
+
+Clang 23 also ships a freestanding `<endian.h>` that derives the byte order from
+`__BYTE_ORDER__` and carries the whole `htobe`/`letoh` family. The kit's own
+first draft hardcoded little-endian; clang's is better, so the kit does not
+supply one and keeps only the BSD spelling and the `htonl` four.
+
 ## A libc for the programs beside the system, and none inside it
 
 Seven ported packages each wrote a `braam.h`/`braam.cpp` by hand, and two grew a

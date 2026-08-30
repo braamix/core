@@ -4,7 +4,6 @@
 #include <stdint.h>
 #include <float.h>
 #include <math.h>
-#include <endian.h>
 #include "fp_arch.h"
 
 #if LDBL_MANT_DIG == 53 && LDBL_MAX_EXP == 1024

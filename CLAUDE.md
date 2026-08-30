@@ -98,14 +98,21 @@ make clean
   warning-clean. `-DBRAAM_WERROR=OFF` is for bisecting only. **`src/math/musl/`
   and `src/math/cvt/` are the one exemption** — `-w` and a `DisableFormat`
   `.clang-format`, so that a re-sync with upstream stays a clean diff. They are
-  also the only C in the tree, and are compiled `-nostdinc` against the private
-  header shim in `src/math/musl/shim/`.
+  C, as `src/math/native.c` is, and are compiled against clang's freestanding
+  headers plus [src/math/musl_prologue.h](src/math/musl_prologue.h), which is
+  force-included and carries what neither clang nor `math/math.h` has. **A
+  re-sync is a copy plus eleven deleted `#include` lines** — Release_Notes.md
+  lists them.
 
 ### Toolchain
 
-- Clang only, and **nothing from its runtime or headers is linked or included**:
-  `-nostdinc++` is mandatory, `--no-default-config` keeps a config file from
-  injecting a sysroot. libc++'s `<coroutine>` is unusable freestanding;
+- Clang only, and **nothing from its runtime is linked**: `-nostdinc++` is
+  mandatory, `--no-default-config` keeps a config file from injecting a sysroot.
+  Its **freestanding** headers are used — `<stdint.h>`, `<stddef.h>`,
+  `<stdarg.h>`, `<limits.h>`, `<float.h>`, `<endian.h>` — which are part of the
+  compiler, declare no functions and pull in no runtime. With no sysroot,
+  `<stdio.h>` still does not resolve, and that is the guarantee that matters.
+  libc++'s `<coroutine>` is unusable freestanding;
   [src/kernel/coroutine.h](src/kernel/coroutine.h) shims `__builtin_coro_*`.
   There is no compiler-rt for `wasm32-unknown-unknown`.
 - The toolchain file probes `/usr/local/opt/llvm` and `/opt/homebrew/opt/llvm`

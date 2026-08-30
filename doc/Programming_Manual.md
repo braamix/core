@@ -50,7 +50,10 @@ Either way, this is what you get:
 You also need what Braam itself needs: a clang with the wasm32 target and
 `wasm-ld` beside it (`brew install llvm lld`, or `apt install clang lld llvm`),
 CMake 3.24, and Python 3 for the stamp. Nothing is taken from the clang
-distribution but the compiler — no runtime, no headers, no sysroot. There is no
+distribution but the compiler and its freestanding headers — `<stdint.h>`,
+`<stddef.h>`, `<stdarg.h>`, `<limits.h>`, `<float.h>` and `<endian.h>`, which
+declare no functions and pull in no runtime. No sysroot, so `<stdio.h>` does not
+resolve unless you ask for the port kit. There is no
 libc *under* the system and no way to put one there. There is a libm, and there
 is an opt-in port kit for ported C; §6 says how to link either.
 

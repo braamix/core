@@ -4,7 +4,11 @@
 #include "harness.h"
 #include "kernel/alloc.h"
 
+#include <arpa/inet.h>
 #include <ctype.h>
+#include <endian.h>
+#include <fenv.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <errno.h>
@@ -341,6 +345,36 @@ void test_printf()
     CHECK(small[0] == '\0');
 }
 
+void test_endian()
+{
+    CHECK_EQ(BYTE_ORDER, LITTLE_ENDIAN);
+    CHECK(htonl(0x01020304u) == 0x04030201u);
+    CHECK(ntohl(0x04030201u) == 0x01020304u);
+    CHECK(htons(0x0102) == 0x0201);
+    CHECK(ntohs(0x0201) == 0x0102);
+    // The le* pair is identity here; the be* pair swaps.
+    CHECK(htole32(0x01020304u) == 0x01020304u);
+    CHECK(htobe32(0x01020304u) == 0x04030201u);
+    CHECK(be16toh(0x0102) == 0x0201);
+}
+
+void test_math_header()
+{
+    // <math.h> reaches braam::math, which a PORT target links through the kit.
+    CHECK(sqrt(144.0) == 12.0);
+    CHECK(fabs(-2.5) == 2.5);
+    CHECK(floor(-1.5) == -2.0);
+    CHECK(isnan(NAN) && !isnan(1.0));
+    CHECK(isinf(INFINITY));
+    CHECK_EQ(FLT_EVAL_METHOD, 0);
+
+    // wasm has no floating-point environment: every call succeeds, doing
+    // nothing, and no exception is ever flagged.
+    CHECK_EQ(fetestexcept(FE_ALL_EXCEPT), 0);
+    CHECK_EQ(feclearexcept(FE_ALL_EXCEPT), 0);
+    CHECK_EQ(fegetround(), FE_TONEAREST);
+}
+
 } // namespace
 
 void test_compat()
@@ -354,5 +388,7 @@ void test_compat()
     test_strtol();
     test_sort();
     test_printf();
+    test_endian();
+    test_math_header();
     test_errno_bridge();
 }

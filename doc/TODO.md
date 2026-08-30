@@ -138,9 +138,10 @@ exists for callers outside this tree.
 
 - [ ] **P1. Group A's remainder.** `wchar`/`wctype` (`iconv`'s `mbstate_t`, not
       `le`'s, which cannot hold a split sequence), `strftime`/`mktime` over
-      `civil_secs`, `sscanf`, `fnmatch`, `sys/queue.h`, byte order, `getenv`
-      over one heap block. Callers: `le` and `iconv` for the wide half, `zip`
-      for the calendar, `le` for `fnmatch`.
+      `civil_secs`, `sscanf`, `fnmatch`, `sys/queue.h`, `getenv` over one heap
+      block. Callers: `le` and `iconv` for the wide half, `zip` for the
+      calendar, `le` for `fnmatch`. Byte order is done — `<sys/endian.h>` and
+      `<arpa/inet.h>` over clang's `<endian.h>`.
 - [ ] **P2. Group B.** `FILE` over `proc/file.h`, the `b_*` family, `struct
       stat`, dirent. `zip` and `le` each wrote this; `vi` is the smallest real
       surface and the migration to prove it on.

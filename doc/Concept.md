@@ -46,8 +46,8 @@ Three things are deliberately not goals:
   code needs.
 
 The first and the last of those are about what the system is *made of*, and
-neither has moved. What the SDK ships *beside* it is a **port kit** — an archive nothing
-links unless it names it, whose headers are not on the default include path,
+neither has moved. What the SDK ships *beside* it is a **port kit** — an archive
+nothing links unless it names it, whose headers are not on the default path,
 which adds no operation, moves no `PROC_ABI` and cannot make a program that does
 not ask for it one byte larger. Seven ported packages each wrote one by hand
 before it existed. A port is still a rewrite and not a recompile: everything
@@ -142,7 +142,10 @@ and the kernel is merely waiting for a reply it can stop waiting for.
 
 Target `wasm32-unknown-unknown`, freestanding. Any clang with that target and
 `wasm-ld` will do, because it is used purely as a compiler: none of its runtime
-and none of its headers are linked or included. **No exceptions, no RTTI** —
+is linked, and of its headers only the freestanding ones — `<stdint.h>`,
+`<stddef.h>`, `<stdarg.h>`, `<limits.h>`, `<float.h>`, `<endian.h>` — which
+declare no functions. There is no sysroot, so `<stdio.h>` does not resolve.
+**No exceptions, no RTTI** —
 errors are values, `Result<T, E>` propagated through `co_await` with a `TRY()`
 macro rather than by unwinding.
 
@@ -170,6 +173,9 @@ allocator, so it is built for that workload (§8.2).
 One library is not ours: `braam::math` is musl's libm, vendored, so that a Unix
 port has `<cmath>` to link against. A program opts into it, it carries no host
 import, and the kernel does not link it.
+
+Beside them, and linked by nothing here, is the opt-in port kit `braam::compat`
+(doc/Compat.md), for a program being ported from Unix.
 
 Nothing else is available. There is no libc, `new` is not used, and a
 namespace-scope global must be trivially destructible, since a non-trivial

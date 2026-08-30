@@ -1,6 +1,5 @@
-// Degenerate, as wasm has no floating-point environment: no exception flags and
-// no rounding modes. arch/wasm32/fp_arch.h says the same on musl's side, and
-// libm.h's WANT_ROUNDING follows from it.
+// <fenv.h>. wasm has no floating-point environment: no exception flags and no
+// rounding modes. Every macro is zero and every call succeeds doing nothing.
 #pragma once
 
 #define FE_TONEAREST  0
@@ -17,12 +16,24 @@
 typedef int fexcept_t;
 typedef int fenv_t;
 
+#define FE_DFL_ENV ((const fenv_t *)0)
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 static inline int feclearexcept(int e) { (void)e; return 0; }
 static inline int feraiseexcept(int e) { (void)e; return 0; }
 static inline int fetestexcept(int e) { (void)e; return 0; }
+static inline int fegetexceptflag(fexcept_t *p, int e) { (void)p; (void)e; return 0; }
+static inline int fesetexceptflag(const fexcept_t *p, int e) { (void)p; (void)e; return 0; }
 static inline int fegetround(void) { return FE_TONEAREST; }
 static inline int fesetround(int r) { (void)r; return 0; }
 static inline int fegetenv(fenv_t *p) { (void)p; return 0; }
 static inline int fesetenv(const fenv_t *p) { (void)p; return 0; }
 static inline int feholdexcept(fenv_t *p) { (void)p; return 0; }
 static inline int feupdateenv(const fenv_t *p) { (void)p; return 0; }
+
+#ifdef __cplusplus
+}
+#endif
