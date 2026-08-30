@@ -29,6 +29,49 @@ first:
 
 ---
 
+## Typed output over a `File`, measured and put back
+
+D2 wanted `out.put(pid)` with the padding instead of a `Buf` and a write. It was
+built and reverted, and the numbers are the reason.
+
+**The conversion.** `df` was converted whole — every column, output verified
+byte-identical and the alignment checked — and grew from 27,529 to **35,023
+bytes, 27%**. Its `co_await` sites went from 8 to 28, so the cost is about
+**375 bytes per added suspension point**: each one is another state in the
+caller's coroutine state machine. A `Buf` and one `write` batch a whole row into
+a single suspension; typed `put`s cannot, and that is inherent to the shape
+rather than to this implementation of it. What it buys back is 256 bytes of
+frame, and `df`'s frame was never shown to be near §8.2's 512-byte cliff where
+that would matter.
+
+**The primitive lost too, and separately.** A shared `fmt_u64`/`fmt_i64` in
+`kernel/text.h` — the mirror of the `scan_*` family beside it — was meant to be
+the durable half, removing three digit loops from `Buf` and four copies of a
+zero-padded `put2` from `date`, `ls` and `pkg/query`. Every binary that formats
+a number grew 430–550 bytes instead. Marking the wrappers `inline` recovered
+100 of them, so it is not a cross-translation-unit call; and routing `date`'s
+`put2` through the primitive — the case that should have paid it back — grew
+`date` further still, 13,811 to 13,851. One general width/pad/sign routine
+cannot beat a tight digit loop the optimiser specialises per call site. The four
+"duplicated" loops are duplication the optimiser was exploiting, which is worth
+recording because they look like an obvious cleanup and are not.
+
+**D2's own first line was already the answer.** "A write per field is a syscall
+per field" stopped being true when the stream buffered — `FileWrite::await_ready`
+answers from the buffer without allocating a frame, and a row ending in `\n`
+flushes once however it was assembled. With the syscall argument spent and the
+frame argument worth 256 bytes against 7,494, there was nothing left to win.
+D2 now reads like D4: recorded so it is not re-derived.
+
+**One thing came out of it.** Checking the conversion needed a way to compare
+column alignment independent of the values in it, and that turned up a real gap:
+every `ls -l` case in the suite lists a fixture whose sizes are one or two
+digits, so the size column's measured width had only ever been exercised at 1
+or 2. `test/system/columns.mjs` lists `/bin` — fifteen rows of four, five and
+six digits — and asserts every row agrees on where its fields end, looking at no
+value. A width pass capped at three digits passes every other case in the suite
+and fails this one.
+
 ## The other shim, and eleven lines of vendored diff
 
 `src/math/musl/shim/` predated the port kit and overlapped it: eight headers,

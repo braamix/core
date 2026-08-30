@@ -49,6 +49,7 @@ import * as signal from "./system/signal.mjs";
 import * as spawn from "./system/spawn.mjs";
 import * as subst from "./system/subst.mjs";
 import * as sysinfo from "./system/sysinfo.mjs";
+import * as columns from "./system/columns.mjs";
 import * as term from "./system/term.mjs";
 import * as tail from "./system/tail.mjs";
 import * as truncate from "./system/truncate.mjs";
@@ -74,6 +75,7 @@ const CASES = [
     ["flow",       flow.check],
     ["cwd",        cwd.check],        // leaves the shell in /home
     ["ls",         ls.check],         // after cwd: the fixture tree it lists
+    ["columns",    columns.check],   // after ls: the same listing over a wide tree
     ["sysinfo",    sysinfo.check],
     ["pkgcli",     pkgcli.check],
     // The nine share test/system/pkgfix.mjs and one clock, and run in this

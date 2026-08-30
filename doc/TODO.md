@@ -101,20 +101,29 @@ where several writes coalesce into one syscall. None of the below moves
       manual's worked example alone. Wants a line in `rootfs/etc/help` and a
       system case, and moves `compared` in `test_zip.cpp` and the byte count in
       `subst.mjs` as any new program does.
-- [ ] **D2. Formatted output over a `File`.** "A write per field is a syscall
-      per field" stopped being true the moment the stream buffered, so `Buf<N>`
-      is no longer the only way to put a number on the screen. Ten callers now
-      build a `Buf` and write it to a `File`; what they want is
-      `out.put(pid)` with the padding, and the hard part is that a `put`
-      which may have to flush cannot be the synchronous chainable call
-      `Buf::put` is.
-      `math/ftoa.h`'s `put_f64` is the shape to match.
+- [ ] **D2. Nothing, for formatted output over a `File`.** Recorded so it is
+      not re-derived: typed `put`s were built and reverted. `df` was converted
+      whole — output byte-identical, columns verified — and cost **7,494 bytes,
+      27%**, because its `co_await` sites went from 8 to 28 and each added
+      suspension point is ~375 bytes of the caller's state machine. A `Buf` and
+      one `write` batch a row into one suspension point; typed `put`s cannot.
+      The frame it buys back is 256 bytes, and `df`'s frame was never shown to
+      be near §8.2's 512-byte cliff. The shared `fmt_u64` primitive lost too,
+      independently of `File`: every binary that formats a number grew ~430–550
+      bytes, `inline` recovered only 100 of them, and routing `date`'s `put2`
+      through it — the case that should have paid it back — grew `date` further.
+      One general width/pad/sign routine cannot beat a tight digit loop the
+      optimiser specialises per call site, so the four "duplicated" loops in
+      `fmt.h` are duplication the optimiser was exploiting.
+      `test/system/columns.mjs` now pins what the conversion would have broken.
 - [ ] **D2a. The `String` accumulators.** `pkg/query.cpp`'s `emit`, `unzip`'s
       listing and the sh builtins build every row into one heap `String` and
       write it once, because a write per row is a syscall per row. A `File`
       does that without the allocation — but only pays for itself where the
       program has other rows to write, which is the same test D applies
-      everywhere.
+      everywhere. D2's measurement applies here too: what a `File` would save
+      is the accumulator's allocation, not a syscall, and it must not cost a
+      suspension point per field to get it.
 - [ ] **D3. `Input` and `LineReader` onto `File`.** `File::getline` replaced
       the `LineReader` in `grep`, `head` and `tail`; `cp` and `mv` still have
       one, so two line readers exist and one of them cannot be unwound. `Input`
