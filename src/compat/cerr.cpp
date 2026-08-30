@@ -48,6 +48,8 @@ Error error_of(int e)
     case EPIPE:       return Error::Closed;
     case ENOTEMPTY:   return Error::NotEmpty;
     case ELOOP:       return Error::Loop;
+    case EOPNOTSUPP:  return Error::Unsupported;
+    case EFTYPE:      return Error::Invalid;
     }
     return Error::Io;
 }
@@ -81,7 +83,8 @@ constexpr Named NAMES[] = {
     { EDOM, "EDOM" },             { ERANGE, "ERANGE" },     { ENOSYS, "ENOSYS" },
     { ENAMETOOLONG, "ENAMETOOLONG" },
     { ENOTEMPTY, "ENOTEMPTY" },   { ELOOP, "ELOOP" },       { EOVERFLOW, "EOVERFLOW" },
-    { EILSEQ, "EILSEQ" },
+    { EILSEQ, "EILSEQ" },         { EOPNOTSUPP, "EOPNOTSUPP" },
+    { EFTYPE, "EFTYPE" },
 };
 
 } // namespace

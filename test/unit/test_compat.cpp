@@ -259,6 +259,13 @@ void test_errno_bridge()
     CHECK(strcmp(strerror(ENOENT), "ENOENT") == 0);
     CHECK(strcmp(strerror(ERANGE), "ERANGE") == 0);
 
+    // The two BSD names citrus needs; EFTYPE must stay distinct from EINVAL.
+    CHECK(error_of(EOPNOTSUPP) == Error::Unsupported);
+    CHECK(error_of(EFTYPE) == Error::Invalid);
+    CHECK(EFTYPE != EINVAL && EFTYPE != EOPNOTSUPP);
+    CHECK(strcmp(strerror(EFTYPE), "EFTYPE") == 0);
+    CHECK(strcmp(strerror(EOPNOTSUPP), "EOPNOTSUPP") == 0);
+
     errno = 0;
     CHECK_EQ(fail_with(Error::IsDir), -1);
     CHECK_EQ(errno, EISDIR);

@@ -82,6 +82,8 @@ lie.
   `src/math/musl/`. `errno_of`/`error_of` in `compat/cerr.h` are the one bridge
   to `Error`. `Error::Cancelled` and `Error::Intr` both map to `EINTR`: both mean
   "abandoned by a signal", and the difference is not expressible in errno.
+  `EFTYPE` is the one number musl has none for, so it sits at 200, past Linux's
+  highest.
 - **`malloc(0)` and `realloc(p, 0)` return a real block**, never null, so a port
   that reads null as failure cannot mistake success for it.
 - **`realloc` never shrinks.** Capacity comes from `heap_usable_size`, so it is

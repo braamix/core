@@ -42,7 +42,12 @@
 #define ELOOP           40
 #define EOVERFLOW       75
 #define EILSEQ          84
+#define EOPNOTSUPP      95
 #define EWOULDBLOCK     EAGAIN
+
+// BSD-only, so past Linux's highest (EHWPOISON, 133). Distinct rather than
+// folded onto EINVAL: callers switch on both.
+#define EFTYPE          200
 
 #ifdef __cplusplus
 extern "C" {
