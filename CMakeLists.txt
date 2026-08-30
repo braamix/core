@@ -91,6 +91,7 @@ add_library(braam::ui    ALIAS braam_ui)
 add_library(braam::flags ALIAS braam_flags)
 add_library(braam::compat      ALIAS braam_compat)
 add_library(braam::compat_pure ALIAS braam_compat_pure)
+add_library(braam::compat_proc ALIAS braam_compat_proc)
 add_library(braam::portflags   ALIAS braam_portflags)
 set(BRAAM_COMPAT_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/src/compat/include)
 set(BRAAM_STAMP ${CMAKE_SOURCE_DIR}/tools/stamp.py)
@@ -175,7 +176,7 @@ add_custom_target(serve
 # The SDK — doc/Programming_Manual.md. Three libraries and no more: braam_core,
 # braam_fs, braam_svc and braam_user each carry a host import no binary may have.
 install(TARGETS braam_proc braam_ui braam_math braam_flags
-                braam_compat braam_compat_pure braam_portflags
+                braam_compat braam_compat_pure braam_compat_proc braam_portflags
         EXPORT braam-targets
         ARCHIVE DESTINATION ${BRAAM_INSTALL_LIBDIR})
 set_target_properties(braam_math  PROPERTIES EXPORT_NAME math)
@@ -184,6 +185,7 @@ set_target_properties(braam_ui    PROPERTIES EXPORT_NAME ui)
 set_target_properties(braam_flags PROPERTIES EXPORT_NAME flags)
 set_target_properties(braam_compat      PROPERTIES EXPORT_NAME compat)
 set_target_properties(braam_compat_pure PROPERTIES EXPORT_NAME compat_pure)
+set_target_properties(braam_compat_proc PROPERTIES EXPORT_NAME compat_proc)
 set_target_properties(braam_portflags   PROPERTIES EXPORT_NAME portflags)
 install(EXPORT braam-targets
         NAMESPACE braam::

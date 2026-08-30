@@ -8,6 +8,7 @@
 add_library(braam_compat_pure STATIC
     calloc.cpp
     cctype.cpp
+    cenv_intern.cpp
     cerr.cpp
     cfmt.cpp
     cmem.cpp
@@ -30,9 +31,18 @@ target_include_directories(braam_compat_pure INTERFACE
 target_include_directories(braam_compat_pure PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(braam_compat_pure PUBLIC braam_math braam_flags)
 
+# Group A's one member that is not pure: getenv reads the environment block,
+# which is braam_proc's. Separate so braam_compat_pure stays linkable into
+# tests.wasm, where a reference to braam_proc is a link error.
+add_library(braam_compat_proc STATIC
+    cenv.cpp)
+target_compile_options(braam_compat_proc PUBLIC -fno-builtin)
+target_include_directories(braam_compat_proc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(braam_compat_proc PUBLIC braam_compat_pure braam_proc)
+
 # The umbrella a program names.
 add_library(braam_compat INTERFACE)
-target_link_libraries(braam_compat INTERFACE braam_compat_pure)
+target_link_libraries(braam_compat INTERFACE braam_compat_pure braam_compat_proc)
 
 # Upstream keeps its identifiers, its casts and its unused arguments, and
 # -Wall -Wextra -Wshadow fires all over code doing nothing wrong. Separate from

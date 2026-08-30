@@ -35,6 +35,8 @@ void qsort(void *base, size_t n, size_t size, int (*cmp)(const void *, const voi
 // GNU argument order: cmp(a, b, arg). BSD's differs.
 void qsort_r(void *base, size_t n, size_t size, int (*cmp)(const void *, const void *, void *),
              void *arg);
+// The stable one. Allocates, so it can fail: 0, or -1 with errno EINVAL/ENOMEM.
+int mergesort(void *base, size_t n, size_t size, int (*cmp)(const void *, const void *));
 void *bsearch(const void *key, const void *base, size_t n, size_t size,
               int (*cmp)(const void *, const void *));
 

@@ -1,5 +1,6 @@
 // The port kit's Group A. Every case names the divergence it exists to pin:
 // the seven ports each wrote these, and disagreed about most of them.
+#include "compat/cenv.h"
 #include "compat/cerr.h"
 #include "harness.h"
 #include "kernel/alloc.h"
@@ -17,6 +18,19 @@
 #include <string.h>
 
 namespace {
+
+// A key with a payload the comparator ignores, so ties are visible.
+struct Keyed {
+    int key;
+    char tag;
+};
+
+int by_key(const void *a, const void *b)
+{
+    int x = static_cast<const Keyed *>(a)->key;
+    int y = static_cast<const Keyed *>(b)->key;
+    return x < y ? -1 : x > y ? 1 : 0;
+}
 
 int by_int(const void *a, const void *b)
 {
@@ -240,6 +254,73 @@ void test_sort()
     CHECK(bsearch(&key, big, 0, sizeof(int), by_int) == nullptr);
 }
 
+// mergesort is the stable one. qsort is deliberately not, so nothing here
+// asserts that it is: a port that needs stability changes the call.
+void test_mergesort()
+{
+    // Equal keys, distinct payloads: stability is that the payloads come back
+    // in the order they went in.
+    Keyed k[8] = { { 1, 'a' }, { 0, 'b' }, { 1, 'c' }, { 0, 'd' },
+                   { 1, 'e' }, { 0, 'f' }, { 1, 'g' }, { 0, 'h' } };
+    CHECK_EQ(mergesort(k, 8, sizeof k[0], by_key), 0);
+    char got[9];
+    for (int i = 0; i < 8; i++)
+        got[i] = k[i].tag;
+    got[8] = '\0';
+    CHECK(strcmp(got, "bdfhaceg") == 0);
+
+    int one[1] = { 7 };
+    CHECK_EQ(mergesort(one, 1, sizeof(int), by_int), 0);
+    CHECK_EQ(one[0], 7);
+    CHECK_EQ(mergesort(one, 0, sizeof(int), by_int), 0);
+
+    // An odd number of passes has to copy back, which is where a ping-pong
+    // merge sort goes wrong: three elements is two passes, five is three.
+    for (int n = 2; n <= 9; n++) {
+        static int a[9];
+        for (int i = 0; i < n; i++)
+            a[i] = n - i;
+        CHECK_EQ(mergesort(a, usize(n), sizeof(int), by_int), 0);
+        bool up = true;
+        for (int i = 1; i < n; i++)
+            if (a[i - 1] > a[i])
+                up = false;
+        CHECK(up);
+    }
+
+    // BSD's error convention, which is why this is not simply a stabler qsort.
+    errno = 0;
+    CHECK_EQ(mergesort(one, 1, 0, by_int), u32(-1));
+    CHECK_EQ(errno, EINVAL);
+    errno = 0;
+}
+
+// getenv interned per name, in place of the one static buffer five ports
+// shared. env_intern is the half that has no environment under it.
+void test_env_intern()
+{
+    char *a = env_intern("A", "1");
+    char *b = env_intern("B", "2");
+    CHECK(a != nullptr && b != nullptr);
+    CHECK(a != b);
+    // The bug this exists for: the second call must not have moved the first.
+    CHECK(strcmp(a, "1") == 0);
+    CHECK(strcmp(b, "2") == 0);
+
+    // Same name, same pointer — a caller may compare them.
+    CHECK(env_intern("A", "1") == a);
+
+    // Unset and set-to-empty are one answer here: proc_env reports both empty.
+    CHECK(env_intern("C", Str()) == nullptr);
+
+    // Every old copy truncated at 512 (128 in iconv's).
+    static char big[700];
+    for (usize i = 0; i < sizeof big; i++)
+        big[i] = char('a' + i % 26);
+    char *v = env_intern("BIG", Str(big, sizeof big));
+    CHECK(v != nullptr && strlen(v) == sizeof big);
+}
+
 void test_errno_bridge()
 {
     CHECK_EQ(errno_of(Error::NotFound), ENOENT);
@@ -394,6 +475,8 @@ void test_compat()
     test_alloc_compat();
     test_strtol();
     test_sort();
+    test_mergesort();
+    test_env_intern();
     test_printf();
     test_endian();
     test_math_header();

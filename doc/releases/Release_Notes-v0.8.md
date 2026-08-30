@@ -72,6 +72,19 @@ so a port gets its list of `co_await` sites out of one build instead of by hand.
 `malloc` lost the 8-byte header all five copies carried, because `alloc.cpp` has
 kept the capacity in a side table since the start and merely never exposed it.
 
+Two names arrived once the first ports were migrated onto it. **`getenv`**
+interns per name in a heap block, in place of the one `static char val[512]`
+that five copies shared: two live results aliased, so `le` — which keeps the
+pointer in `HOME` rather than copying — was one `getenv` away from reading
+somebody else's variable, and a value past 512 bytes was silently truncated.
+It is the kit's only member that is not pure, since the environment block is
+`braam_proc`'s, so the interning is `braam_compat_pure`'s and the four lines
+over `proc_env` are a second archive; `tests.wasm` links the first and asserts
+the property the bug was. And **`mergesort`**, BSD's name, signature and error
+convention, because `qsort` here is heapsort and a port that leaned on glibc's
+being stable in practice needs somewhere to go — it allocates, so it can fail,
+which is exactly why it is a separate name and not a stabler `qsort`.
+
 **The other shim went with it.** `src/math/musl/shim/` was eight headers and 137
 lines, predating the kit and overlapping it; what replaces it is one
 force-included [src/math/musl_prologue.h](../../src/math/musl_prologue.h) and

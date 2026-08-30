@@ -147,10 +147,16 @@ exists for callers outside this tree.
 
 - [ ] **P1. Group A's remainder.** `wchar`/`wctype` (`iconv`'s `mbstate_t`, not
       `le`'s, which cannot hold a split sequence), `strftime`/`mktime` over
-      `civil_secs`, `sscanf`, `fnmatch`, `sys/queue.h`, `getenv` over one heap
-      block. Callers: `le` and `iconv` for the wide half, `zip` for the
-      calendar, `le` for `fnmatch`. Byte order is done — `<sys/endian.h>` and
-      `<arpa/inet.h>` over clang's `<endian.h>`.
+      `civil_secs`, `sscanf`, `fnmatch`, `sys/queue.h`. Callers: `le` and
+      `iconv` for the wide half, `zip` for the calendar, `le` for `fnmatch`.
+      Byte order is done — `<sys/endian.h>` and `<arpa/inet.h>` over clang's
+      `<endian.h>`. So is `getenv`, interned per name in a heap block, which
+      is what freed the five ports of the aliasing bug; and `mergesort`, BSD's
+      stable sort, for the ports that leaned on glibc's `qsort` being one.
+      `strtod`/`strtof`/`atof` are still declared in `<stdlib.h>` and defined
+      nowhere, which is a link error rather than a diagnostic at the call
+      site: implement them over `parse_f64`, or mark them `unavailable` the
+      way `<stdio.h>`'s blocking names are. `sscanf` has the same hole.
 - [ ] **P2. Group B.** `FILE` over `proc/file.h`, the `b_*` family, `struct
       stat`, dirent. `zip` and `le` each wrote this; `vi` is the smallest real
       surface and the migration to prove it on.

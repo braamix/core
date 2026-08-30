@@ -30,9 +30,15 @@ guard, and it is tested.
 
 **Group A — pure computation.** Exact C signatures and semantics, drop-in:
 `mem*`, `str*`, `ctype`, `malloc`/`calloc`/`realloc`/`free`, the `strtol`
-family, `qsort`/`bsearch`, `snprintf`/`vsnprintf`/`sprintf`, `errno` and
-`strerror`. Group A has no syscall, which is why `braam_compat_pure` links into
-`tests.wasm` the way `braam_math` does: a syscall in it is a link error.
+family, `qsort`/`mergesort`/`bsearch`, `snprintf`/`vsnprintf`/`sprintf`,
+`errno`, `strerror` and `getenv`. Group A has no syscall, which is why
+`braam_compat_pure` links into `tests.wasm` the way `braam_math` does: a
+syscall in it is a link error.
+
+`getenv` is the one member with a foot outside: the environment block is
+`braam_proc`'s. So it is split — the interning, which is what is worth testing,
+is `braam_compat_pure`'s `cenv_intern.cpp`, and the four lines over `proc_env`
+are `braam_compat_proc`, which `braam::compat` links and `tests.wasm` does not.
 
 **Group B — blocking.** Streams, descriptors and directories. These get **no C
 signatures**, because on this system a C signature cannot block: everything is a
@@ -49,10 +55,11 @@ one build hands a porter every call site with its replacement named. `zip` found
 its 1208 `co_await`s by hand.
 
 **Group C — absent.** `setjmp`/`longjmp` (no restorable value stack; `vi`'s
-`error()` unwinding one frame at a time is the recipe), `fork`, `setenv` (argued
-and rejected — doc/TODO.md), `pthread_create`, `dlopen` (a static module table:
-`iconv`'s `citrus_module.cpp`), `mmap` (read into a heap block:
-`citrus_mmap.cpp`), signal handlers, `utime`, `chmod`, µs and CPU clocks.
+`error()` unwinding one frame at a time is the recipe), `fork`, `setenv`
+(argued and rejected — doc/TODO.md, and its absence is what lets `getenv`
+intern an answer once and never revisit it), `pthread_create`, `dlopen` (a
+static module table: `iconv`'s `citrus_module.cpp`), `mmap` (read into a heap
+block: `citrus_mmap.cpp`), signal handlers, `utime`, `chmod`, µs and CPU clocks.
 `exit()` and `abort()` trap: a coroutine cannot exit through a return, so return
 a status from `proc_main`.
 
@@ -75,8 +82,17 @@ freestanding `<endian.h>` arrived only in clang 23.
   `File::scan_i64` do not disagree about the same string.
 - **`qsort` is not stable.** Heapsort: O(n log n) worst case and O(1) extra
   memory, so it cannot fail where there are no exceptions, and iterative, so it
-  cannot overflow the 128 KiB shadow stack. glibc's is stable in practice; a
-  port leaning on that must be found now.
+  cannot overflow the 128 KiB shadow stack. glibc's is stable in practice, and
+  a port leaning on that changes the call to **`mergesort`**, BSD's name for
+  the stable one — bottom-up, so it is iterative too, and with BSD's error
+  convention: `0`, or `-1` with `errno` `EINVAL`/`ENOMEM`. It allocates a
+  block of `n * size`, which is why it is a separate name rather than a
+  stabler `qsort`: a caller has to be able to see it fail. `--gc-sections`
+  keeps it out of a binary that does not name it.
+- **`getenv` interns per name**, in a heap block that outlives every later
+  call. Two live results never alias and a long value is never truncated —
+  five ports each answered out of one `static char val[512]` and shared both
+  bugs.
 - **`strerror` returns the POSIX *name***, `"ENOENT"`, mirroring `error_name()`
   in `kernel/result.h`. Every byte of English prose a Unix libc spends here
   stays unspent.
