@@ -32,8 +32,10 @@ $ kill %1                            # killed anyway
 ```
 
 It is not a Unix clone: no POSIX layer, no `fork`, no VT100 escape codes, and no
-attempt to run C programs written for other systems. Giving that up makes the
-system far smaller and lets every part use what the browser already provides.
+C library under the system. Giving that up makes the system far smaller and lets
+every part use what the browser already provides. A program *ported* from
+elsewhere may opt into one — [doc/Compat.md](doc/Compat.md) is the kit — but a
+port is still a rewrite, and nothing in this tree links it.
 
 ## Three ideas
 
@@ -172,7 +174,7 @@ is the guide and [examples/hello/](examples/hello/) is the worked example.
 
 ## Status
 
-Version 0.7. Everything above works and the tests pass. A tablet works too: tap
+Version 0.8. Everything above works and the tests pass. A tablet works too: tap
 to type, drag to select, with a row of buttons for the keys a touch keyboard
 does not have.
 
