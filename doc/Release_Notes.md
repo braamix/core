@@ -60,7 +60,8 @@ CI is the second one, which is the whole point.
 `<float.h>` is still not wrapped, and must not be — `src/math/` overrides
 `LDBL_*` for its vendored sources and a port must not inherit that lie.
 
-Separately, `actions/checkout`, `actions/setup-node` and
-`actions/upload-artifact` move to `v5`. GitHub is forcing the `v4` releases onto
-Node 24 and warning about it on every run; the `v5` releases target Node 24
-themselves.
+Separately, the three actions leave Node 20, which GitHub is forcing onto Node
+24 and warning about on every run. `checkout` and `setup-node` go to `v5`, which
+is the first of each that targets Node 24; `upload-artifact`'s `v5` still does
+not, so it goes to `v6` — its `v7` is an ESM rewrite with a new direct-upload
+mode, and none of that is wanted for one `path:`.
