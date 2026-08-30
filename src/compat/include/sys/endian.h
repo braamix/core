@@ -1,5 +1,5 @@
-// The BSD spelling. <endian.h> itself is clang's: it derives the byte order
-// from __BYTE_ORDER__ and carries the whole htobe/letoh family.
+// The BSD spelling. <endian.h> is the kit's wrapper over clang's, which the
+// toolchain has only from clang 23.
 #pragma once
 
 #include <endian.h>

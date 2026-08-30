@@ -11,11 +11,11 @@ jobs:
     steps:
       # Whole history: the version's third number is the commit count, and the
       # default shallow clone would build every revision as revision 1.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: "22"
 
@@ -54,7 +54,7 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: braam-web
           path: build/web/

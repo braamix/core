@@ -61,11 +61,13 @@ answer is not the kit's own code: `<math.h>` is `braam::math` under the name C
 uses — a `PORT` target links it through the kit, so `sqrt()` needs nothing
 further asked for; `<fenv.h>` is a degenerate stub, honestly so, since wasm has
 no floating-point environment; `<sys/endian.h>` and `<arpa/inet.h>` carry the
-BSD spelling and the `htonl` four. **`<endian.h>`, `<stdint.h>`, `<stddef.h>`,
-`<stdarg.h>`, `<limits.h>` and `<float.h>` are clang's** freestanding headers
-and the kit does not shadow them — `<float.h>` least of all, since `src/math/`
-overrides `LDBL_*` for its own vendored sources and a port must not inherit that
-lie.
+BSD spelling and the `htonl` four. **`<stdint.h>`, `<stddef.h>`, `<stdarg.h>`
+and `<float.h>` are clang's** freestanding headers and the kit does not shadow
+them — `<float.h>` least of all, since `src/math/` overrides `LDBL_*` for its
+own vendored sources and a port must not inherit that lie. `<endian.h>` and
+`<limits.h>` are wrappers of the same shape: `#include_next` when the compiler
+has one, the names derived from its predefines when it does not, since a
+freestanding `<endian.h>` arrived only in clang 23.
 
 ## Where this differs from C, deliberately
 

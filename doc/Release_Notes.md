@@ -5,9 +5,9 @@ say *what* a thing is; this file says *why* it is that way.
 [Concept.md](Concept.md) remains the specification — where this document and the
 spec disagree about intent, the spec wins and one of the two needs amending.
 
-Nothing has been written for the release after 0.8 yet. It goes here, under a
-new heading appended above the ones before it, and moves to
-[releases/](releases/) when the release is cut.
+What has been written for the release after 0.8 is below, under a heading of its
+own; the next goes above it, and all of them move to [releases/](releases/) when
+the release is cut.
 
 Releases before this one are one file each in [releases/](releases/), newest
 first:
@@ -30,3 +30,37 @@ first:
   criteria they were accepted against
 
 ---
+
+## The kit ships an `endian.h` after all, and CI is why
+
+0.8 argued that `braam::compat` should not supply `<endian.h>`: clang derives
+the order from `__BYTE_ORDER__` and carries the whole `htobe`/`letoh` family,
+and its answer is better than a hardcoded little-endian one. That argument
+stands. What it missed is *which* clang — the freestanding `<endian.h>` arrived
+in clang 23, and CI runs the distribution's, which on ubuntu-latest is 18.1.3.
+`test/unit/test_compat.cpp` had never reached CI before the 0.8 push, since the
+four commits that introduced it were local until then, and it failed there with
+`'endian.h' file not found` on a tree whose three suites pass at home.
+
+So the header is the kit's, in [limits.h](../src/compat/include/limits.h)'s
+shape rather than as a replacement: `#include_next` when the compiler has one,
+and the same names derived from the same predefines when it does not. A clang 23
+build is byte-for-byte what it was — it reaches clang's header through one more
+file — and a clang 18 build now works at all. The rejected alternative was
+pinning CI to a versioned clang from apt.llvm.org: it would fix this one
+symptom, and it would move the toolchain floor from "a C++20 clang" to "clang
+23" for every consumer of the SDK, which is a much larger claim to make for a
+header that is thirty lines of `__builtin_bswap`.
+
+The fallback branch cannot be exercised on a machine whose clang has the real
+header, which is the honest limit of the test: `test_endian` checks whichever
+branch the compiler took, and the two now have to be checked on two compilers.
+CI is the second one, which is the whole point.
+
+`<float.h>` is still not wrapped, and must not be — `src/math/` overrides
+`LDBL_*` for its vendored sources and a port must not inherit that lie.
+
+Separately, `actions/checkout`, `actions/setup-node` and
+`actions/upload-artifact` move to `v5`. GitHub is forcing the `v4` releases onto
+Node 24 and warning about it on every run; the `v5` releases target Node 24
+themselves.
