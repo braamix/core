@@ -15,8 +15,12 @@ const mem = new Memory();
 // resize() that names it, so this is filled by whatever the page attaches.
 const screens = [];
 
+// resize()'s flags, mirroring src/kernel/screen.h.
+const TERM_NO_SHELL = 1;
+
 function pane(term) {
-    return screens[term] || (screens[term] = { renderer: null, residue: 0, pasting: null });
+    return screens[term] ||
+        (screens[term] = { renderer: null, residue: 0, pasting: null, shell: true });
 }
 
 // A canvas or viewport that arrived before the kernel did, by terminal.
@@ -191,7 +195,11 @@ function attach(msg, term) {
     for (const key of ["palette", "fontFamily", "fontSize"])
         if (msg[key] !== undefined)
             own[key] = msg[key];
-    pane(term).renderer = new Renderer(msg.canvas, mem, { ...options, ...own });
+    const p = pane(term);
+    // Read by the first fit(), which is what makes the terminal kernel-side.
+    if (msg.shell === false)
+        p.shell = false;
+    p.renderer = new Renderer(msg.canvas, mem, { ...options, ...own });
 }
 
 // A mouse selection is the page's gesture and the renderer's highlight, and the
@@ -253,7 +261,7 @@ function fit({ width, height, dpr }, term) {
     deselect(term);
     p.residue = 0; // the row height it is a fraction of is about to change
     const { cols, rows } = p.renderer.fit(width, height, dpr);
-    const info = self.kernel.resize(term, cols, rows);
+    const info = self.kernel.resize(term, cols, rows, p.shell ? 0 : TERM_NO_SHELL);
     if (info === 0) {
         emit("error", `braam: no memory for a ${cols}x${rows} screen`);
         return;

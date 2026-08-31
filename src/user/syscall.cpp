@@ -208,6 +208,42 @@ Stream handle_sink(Handle &h)
     return h.kind == Handle::Kind::File ? file_sink(h.file) : pipe_sink(h.pipe.q->ch);
 }
 
+// The screen a terminal operation names, and its claim slots: the process's
+// own record for SYS_TERM_SELF, else a Sys::TermOpen descriptor's. `h` is null
+// for the caller's own.
+struct TermRef {
+    Term *term       = nullptr;
+    KeyInput **keys  = nullptr;
+    FullScreen **alt = nullptr;
+    Handle *h        = nullptr;
+};
+
+Result<TermRef> term_of(Proc &p, u32 screen)
+{
+    if (screen == SYS_TERM_SELF)
+        return TermRef{ p.term, &p.keys, &p.alt, nullptr };
+    Handle *h = proc_handle(p, screen);
+    if (!h || h->kind != Handle::Kind::Console)
+        return Err(Error::Invalid);
+    return TermRef{ h->term, &h->keys, &h->alt, h };
+}
+
+// One parked KeyRead per screen, disarmed however the syscall leaves: what
+// HandleBusy is, over whichever flag this screen keeps.
+struct KeyBusy {
+    KeyBusy(Handle *q, Proc &p) : h(q), owner(p) { flag() = true; }
+
+    KeyBusy(const KeyBusy &)            = delete;
+    KeyBusy &operator=(const KeyBusy &) = delete;
+
+    ~KeyBusy() { flag() = false; }
+
+    bool &flag() { return h ? h->busy_r : owner.keys_busy; }
+
+    Handle *h;
+    Proc &owner;
+};
+
 // Which entry Sys::Wait and Sys::Kill mean. SYS_WAIT_ANY prefers a child that
 // has already finished, so a status the kernel is holding is reported rather
 // than parked past.
@@ -530,6 +566,12 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 status = write_status(r);
                 break;
             }
+            // Text as stdout takes it: cells, no escapes, and never a wait.
+            if (h->kind == Handle::Kind::Console) {
+                screen_write(*h->term, payload);
+                status = i32(payload.size());
+                break;
+            }
             if (h->kind != Handle::Kind::File) {
                 status = -i32(Error::Perm);
                 break;
@@ -579,6 +621,13 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 Result<String> r = Err(Error::Again);
                 CO_RETRY(r, in.read());
                 status = chunk_keep(r, want, h->pend, reply);
+                break;
+            }
+
+            // Cooked input has one receiver and it is that terminal's shell,
+            // so a screen is not read here; KeyClaim and KeyRead are.
+            if (h->kind == Handle::Kind::Console) {
+                status = -i32(Error::Unsupported);
                 break;
             }
 
@@ -1268,53 +1317,75 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
 
         case Sys::KeyClaim:
         case Sys::ScreenEnter: {
-            bool take = sys_op_arg(c.op) & 1;
-            bool key  = sys_op_code(c.op) == Sys::KeyClaim;
+            Result<TermRef> t = term_of(p, sys_term_screen(sys_op_arg(c.op)));
+            if (t.is_err()) {
+                status = -i32(t.error());
+                break;
+            }
+            TermRef ref = t.value();
+            bool take   = sys_term_flags(sys_op_arg(c.op)) & 1;
+            bool key    = sys_op_code(c.op) == Sys::KeyClaim;
 
             if (!take) {
                 if (key) {
-                    heap_delete(p.keys);
-                    p.keys = nullptr;
+                    heap_delete(*ref.keys);
+                    *ref.keys = nullptr;
                 } else {
-                    heap_delete(p.alt);
-                    p.alt = nullptr;
+                    heap_delete(*ref.alt);
+                    *ref.alt = nullptr;
                 }
-            } else if (key ? p.keys != nullptr : p.alt != nullptr) {
+            } else if (key ? *ref.keys != nullptr : *ref.alt != nullptr) {
                 status = -i32(Error::Perm); // this process already holds it
                 break;
             } else if (key) {
                 // Whether another process holds it is the claim's own answer,
                 // so Perm and NoMemory are told apart by the constructor.
-                p.keys = heap_new<KeyInput>(*p.term, p.pid);
-                if (!p.keys || !p.keys->ok()) {
-                    status = -i32(p.keys ? p.keys->error() : Error::NoMemory);
-                    heap_delete(p.keys);
-                    p.keys = nullptr;
+                *ref.keys = heap_new<KeyInput>(*ref.term, p.pid);
+                if (!*ref.keys || !(*ref.keys)->ok()) {
+                    status = -i32(*ref.keys ? (*ref.keys)->error() : Error::NoMemory);
+                    heap_delete(*ref.keys);
+                    *ref.keys = nullptr;
                     break;
                 }
             } else {
-                p.alt = heap_new<FullScreen>(*p.term, p.pid);
-                if (!p.alt || !p.alt->ok()) {
-                    status = -i32(p.alt ? p.alt->error() : Error::NoMemory);
-                    heap_delete(p.alt);
-                    p.alt = nullptr;
+                *ref.alt = heap_new<FullScreen>(*ref.term, p.pid);
+                if (!*ref.alt || !(*ref.alt)->ok()) {
+                    status = -i32(*ref.alt ? (*ref.alt)->error() : Error::NoMemory);
+                    heap_delete(*ref.alt);
+                    *ref.alt = nullptr;
                     break;
                 }
             }
 
-            if (!reply_u32(reply, screen(*p.term).cols, screen(*p.term).rows))
+            if (!reply_u32(reply, screen(*ref.term).cols, screen(*ref.term).rows))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
         }
 
         case Sys::KeyRead: {
-            if (!p.keys) {
+            Result<TermRef> t = term_of(p, sys_term_screen(sys_op_arg(c.op)));
+            if (t.is_err()) {
+                status = -i32(t.error());
+                break;
+            }
+            TermRef ref = t.value();
+            if (!*ref.keys) {
                 status = -i32(Error::Perm);
                 break;
             }
+
+            // A ring has one receiver (channel.h). Two screens are two tasks,
+            // one read each.
+            if (ref.h ? ref.h->busy_r : p.keys_busy) {
+                status = -i32(Error::Perm);
+                break;
+            }
+            HandleRef hold(ref.h);
+            KeyBusy busy(ref.h, p);
+
             Result<Key> r = Err(Error::Again);
-            CO_RETRY(r, p.keys->next());
+            CO_RETRY(r, (*ref.keys)->next());
             if (r.is_err()) {
                 status = -i32(Error::Cancelled);
                 break;
@@ -1322,17 +1393,24 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
 
             // The geometry rides on every key, so a program that repaints per
             // keystroke handles a resize without an event to subscribe to.
-            if (!reply_u32(reply, r.value().code, r.value().mods, screen(*p.term).cols,
-                           screen(*p.term).rows))
+            if (!reply_u32(reply, r.value().code, r.value().mods, screen(*ref.term).cols,
+                           screen(*ref.term).rows))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
         }
 
         case Sys::ScreenBlit: {
+            Result<TermRef> t = term_of(p, sys_term_screen(sys_op_arg(c.op)));
+            if (t.is_err()) {
+                status = -i32(t.error());
+                break;
+            }
+            TermRef ref = t.value();
+
             // The claim is what a blit is for: a process that does not hold the
             // screen would be painting over whichever one does.
-            if (!p.alt) {
+            if (!*ref.alt) {
                 status = -i32(Error::Perm);
                 break;
             }
@@ -1343,8 +1421,9 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             }
             u32 x = sys_get_u32(c.stage), y = sys_get_u32(c.stage + 4);
             u32 w = sys_get_u32(c.stage + 8), h = sys_get_u32(c.stage + 12);
-            Cell *cells = screen_cells(*p.term);
-            if (!cells || u64(x) + w > screen(*p.term).cols || u64(y) + h > screen(*p.term).rows ||
+            Cell *cells = screen_cells(*ref.term);
+            if (!cells || u64(x) + w > screen(*ref.term).cols ||
+                u64(y) + h > screen(*ref.term).rows ||
                 payload.size() != head + usize(w) * h * sizeof(Cell)) {
                 status = -i32(Error::Invalid);
                 break;
@@ -1352,24 +1431,30 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
 
             const Cell *from = reinterpret_cast<const Cell *>(c.stage + head);
             for (u32 row = 0; row < h; row++)
-                __builtin_memcpy(cells + (y + row) * screen(*p.term).cols + x, from + row * w,
+                __builtin_memcpy(cells + (y + row) * screen(*ref.term).cols + x, from + row * w,
                                  usize(w) * sizeof(Cell));
             if (w && h)
-                screen_touch(*p.term, x, y, w, h);
-            screen_move(*p.term, sys_get_u32(c.stage + 16), sys_get_u32(c.stage + 20));
-            screen_cursor(*p.term, sys_get_u32(c.stage + 24) != 0);
+                screen_touch(*ref.term, x, y, w, h);
+            screen_move(*ref.term, sys_get_u32(c.stage + 16), sys_get_u32(c.stage + 20));
+            screen_cursor(*ref.term, sys_get_u32(c.stage + 24) != 0);
             status = 0;
             break;
         }
 
         // Refused while somebody else holds the screen, as a cursor set is.
         case Sys::ScreenClear: {
-            u32 owner = tty_screen_owner(*p.term);
+            Result<TermRef> t = term_of(p, sys_term_screen(sys_op_arg(c.op)));
+            if (t.is_err()) {
+                status = -i32(t.error());
+                break;
+            }
+            Term *term = t.value().term;
+            u32 owner  = tty_screen_owner(*term);
             if (owner && owner != p.pid) {
                 status = -i32(Error::Perm);
                 break;
             }
-            screen_clear(*p.term);
+            screen_clear(*term);
             status = 0;
             break;
         }
@@ -1380,8 +1465,15 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         // then asks where that landed. A set is refused while somebody else
         // holds the screen, for the reason a blit is.
         case Sys::Cursor: {
-            if (sys_op_arg(c.op) & 1) {
-                u32 owner = tty_screen_owner(*p.term);
+            Result<TermRef> t = term_of(p, sys_term_screen(sys_op_arg(c.op)));
+            if (t.is_err()) {
+                status = -i32(t.error());
+                break;
+            }
+            Term *term = t.value().term;
+
+            if (sys_term_flags(sys_op_arg(c.op)) & 1) {
+                u32 owner = tty_screen_owner(*term);
                 if (owner && owner != p.pid) {
                     status = -i32(Error::Perm);
                     break;
@@ -1393,12 +1485,12 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 // screen_move clamps, so a column past the edge is the edge
                 // rather than a refusal — the deferred wrap column (§3.5) is
                 // not one a caller can name.
-                screen_move(*p.term, sys_get_u32(c.stage), sys_get_u32(c.stage + 4));
-                screen_cursor(*p.term, sys_get_u32(c.stage + 8) != 0);
+                screen_move(*term, sys_get_u32(c.stage), sys_get_u32(c.stage + 4));
+                screen_cursor(*term, sys_get_u32(c.stage + 8) != 0);
             }
 
-            if (!reply_u32(reply, screen(*p.term).cursor_x, screen(*p.term).cursor_y,
-                           screen_cursor_on(*p.term), screen(*p.term).cols, screen(*p.term).rows))
+            if (!reply_u32(reply, screen(*term).cursor_x, screen(*term).cursor_y,
+                           screen_cursor_on(*term), screen(*term).cols, screen(*term).rows))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
@@ -1410,13 +1502,21 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         // default back. Refused while somebody else holds the screen, as a
         // cursor set is.
         case Sys::Style: {
-            u32 owner = tty_screen_owner(*p.term);
+            // The one operation whose argument is full, so its screen is the
+            // payload; empty is SYS_TERM_SELF.
+            Result<TermRef> t = term_of(p, payload.size() >= 4 ? sys_get_u32(c.stage) : 0u);
+            if (t.is_err()) {
+                status = -i32(t.error());
+                break;
+            }
+            Term *term = t.value().term;
+            u32 owner  = tty_screen_owner(*term);
             if (owner && owner != p.pid) {
                 status = -i32(Error::Perm);
                 break;
             }
             u32 a = sys_op_arg(c.op);
-            screen_style(*p.term, sys_style_fg(a), sys_style_bg(a), sys_style_attrs(a));
+            screen_style(*term, sys_style_fg(a), sys_style_bg(a), sys_style_attrs(a));
             status = 0;
             break;
         }
@@ -1426,13 +1526,19 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         // Sys::Write's go, and `scrolled` is the answer the caller used to have
         // to go back and ask Cursor for.
         case Sys::Echo: {
-            u32 owner = tty_screen_owner(*p.term);
+            Result<TermRef> t = term_of(p, sys_term_screen(sys_op_arg(c.op)));
+            if (t.is_err()) {
+                status = -i32(t.error());
+                break;
+            }
+            TermRef ref = t.value();
+            u32 owner   = tty_screen_owner(*ref.term);
             if (owner && owner != p.pid) {
                 status = -i32(Error::Perm);
                 break;
             }
             constexpr usize head = SYS_ECHO_HEAD * 4;
-            if (payload.size() < head || !screen(*p.term).cols) {
+            if (payload.size() < head || !screen(*ref.term).cols) {
                 status = -i32(Error::Invalid);
                 break;
             }
@@ -1460,25 +1566,25 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 break;
             }
 
-            u32 arg    = sys_op_arg(c.op);
-            Stream out = p.io.out;
+            u32 arg    = sys_term_flags(sys_op_arg(c.op));
+            Stream out = ref.h ? tty_sink(*ref.term) : p.io.out;
             Result<void> wrote;
 
             // Dark for the write, whatever it is left as: one tick, so nothing
             // between here and the placement below is ever presented.
-            screen_cursor(*p.term, false);
-            u64 was = screen_scrolled(*p.term);
+            screen_cursor(*ref.term, false);
+            u64 was = screen_scrolled(*ref.term);
 
             // FRESH: the anchor is wherever the cursor is, on a row of its own.
             // The newline goes through the Stream, so a redirected stdout sees
             // it, and ahead of any run's style, so a scroll blanks the new row
             // in the default colour rather than the prompt's.
             if (arg & SYS_ECHO_FRESH) {
-                if (screen(*p.term).cursor_x != 0) {
+                if (screen(*ref.term).cursor_x != 0) {
                     CO_CALL(wrote, echo_write(out, "\n"));
                 }
             } else
-                screen_move(*p.term, x, y);
+                screen_move(*ref.term, x, y);
 
             usize at = head + table;
             for (u32 i = 0; wrote.is_ok() && i < runs; i++) {
@@ -1489,14 +1595,14 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 // A run naming no colour paints in the sticky one; one with no
                 // bytes only sets the colour.
                 if (style != SYS_STYLE_KEEP)
-                    screen_style(*p.term, sys_style_fg(style), sys_style_bg(style),
+                    screen_style(*ref.term, sys_style_fg(style), sys_style_bg(style),
                                  sys_style_attrs(style));
                 if (len)
                     CO_CALL(wrote, echo_write(out, payload.substr(at, len)));
                 at += len;
             }
 
-            u32 scrolled = u32(screen_scrolled(*p.term) - was);
+            u32 scrolled = u32(screen_scrolled(*ref.term) - was);
             if (wrote.is_err()) {
                 status = -i32(wrote.error());
                 break;
@@ -1505,27 +1611,27 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 // The deferred wrap column is not one screen_move can name, so
                 // a write that filled a row is carried to the next. That can
                 // scroll, so `scrolled` is taken again after it.
-                if (screen(*p.term).cursor_x >= screen(*p.term).cols) {
+                if (screen(*ref.term).cursor_x >= screen(*ref.term).cols) {
                     CO_CALL(wrote, echo_write(out, "\n"));
-                    scrolled = u32(screen_scrolled(*p.term) - was);
+                    scrolled = u32(screen_scrolled(*ref.term) - was);
                 }
             } else {
                 // Where the caller wants the cursor left, measured from the
                 // anchor and carried up by whatever the write scrolled under it.
                 u32 off = x + cur;
-                u32 row = y + off / screen(*p.term).cols;
-                screen_move(*p.term, off % screen(*p.term).cols,
+                u32 row = y + off / screen(*ref.term).cols;
+                screen_move(*ref.term, off % screen(*ref.term).cols,
                             row >= scrolled ? row - scrolled : 0);
             }
             if (wrote.is_err()) {
                 status = -i32(wrote.error());
                 break;
             }
-            screen_cursor(*p.term, (arg & SYS_ECHO_SHOW) != 0);
+            screen_cursor(*ref.term, (arg & SYS_ECHO_SHOW) != 0);
 
-            if (!reply_u32(reply, screen(*p.term).cursor_x, screen(*p.term).cursor_y,
-                           screen_cursor_on(*p.term), screen(*p.term).cols, screen(*p.term).rows,
-                           scrolled))
+            if (!reply_u32(reply, screen(*ref.term).cursor_x, screen(*ref.term).cursor_y,
+                           screen_cursor_on(*ref.term), screen(*ref.term).cols,
+                           screen(*ref.term).rows, scrolled))
                 co_return Err(Error::NoMemory);
             status = 0;
             break;
@@ -1535,22 +1641,44 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         // state, so none of Cursor's refusals apply. Zero geometry when the
         // answer is no: a pipe has no width.
         case Sys::Tty: {
-            bool console = false;
+            // The descriptor's own grid: p.term would answer for the wrong
+            // screen the moment a process holds two.
+            Term *at = nullptr;
             if (fd == SYS_STDIN) {
-                console = console_is_input(p.io.in);
+                at = console_input_term(p.io.in);
             } else if (fd == SYS_STDOUT || fd == SYS_STDERR) {
-                console = tty_is_console(fd == SYS_STDOUT ? p.io.out : p.io.err);
-            } else if (!proc_handle(p, fd)) {
+                at = tty_term_of(fd == SYS_STDOUT ? p.io.out : p.io.err);
+            } else if (Handle *h = proc_handle(p, fd)) {
+                // A file, a pipe, a socket or a pick set is not the grid; a
+                // screen is.
+                if (h->kind == Handle::Kind::Console)
+                    at = h->term;
+            } else {
                 status = -i32(Error::Invalid);
                 break;
             }
-            // Anything in the process's own table is a file, a pipe, a socket
-            // or a pick set; none is the grid.
-            if (!reply_u32(reply, console ? SYS_TTY_CONSOLE : 0u,
-                           console ? screen(*p.term).cols : 0u,
-                           console ? screen(*p.term).rows : 0u))
+            if (!reply_u32(reply, at ? SYS_TTY_CONSOLE : 0u, at ? screen(*at).cols : 0u,
+                           at ? screen(*at).rows : 0u))
                 co_return Err(Error::NoMemory);
             status = 0;
+            break;
+        }
+
+        // A screen as a descriptor. Free to open: the claim is what arbitrates
+        // two programs on one grid, one holder per terminal already.
+        case Sys::TermOpen: {
+            Term *t = term_at(sys_op_arg(c.op));
+            if (!t) {
+                status = -i32(Error::NotFound); // the page has no such canvas
+                break;
+            }
+            Handle *h = heap_new<Handle>(Handle::Kind::Console);
+            if (!h) {
+                status = -i32(Error::NoMemory);
+                break;
+            }
+            h->term = t;
+            status  = handle_bind(p, h);
             break;
         }
 

@@ -39,6 +39,7 @@ import * as pkgUpgrade from "./system/pkg-upgrade.mjs";
 import * as pkgVerify from "./system/pkg-verify.mjs";
 import * as procfs from "./system/procfs.mjs";
 import * as quad from "./system/quad.mjs";
+import * as panel from "./system/panel.mjs";
 import * as process_ from "./system/process.mjs";
 import * as redirect from "./system/redirect.mjs";
 import * as rename from "./system/rename.mjs";
@@ -116,6 +117,7 @@ const CASES = [
     ["entry",      entry.check],
     ["dual",       dual.check],       // leaves a second shell up, so others() gains one
     ["quad",       quad.check],       // after dual: four terminals at once, and it exits three
+    ["panel",      panel.check],      // after quad: one program on two of its screens
     ["language",   language.check],   // last: it exits the shell for good
 ];
 

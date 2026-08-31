@@ -549,13 +549,14 @@ Task<i32> term_watch()
 
 } // namespace
 
-void init_term_up(Term &term)
+void init_term_up(Term &term, bool no_shell)
 {
     // The pump first, and it needs no store: it is that terminal's only
     // keyboard receiver. The session waits for the store, since /bin is in it.
     if (!sched_spawn(console_pump(term), "tty"))
         return;
-    g_new_terms.try_send(term_id(term));
+    if (!no_shell)
+        g_new_terms.try_send(term_id(term));
 }
 
 Task<i32> init_task(const u32 &pid)

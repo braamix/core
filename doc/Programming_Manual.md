@@ -607,6 +607,22 @@ Nothing gives a claim back on your behalf — but nothing has to: a process that
 dies has its claims released by the kernel, because a killed program runs no
 destructor.
 
+**A second screen** is `attach()`, before either claim, naming a terminal from
+`/proc/terms`:
+
+```cpp
+ProcScreen panel;
+co_await panel.attach(1);      // Err(NotFound) on a page with one canvas
+co_await panel.take_screen();
+co_await panel.take_keys();
+```
+
+Its claims and its grid are its own, so a program may hold two at once. To watch
+both, give each a task — `proc_spawn` above — since a task has one syscall
+outstanding and a second `next_key()` on one screen is `Err(Perm)`. A resize
+still arrives as `Err(Intr)` from `next_key()`, on both, and each instance has
+already repaired its own grid by the time it reports one.
+
 ### Mathematics — `math/math.h` and `math/ftoa.h`
 
 The one library a program asks for by name, because most do not want it:

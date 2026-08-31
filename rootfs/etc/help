@@ -48,7 +48,8 @@ Programs in /bin
   df        [-h] — show filesystem space, scaled with -h
   dirname   <path>... — all but the last part of a path
   echo      [-n] [<word>...] — print the arguments
-  edit      <file> — full-screen editor; ^S saves, ^Q quits
+  edit      [-S <screen>] <file> — full-screen editor; ^S saves, ^Q quits
+            -S puts it on another terminal (cat /proc/terms)
   env       [-i] [<name>=<value>...] [<command> [<arg>...]]
             — print the environment, or run a command with it changed
   false     do nothing, and fail
@@ -120,6 +121,7 @@ More
   /etc/motd         what boot prints
   /etc/anchor       the keys a repository's index is checked against
   /proc             the system as text — try cat /proc/host
+  /proc/terms       the terminals this page put up, and their sizes
   /dev/null         writes go nowhere, reads end at once
   /dev/random       raw random bytes, for as long as anything reads
   /dev/urandom      the same, out of a generator seeded once

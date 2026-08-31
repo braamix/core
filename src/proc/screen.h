@@ -23,6 +23,11 @@ struct ProcScreen {
 
     ~ProcScreen();
 
+    // Binds this to a screen other than the process's own, before either
+    // claim. Not calling it is that terminal. The descriptor dies with the
+    // process: releasing one is a syscall, and ~ProcScreen cannot make it.
+    Task<Result<void>> attach(u32 term_id);
+
     // Claims the keyboard. Do this before reading stdin, so that what is typed
     // while a slow pipe fills is queued rather than echoed at the shell.
     Task<Result<void>> take_keys();
@@ -55,6 +60,7 @@ private:
     Result<void> resize(u32 cols, u32 rows);
 
     Grid grid_;
+    ScreenRef on_; // this process's own terminal until attach() names another
     bool keys_   = false;
     bool screen_ = false;
 };

@@ -236,9 +236,12 @@ export function descriptor(at) {
 // export returned, 0 included, since a refused geometry is asserted on.
 //
 // Resizing a terminal the kernel has not seen before is what makes one, so this
-// is also how dual.mjs gets a second shell.
-export function resize(cols, rows_, term = 0) {
-    addr[term] = kernel().resize(term, cols, rows_);
+// is also how dual.mjs gets a second shell. `flags` is resize()'s: TERM_NO_SHELL
+// makes a bare one, with a pump but no /bin/sh.
+export const TERM_NO_SHELL = 1;
+
+export function resize(cols, rows_, term = 0, flags = 0) {
+    addr[term] = kernel().resize(term, cols, rows_, flags);
     return addr[term];
 }
 
@@ -249,8 +252,8 @@ export const gridAddr = (term = 0) => addr[term];
 
 // A resize with the refusal checked, since a geometry the kernel will not
 // honour hands back 0 and every reader after it would be reading address zero.
-export function regrid(cols, rows_, why, term = 0) {
-    if (resize(cols, rows_, term) === 0)
+export function regrid(cols, rows_, why, term = 0, flags = 0) {
+    if (resize(cols, rows_, term, flags) === 0)
         fail(why);
     return screen(term);
 }

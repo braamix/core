@@ -72,7 +72,8 @@ function makePane(session, spec, term) {
 
     const offscreen = canvas.transferControlToOffscreen();
     // A screen may draw in colours of its own, which is how two panes on one
-    // page are told apart; anything it does not name is the mount's.
+    // page are told apart; anything it does not name is the mount's. `shell:
+    // false` leaves the terminal bare, for a program that opens it instead.
     worker.postMessage({
         kind: "canvas",
         term,
@@ -80,6 +81,7 @@ function makePane(session, spec, term) {
         palette: spec.palette,
         fontFamily: spec.fontFamily,
         fontSize: spec.fontSize,
+        shell: spec.shell,
     }, [offscreen]);
 
     // The page owns the pixel box; the worker owns the font and therefore the
@@ -682,6 +684,9 @@ export function mount(options = {}) {
     // one-screen shorthand for it; each entry is a terminal of the same kernel,
     // numbered by its position, with a shell and a console of its own
     // (Concept.md §3.5). See web/dual.html.
+    //
+    // `shell: false` on an entry leaves that terminal bare — a console but no
+    // /bin/sh — for a screen a program opens rather than one anybody types at.
     const specs = options.screens && options.screens.length
         ? options.screens
         : [{ canvas: options.canvas, keys: options.keys }];

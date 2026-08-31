@@ -122,8 +122,9 @@ BRAAM_EXPORT("key") u32 key(u32 term, u32 code, u32 mods)
 // if the grid could not be allocated. This is where the renderer learns the
 // geometry and re-derives its view, since it is the only call that moves the
 // cells — and where a terminal the host has not used before is made, which
-// gives it a pump and a shell of its own (boot.h).
-BRAAM_EXPORT("resize") u32 resize(u32 term, u32 cols, u32 rows)
+// gives it a pump and a shell of its own (boot.h). TERM_NO_SHELL withholds the
+// shell; the pump still runs, since something must hold the keyboard.
+BRAAM_EXPORT("resize") u32 resize(u32 term, u32 cols, u32 rows, u32 flags)
 {
     Term *t = term_open(term);
     if (!t)
@@ -135,7 +136,7 @@ BRAAM_EXPORT("resize") u32 resize(u32 term, u32 cols, u32 rows)
         return 0; // the old grid is whole, so nothing changed shape
 
     if (fresh)
-        init_term_up(*t);
+        init_term_up(*t, (flags & TERM_NO_SHELL) != 0);
     else
         tty_resized(*t);
     return at;

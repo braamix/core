@@ -137,10 +137,14 @@ enum class Sys : u32 {
     Inflate, // payload = the compressed bytes;  status = the fd
 
     // The terminal. Cells, never a byte stream (§2.3): a full-screen program
-    // paints a grid of its own and blits what changed. Both claims are held by
-    // the kernel, on the process's record.
+    // paints a grid of its own and blits what changed.
+    //
+    // Each names a screen above its own flags (sys_term_pack). Both claims are
+    // the kernel's: on the process's record for its own terminal, on the
+    // descriptor for any other, so closing it gives the screen back.
     KeyClaim = 64, // arg bit 0 = take, else give back;  data = u32 cols, u32 rows
     KeyRead,       // data = u32 code, u32 mods, u32 cols, u32 rows
+                   //   Err(Busy) while this screen already has a read parked
     ScreenEnter,   // arg bit 0 = the alternate screen, else back; data = cols, rows
     ScreenBlit,    // payload = u32 x, y, w, h, cursor_x, cursor_y, cursor_on, then w*h Cells
     ScreenClear,   // blank the shell's screen and home its cursor; refused
@@ -153,8 +157,10 @@ enum class Sys : u32 {
             //   data = u32 x, y, on, cols, rows
 
     // The colours the next Write paints with. Sticky grid state, and refused
-    // while another process holds the alternate screen.
+    // while another process holds the alternate screen. The one operation whose
+    // argument is full, so its screen is a payload instead — empty is SELF.
     Style, // arg = fg | bg << 8 | attrs << 16 (sys_style_pack)
+           //   payload = u32 screen, or empty for SYS_TERM_SELF
 
     // A line editor's whole repaint in one operation: the anchor, a run per
     // colour, the bytes, and where to leave the cursor. `scrolled` reports what
@@ -164,8 +170,15 @@ enum class Sys : u32 {
           //             then the runs' bytes end to end
           //   data    = u32 x, y, on, cols, rows, scrolled
 
-    // Whether a descriptor is the terminal, and how big it is.
+    // Whether a descriptor is the terminal, and how big it is. The geometry is
+    // that descriptor's grid, not the caller's.
     Tty, // arg = fd;  data = u32 flags, u32 cols, u32 rows
+
+    // A screen other than this process's own, as a descriptor the operations
+    // above name. Write paints text on that grid and Close drops both claims.
+    // Read is Err(Unsupported): a terminal's cooked input has one receiver and
+    // it is that terminal's shell, so keys come through KeyClaim and KeyRead.
+    TermOpen = 73, // arg = a terminal id;  status = the descriptor
 
     // Processes. A descriptor named in a Spawn is *moved*: the parent's slot is
     // closed and the child owns it, which closes a pipe's write end and keeps
@@ -236,6 +249,11 @@ constexpr u32 SYS_ECHO_SHOW  = 1;
 constexpr u32 SYS_ECHO_FRESH = 2;
 constexpr u32 SYS_ECHO_END   = 4;
 
+// A terminal operation's flags share the argument with the screen above them,
+// so a ninth flag bit would be read as one.
+static_assert((SYS_ECHO_SHOW | SYS_ECHO_FRESH | SYS_ECHO_END) <= 0xff,
+              "Sys::Echo's flags no longer fit below the screen");
+
 // The style of a Sys::Echo run that names no colour: the sticky one stands.
 // Outside sys_style_pack's range, whose top byte is zero.
 constexpr u32 SYS_STYLE_KEEP = 0xffffffff;
@@ -289,6 +307,11 @@ enum : u32 {
 enum : u32 {
     SYS_TTY_CONSOLE = 1, // this descriptor is the cell grid
 };
+
+// The screen a terminal operation acts on: 0 is the terminal this process was
+// spawned on, anything else a Sys::TermOpen descriptor. A descriptor is never
+// 0, so the two spaces do not collide.
+constexpr u32 SYS_TERM_SELF = 0;
 
 // The three stdio descriptors are the stage's Stdio; anything above indexes
 // the open-file table the process record owns.
@@ -444,8 +467,25 @@ inline u32 sys_op_fd(u32 op)
     return sys_op_arg(op);
 }
 
+// The terminal operations' argument: each one's flags in the low eight bits,
+// the screen above them.
+inline u32 sys_term_pack(u32 flags, u32 screen)
+{
+    return (flags & 0xff) | (screen << 8);
+}
+
+inline u32 sys_term_flags(u32 arg)
+{
+    return arg & 0xff;
+}
+
+inline u32 sys_term_screen(u32 arg)
+{
+    return arg >> 8;
+}
+
 // Sys::Style's argument: two palette indices and the ATTR_* bits of screen.h,
-// which fit the op word's 24, so the operation carries no payload.
+// which fit the op word's 24, so the screen it acts on is a payload instead.
 inline u32 sys_style_pack(u8 fg, u8 bg, u8 attrs)
 {
     return u32(fg) | (u32(bg) << 8) | (u32(attrs) << 16);

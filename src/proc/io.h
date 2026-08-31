@@ -209,13 +209,24 @@ struct TtyInfo {
 
 Task<Result<TtyInfo>> tty_of(u32 fd);
 
+// Which screen a call below acts on; default-constructed is this process's
+// own terminal.
+struct ScreenRef {
+    u32 at = SYS_TERM_SELF;
+};
+
+// A screen other than this process's own, by terminal id. Err(NotFound) when
+// the page put up no such canvas. Closed with close_fd, and dies with the
+// process either way.
+Task<Result<ScreenRef>> screen_open(u32 term_id);
+
 // Takes the raw keys, or gives them back. A shell gives them back before it
 // runs a foreground child, so the child can claim them in its turn; a second
 // claimant while somebody holds them is Err(Perm).
-Task<Result<Geometry>> keys_claim(bool take);
+Task<Result<Geometry>> keys_claim(bool take, ScreenRef on = {});
 
 // The alternate screen, the same way.
-Task<Result<Geometry>> screen_claim(bool take);
+Task<Result<Geometry>> screen_claim(bool take, ScreenRef on = {});
 
 // The next key. No control characters exist (Concept.md §3.5): ^C is 'c' with
 // the control modifier, and with nothing in front it arrives here.
@@ -225,7 +236,7 @@ struct KeyPress {
     Geometry at;
 };
 
-Task<Result<KeyPress>> key_read();
+Task<Result<KeyPress>> key_read(ScreenRef on = {});
 
 // Where the cursor is on the *scrolling* screen. Writing moves it and nothing
 // counts the scrolls, so a line editor writes and then asks where that landed.
@@ -236,9 +247,9 @@ struct CursorAt {
     Geometry at;
 };
 
-Task<Result<CursorAt>> cursor_get();
+Task<Result<CursorAt>> cursor_get(ScreenRef on = {});
 
-Task<Result<CursorAt>> cursor_set(u32 x, u32 y, bool on);
+Task<Result<CursorAt>> cursor_set(u32 x, u32 y, bool on, ScreenRef at = {});
 
 // One run of a repaint: the colour it paints in, and the bytes. SYS_STYLE_KEEP
 // leaves the sticky style alone; no text sets the colour and paints nothing.
@@ -257,12 +268,13 @@ struct Painted {
 };
 
 // `flags` is SYS_ECHO_SHOW, FRESH and END of sysabi.h.
-Task<Result<Painted>> cursor_echo(u32 x, u32 y, u32 cur, u32 flags, Span<const StyledRun> runs);
+Task<Result<Painted>> cursor_echo(u32 x, u32 y, u32 cur, u32 flags, Span<const StyledRun> runs,
+                                  ScreenRef on = {});
 
 // The colours the next write paints with — COLOR_* and ATTR_* of screen.h. The
 // grid is cells, so a colour is not in the bytes; and it is sticky, so a
 // program that colours something puts the default back after it.
-Task<Result<void>> style_set(u8 fg, u8 bg, u8 attrs);
+Task<Result<void>> style_set(u8 fg, u8 bg, u8 attrs, ScreenRef on = {});
 
 // What `df` reports (Concept.md §5.3). `known` is false when the host would
 // not say, which is not the same as a quota of zero.

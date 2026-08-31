@@ -30,9 +30,21 @@ Result<void> ProcScreen::resize(u32 cols, u32 rows)
     return {};
 }
 
+Task<Result<void>> ProcScreen::attach(u32 term_id)
+{
+    Task<Result<ScreenRef>> t = screen_open(term_id);
+    if (!t)
+        co_return Err(Error::NoMemory);
+    Result<ScreenRef> r = co_await t;
+    if (r.is_err())
+        co_return Err(r.error());
+    on_ = r.value();
+    co_return {};
+}
+
 Task<Result<void>> ProcScreen::take_keys()
 {
-    Task<Result<Geometry>> t = keys_claim(true);
+    Task<Result<Geometry>> t = keys_claim(true, on_);
     if (!t)
         co_return Err(Error::NoMemory);
     Result<Geometry> r = co_await t;
@@ -50,7 +62,7 @@ Task<Result<void>> ProcScreen::take_keys()
 
 Task<Result<void>> ProcScreen::take_screen()
 {
-    Task<Result<Geometry>> t = screen_claim(true);
+    Task<Result<Geometry>> t = screen_claim(true, on_);
     if (!t)
         co_return Err(Error::NoMemory);
     Result<Geometry> r = co_await t;
@@ -99,7 +111,7 @@ Task<Result<void>> ProcScreen::flush()
             co_return Err(Error::NoMemory);
     }
 
-    Result<SysReply> r = co_await sys_call(Sys::ScreenBlit, 0, out.str());
+    Result<SysReply> r = co_await sys_call(Sys::ScreenBlit, sys_term_pack(0, on_.at), out.str());
     if (r.is_err())
         co_return Err(r.error());
     co_return {};
@@ -107,17 +119,19 @@ Task<Result<void>> ProcScreen::flush()
 
 Task<Result<Key>> ProcScreen::next_key()
 {
-    Task<Result<KeyPress>> t = key_read();
+    Task<Result<KeyPress>> t = key_read(on_);
     if (!t)
         co_return Err(Error::NoMemory);
     Result<KeyPress> r = co_await t;
     if (r.is_err()) {
-        // SIG_WINCH abandoned the read: the grid is a shape this one is not,
-        // and there is no key to carry the new one in. Ask, resize, and report
-        // the interruption so the caller repaints.
-        if (r.error() != Error::Intr || !sig_take(SIG_WINCH))
+        // A signal abandoned the read, so no key carries the new geometry.
+        // Ask whatever the signal was: SIG_WINCH is one process-wide bit and
+        // two screens wake twice, so only one read could ever take it. The bit
+        // is still collected, it just does not decide this.
+        if (r.error() != Error::Intr)
             co_return Err(r.error());
-        Task<Result<CursorAt>> c = cursor_get();
+        (void)sig_take(SIG_WINCH);
+        Task<Result<CursorAt>> c = cursor_get(on_);
         if (!c)
             co_return Err(Error::NoMemory);
         Result<CursorAt> at = co_await c;

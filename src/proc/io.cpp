@@ -569,9 +569,9 @@ Task<Result<void>> set_fg(u32 pid)
 // Both claims answer with the geometry and nothing else, so taking one and
 // giving it back are the same two lines either way.
 namespace {
-Task<Result<Geometry>> claim(Sys op, bool take)
+Task<Result<Geometry>> claim(Sys op, bool take, ScreenRef on)
 {
-    Result<SysReply> r = co_await sys_call(op, take ? 1 : 0);
+    Result<SysReply> r = co_await sys_call(op, sys_term_pack(take ? 1 : 0, on.at));
     if (r.is_err())
         co_return Err(r.error());
     if (r.value().data.size() < 8)
@@ -581,14 +581,22 @@ Task<Result<Geometry>> claim(Sys op, bool take)
 }
 } // namespace
 
-Task<Result<Geometry>> keys_claim(bool take)
+Task<Result<Geometry>> keys_claim(bool take, ScreenRef on)
 {
-    co_return co_await claim(Sys::KeyClaim, take);
+    co_return co_await claim(Sys::KeyClaim, take, on);
 }
 
-Task<Result<Geometry>> screen_claim(bool take)
+Task<Result<Geometry>> screen_claim(bool take, ScreenRef on)
 {
-    co_return co_await claim(Sys::ScreenEnter, take);
+    co_return co_await claim(Sys::ScreenEnter, take, on);
+}
+
+Task<Result<ScreenRef>> screen_open(u32 term_id)
+{
+    Result<SysReply> r = co_await sys_call(Sys::TermOpen, term_id);
+    if (r.is_err())
+        co_return Err(r.error());
+    co_return ScreenRef{ u32(r.value().status) };
 }
 
 Task<Result<TtyInfo>> tty_of(u32 fd)
@@ -603,9 +611,9 @@ Task<Result<TtyInfo>> tty_of(u32 fd)
                        Geometry{ sys_get_u32(p + 4), sys_get_u32(p + 8) } };
 }
 
-Task<Result<KeyPress>> key_read()
+Task<Result<KeyPress>> key_read(ScreenRef on)
 {
-    Result<SysReply> r = co_await sys_call(Sys::KeyRead, 0);
+    Result<SysReply> r = co_await sys_call(Sys::KeyRead, sys_term_pack(0, on.at));
     if (r.is_err())
         co_return Err(r.error());
     if (r.value().data.size() < 16)
@@ -629,21 +637,23 @@ Task<Result<CursorAt>> cursor(u32 arg, Str payload)
 }
 } // namespace
 
-Task<Result<CursorAt>> cursor_get()
+Task<Result<CursorAt>> cursor_get(ScreenRef on)
 {
-    co_return co_await cursor(0, Str());
+    co_return co_await cursor(sys_term_pack(0, on.at), Str());
 }
 
-Task<Result<CursorAt>> cursor_set(u32 x, u32 y, bool on)
+Task<Result<CursorAt>> cursor_set(u32 x, u32 y, bool on, ScreenRef at)
 {
     u8 head[12];
     sys_put_u32(head, x);
     sys_put_u32(head + 4, y);
     sys_put_u32(head + 8, on ? 1 : 0);
-    co_return co_await cursor(1, Str(reinterpret_cast<const char *>(head), sizeof(head)));
+    co_return co_await cursor(sys_term_pack(1, at.at),
+                              Str(reinterpret_cast<const char *>(head), sizeof(head)));
 }
 
-Task<Result<Painted>> cursor_echo(u32 x, u32 y, u32 cur, u32 flags, Span<const StyledRun> runs)
+Task<Result<Painted>> cursor_echo(u32 x, u32 y, u32 cur, u32 flags, Span<const StyledRun> runs,
+                                  ScreenRef on)
 {
     if (runs.size() > SYS_ECHO_RUNS_MAX)
         co_return Err(Error::Invalid);
@@ -673,7 +683,7 @@ Task<Result<Painted>> cursor_echo(u32 x, u32 y, u32 cur, u32 flags, Span<const S
         if (!payload.append(run.text))
             co_return Err(Error::NoMemory);
 
-    Result<SysReply> r = co_await sys_call(Sys::Echo, flags, payload.str());
+    Result<SysReply> r = co_await sys_call(Sys::Echo, sys_term_pack(flags, on.at), payload.str());
     if (r.is_err())
         co_return Err(r.error());
     if (r.value().data.size() < 24)
@@ -684,9 +694,14 @@ Task<Result<Painted>> cursor_echo(u32 x, u32 y, u32 cur, u32 flags, Span<const S
                        sys_get_u32(p + 20) };
 }
 
-Task<Result<void>> style_set(u8 fg, u8 bg, u8 attrs)
+Task<Result<void>> style_set(u8 fg, u8 bg, u8 attrs, ScreenRef on)
 {
-    Result<SysReply> r = co_await sys_call(Sys::Style, sys_style_pack(fg, bg, attrs));
+    // The one operation whose argument is full, so the screen is the payload.
+    u8 head[4];
+    sys_put_u32(head, on.at);
+    Result<SysReply> r =
+        co_await sys_call(Sys::Style, sys_style_pack(fg, bg, attrs),
+                          on.at ? Str(reinterpret_cast<const char *>(head), sizeof(head)) : Str());
     if (r.is_err())
         co_return Err(r.error());
     co_return {};

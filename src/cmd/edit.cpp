@@ -171,7 +171,11 @@ void set_want(Editor &e)
 
 constexpr Str USAGE =
     "Usage:\n"
-    "    edit <file>\n";
+    "    edit [-S <screen>] <file>\n"
+    "Options:\n"
+    "    -S <screen>  edit on this terminal rather than this one (/proc/terms)\n";
+
+constexpr Opts SPEC{ "", "S" };
 
 } // namespace
 
@@ -180,7 +184,24 @@ Task<i32> proc_main(Args args)
     if (args.size() == 1 || help_asked(args))
         co_return co_await usage_asked(USAGE);
 
-    if (args.size() != 2)
+    u32 on_screen  = 0;
+    bool elsewhere = false;
+    OptParse opts(args, SPEC);
+    for (Opt o;;) {
+        Result<bool> more = opts.next(o);
+        if (more.is_err())
+            co_return co_await usage_error(USAGE);
+        if (!more.value())
+            break;
+        Option<u32> n = parse_u32(o.value);
+        if (!n.has_value())
+            co_return co_await usage_error(USAGE);
+        on_screen = n.value();
+        elsewhere = true;
+    }
+
+    Args rest = opts.rest();
+    if (rest.size() != 1)
         co_return co_await usage_error(USAGE);
 
     Editor *e = heap_new<Editor>();
@@ -193,7 +214,7 @@ Task<i32> proc_main(Args args)
         Editor *e;
     } free_editor{ e };
 
-    if (!e->path.assign(args[1])) {
+    if (!e->path.assign(rest[0])) {
         co_await write_all(SYS_STDERR, "edit: out of memory\n");
         co_return 1;
     }
@@ -201,13 +222,17 @@ Task<i32> proc_main(Args args)
     if (Task<Result<void>> t = load(*e)) {
         Result<void> r = co_await t;
         if (r.is_err()) {
-            if (Task<void> d = errln("edit", args[1], r.error()))
+            if (Task<void> d = errln("edit", rest[0], r.error()))
                 co_await d;
             co_return 1;
         }
     }
 
     ProcScreen fs;
+    if (elsewhere && (co_await fs.attach(on_screen)).is_err()) {
+        co_await write_all(SYS_STDERR, "edit: no such screen\n");
+        co_return 1;
+    }
     if ((co_await fs.take_keys()).is_err()) {
         co_await write_all(SYS_STDERR, "edit: no keyboard\n");
         co_return 1;

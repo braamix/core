@@ -26,8 +26,9 @@ Task<bool> boot_filesystem(Term &term, const u32 &pid);
 
 // A terminal the host has just made: its console pump, and a shell of its own
 // once the store is up. Terminal 0 is not one of these — init runs its shell
-// itself, under init's own pid.
-void init_term_up(Term &term);
+// itself, under init's own pid. `no_shell` withholds the session and its
+// banner, leaving the grid and keyboard to whoever opens the terminal.
+void init_term_up(Term &term, bool no_shell = false);
 
 // What the host said about itself at boot, as `name value` lines with a blank
 // line splitting what the banner showed from the rest (src/svc/svc.h). Cached

@@ -215,7 +215,7 @@ init(heap_base)                         // host -> kernel
 wake(token, payload_ptr, payload_len)   // host signals an event
 tick(now_ms)                            // drains the ready queue; ms to the next timer
 key(term, code, mods) -> u32            // fast path; 0 if the ring was full
-resize(term, cols, rows)                // returns the screen descriptor's address
+resize(term, cols, rows, flags)         // returns the screen descriptor's address
 ref(slot, obj)                          // host deposits a JS object (§3.7)
 sys(pid, op, a0, a1, a2) -> i32         // a process's synchronous syscall (§4.3)
 sys_async(pid, op, token, len) -> i32   // a process's asynchronous syscall (§4.3)
@@ -269,10 +269,27 @@ be.
 
 **What terminals do not divide is the system.** One scheduler, one heap, one
 VFS and one `/home` underneath all of them: a process belongs to a terminal, and
-that is the whole of what it inherits — which grid it paints, which console its
-`^C` comes from, and what `Sys::Tty` measures. Two *kernels* on a page is the
-other arrangement ([web/embed.html](../web/embed.html)), and it divides
+that is what it inherits — which grid it paints by default, which console its
+`^C` comes from, and which foreground set it joins. Two *kernels* on a page is
+the other arrangement ([web/embed.html](../web/embed.html)), and it divides
 everything except the origin's storage, which is the one thing it cannot.
+
+**A process may reach a screen that is not its own.** `Sys::TermOpen` names a
+terminal and hands back a *descriptor*, and every terminal operation names one
+in its argument — zero being the process's own, so a program that never asks is
+the program it was. Write paints text on that grid and Close gives back both
+claims, which is what makes one program drive two screens: an emulator with a
+console and a panel, an editor started on one screen and painted on another.
+What arbitrates two programs on one grid is unchanged — the claims, one holder
+per terminal — so opening is free and taking is not. Reading is not a
+descriptor's: a terminal's cooked input has one receiver and it is that
+terminal's own shell, so keys come through `KeyClaim` and `KeyRead`.
+
+The terminals a page put up, and their sizes, are `/proc/terms` — a machine fact
+and therefore a file rather than an operation (§4.3). A page that means a screen
+for a program rather than for a shell says `shell: false`, which is
+`TERM_NO_SHELL` on `resize`: the pump still runs, since something must hold the
+keyboard, and the grid waits for whoever opens it.
 
 **The layout layer over the grid is a library a process binary links**, and the
 kernel does not link it at all. A full-screen program paints its own grid in its

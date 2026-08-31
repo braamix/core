@@ -830,15 +830,16 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 56 | `Fexport` | — | `u32 name_len`, the name, the bytes | 0 | — |
 | 57 | `Verify` | — | `u32 key_len`, `u32 sig_len`, the key, the signature, then the signed bytes | 0 for a good signature | — |
 | 58 | `Inflate` | — | the compressed bytes | the fd | — |
-| 64 | `KeyClaim` | bit 0 = take, else release | — | 0 | `u32 cols`, `u32 rows` |
-| 65 | `KeyRead` | — | — | 0 | `u32 code`, `u32 mods`, `u32 cols`, `u32 rows` |
-| 66 | `ScreenEnter` | bit 0 = enter, else leave | — | 0 | `u32 cols`, `u32 rows` |
-| 67 | `ScreenBlit` | — | seven `u32`s, then `w*h` `Cell`s | 0 | — |
-| 68 | `ScreenClear` | — | — | 0 | — |
-| 69 | `Cursor` | bit 0 = set, else report | `u32 x, y, on` when setting | 0 | `u32 x`, `y`, `on`, `cols`, `rows` |
-| 70 | `Style` | `fg \| bg << 8 \| attrs << 16` | — | 0 | — |
-| 71 | `Echo` | `SYS_ECHO_SHOW \| FRESH \| END` | `u32 x, y, cur, runs`, then `u32 style, len` each, then the bytes | 0 | `u32 x`, `y`, `on`, `cols`, `rows`, `scrolled` |
+| 64 | `KeyClaim` | bit 0 = take, else release; screen above | — | 0 | `u32 cols`, `u32 rows` |
+| 65 | `KeyRead` | screen above the flags | — | 0 | `u32 code`, `u32 mods`, `u32 cols`, `u32 rows` |
+| 66 | `ScreenEnter` | bit 0 = enter, else leave; screen above | — | 0 | `u32 cols`, `u32 rows` |
+| 67 | `ScreenBlit` | screen above the flags | seven `u32`s, then `w*h` `Cell`s | 0 | — |
+| 68 | `ScreenClear` | screen above the flags | — | 0 | — |
+| 69 | `Cursor` | bit 0 = set, else report; screen above | `u32 x, y, on` when setting | 0 | `u32 x`, `y`, `on`, `cols`, `rows` |
+| 70 | `Style` | `fg \| bg << 8 \| attrs << 16` | `u32 screen`, or empty for the caller's | 0 | — |
+| 71 | `Echo` | `SYS_ECHO_SHOW \| FRESH \| END`; screen above | `u32 x, y, cur, runs`, then `u32 style, len` each, then the bytes | 0 | `u32 x`, `y`, `on`, `cols`, `rows`, `scrolled` |
 | 72 | `Tty` | fd | — | 0 | `u32 flags`, `u32 cols`, `u32 rows` |
+| 73 | `TermOpen` | a terminal id | — | the screen's fd | — |
 | 80 | `Pipe` | — | — | 0 | `u32 read fd`, `u32 write fd` |
 | 81 | `Spawn` | `SYS_SPAWN_ENV` | `u32 fd0, fd1, fd2`, the argv blob, then the env blob | the child's pid | — |
 | 82 | `Wait` | a pid, or `SYS_WAIT_ANY` | — | the child's status, 0–255 | `u32 pid` |
@@ -1442,14 +1443,33 @@ destructor of its own, so a program that had taken the screen and then met `^C`
 would otherwise leave the shell painting into a grid it does not own. Giving
 them back is politeness; the destructor is the guarantee.
 
-**No call here names a screen, and that is deliberate.** A process is on a
-terminal — `Proc::term`, inherited at spawn like `cwd` — so `Tty`, `Fg`,
-`Cursor`, `Style`, `Echo`, `ScreenBlit`, `ScreenClear`, `ScreenEnter` and
-`KeyClaim` all resolve the *caller's* terminal from its record. That is why a
-page with two screens (Concept.md §3.5) moved no wire format here: a program
-cannot paint another terminal's grid, and there is nothing in the process ABI
-that would let it try. `PROC_ABI` still went to 20, so that a `/bin` unpacked by
-an older kernel says so rather than being run by this one.
+**Every call here names a screen, and zero is the caller's own.** A process is
+on a terminal — `Proc::term`, inherited at spawn like `cwd` — and that is what
+`SYS_TERM_SELF` resolves to, so a program that names no screen is the program it
+was. Anything else is a `TermOpen` descriptor, which is how one process drives
+two grids. The screen rides in the argument above each operation's own flags
+(`sys_term_pack`), except `Style`, whose 24 bits are full of colour and which
+takes a payload of one `u32` instead — empty being the caller's.
+
+`Fg` is the exception and stays the caller's terminal: a process is in front of
+one console, and what `^C` means is a policy question rather than a screen.
+
+**A screen is a descriptor, so `Read`, `Write` and `Close` serve it.** `Write`
+paints text on that grid, as a write to stdout does — cells, no escapes.
+`Close` gives back both claims, and so does dying, since they live on the handle
+rather than on the process. `Read` is `Err(Unsupported)`: a terminal's cooked
+input is a `Channel` with one receiver and that receiver is the terminal's own
+shell, so keys come through `KeyClaim` and `KeyRead`.
+
+**Opening is free; taking is not.** `TermOpen` refuses only a terminal the page
+never made (`Err(NotFound)`), because what arbitrates two programs on one grid
+is the claim below, not the open. `/proc/terms` says which terminals there are
+and how big they are.
+
+**One read per screen.** A second `KeyRead` parked on a screen already being
+read is `Err(Perm)`: a key ring has one receiver. A program watching two screens
+is two tasks, one read each — `proc_spawn` in `proc/rt.h`, the shape `chat`
+already has.
 
 **One holder of each per terminal, named by pid.** A second `ScreenEnter` or
 `KeyClaim` on the same terminal is `Err(Perm)` rather than nesting, whether it

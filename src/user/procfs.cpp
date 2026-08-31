@@ -19,9 +19,8 @@ namespace {
 // describes a different moment from its first.
 constexpr usize PROC_MAX = 64;
 
-constexpr Str FILES[] = {
-    "cwd", "host", "meminfo", "mounts", "stat", "tasks", "uptime", "version"
-};
+constexpr Str FILES[] = { "cwd",   "host",  "meminfo", "mounts", "stat",
+                          "tasks", "terms", "uptime",  "version" };
 
 // What /proc/tasks and /proc/<pid> share, so the two cannot disagree.
 Str state_of(const ProcInfo &p)
@@ -185,6 +184,22 @@ bool generate(Str name, String &out)
     if (name == "cwd") {
         b.put(vfs_cwd()).put('\n');
         return out.append(b.str());
+    }
+
+    // The terminals the page put up, which is what a program opening a second
+    // screen reads (Sys::TermOpen). A machine fact and so a file: /proc/host
+    // could not hold it, since geometry is per-terminal and not the machine's.
+    if (name == "terms") {
+        for (u32 id = 0; id < TERM_MAX; id++) {
+            const Term *t = term_at(id);
+            if (!t)
+                continue;
+            Buf<64> one;
+            one.put(id).put(' ').put(screen(*t).cols).put(' ').put(screen(*t).rows).put('\n');
+            if (!out.append(one.str()))
+                return false;
+        }
+        return true;
     }
 
     if (name == "uptime") {

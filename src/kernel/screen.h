@@ -66,6 +66,10 @@ struct Screen {
 // id arriving from JS.
 enum : u32 { TERM_MAX = 4 };
 
+// resize()'s flags. A bare terminal gets its pump but no shell, so its grid
+// and keyboard are free for whoever opens it (Sys::TermOpen).
+enum : u32 { TERM_NO_SHELL = 1 };
+
 // A terminal's grid and its sticky state. Opaque: reached through the calls
 // below, as the file's statics were when there was one.
 struct Term;

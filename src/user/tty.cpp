@@ -35,13 +35,22 @@ Claims &claims(const Term &t)
 
 Stdio stdio_console(Term &t)
 {
-    Stream s{ to_screen, nullptr, &t };
-    return Stdio{ console_input(t), s, s };
+    return Stdio{ console_input(t), tty_sink(t), tty_sink(t) };
+}
+
+Stream tty_sink(Term &t)
+{
+    return Stream{ to_screen, nullptr, &t };
 }
 
 bool tty_is_console(const Stream &s)
 {
     return s.fn == to_screen;
+}
+
+Term *tty_term_of(const Stream &s)
+{
+    return s.fn == to_screen ? static_cast<Term *>(s.ctx) : nullptr;
 }
 
 KeyInput::KeyInput(Term &t, u32 pid) : term_(&t)

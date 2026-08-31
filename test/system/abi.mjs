@@ -29,7 +29,7 @@ export function check(binaries) {
     // carries one too, and boot.mjs is what pins it: the harness reads the
     // rectangle out of the last four arguments.
     const arity = {
-        init: 1, key: 3, ref: 2, resize: 3, sys: 5, sys_async: 4, tick: 1, wake: 3,
+        init: 1, key: 3, ref: 2, resize: 4, sys: 5, sys_async: 4, tick: 1, wake: 3,
     };
     for (const [fn, want] of Object.entries(arity)) {
         const got = kernel()[fn].length;

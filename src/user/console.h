@@ -70,3 +70,7 @@ Source console_input(Term &t);
 // Whether a source is some terminal's cooked input: tty_is_console()'s twin,
 // and Sys::Tty's answer for fd 0. A background job is given null_source().
 bool console_is_input(const Source &s);
+
+// Which terminal's, or null when it is not one. Sys::Tty measures this rather
+// than the caller's own screen.
+Term *console_input_term(const Source &s);

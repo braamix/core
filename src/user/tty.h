@@ -27,9 +27,17 @@
 // argument read what is typed, one level below the shell that spawned it.
 Stdio stdio_console(Term &t);
 
+// Just the sink half, for a screen reached through a descriptor rather than
+// through stdout (Sys::TermOpen).
+Stream tty_sink(Term &t);
+
 // Whether a stream is a grid rather than a pipe or a file: the sink
 // stdio_console() installs is the whole of the difference. Sys::Tty's caller.
 bool tty_is_console(const Stream &s);
+
+// The grid behind a console stream, or null when it is not one. What Sys::Tty
+// measures: the descriptor's own screen, which need not be the caller's.
+Term *tty_term_of(const Stream &s);
 
 // Enough to hold a burst of typing between two resumptions of a program that
 // repaints on every key. Beyond it, keys drop — the policy key() already uses

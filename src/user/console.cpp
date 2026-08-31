@@ -128,10 +128,15 @@ Source console_input(Term &t)
 
 bool console_is_input(const Source &s)
 {
-    for (const Con &c : g_con)
-        if (c.cooked_in && s.ctx == c.cooked_in)
-            return true;
-    return false;
+    return console_input_term(s) != nullptr;
+}
+
+Term *console_input_term(const Source &s)
+{
+    for (u32 id = 0; id < TERM_MAX; id++)
+        if (g_con[id].cooked_in && s.ctx == g_con[id].cooked_in)
+            return term_at(id);
+    return nullptr;
 }
 
 Task<i32> console_pump(Term &t)

@@ -74,12 +74,21 @@ struct Handle {
         PickFile,
         PipeRead,
         PipeWrite,
+        Console, // a screen other than this process's own (Sys::TermOpen)
     };
 
     explicit Handle(Kind k) : kind(k) {}
 
     Handle(const Handle &)            = delete;
     Handle &operator=(const Handle &) = delete;
+
+    // The two claims a Console holds, for the process that dies without
+    // closing it. shut() nulls them, so a Close does not free them twice.
+    ~Handle()
+    {
+        heap_delete(alt);
+        heap_delete(keys);
+    }
 
     // Closes what is behind the descriptor, leaving the block for whoever is
     // still pointing at it. Separate from ~Handle because a Close must reach
@@ -106,6 +115,15 @@ struct Handle {
         case Kind::PipeWrite:
             pipe.shut();
             break;
+        case Kind::Console:
+            // The alternate screen first, as ~Proc does: ~FullScreen paints the
+            // grid back. The whole release path, so a killed process gives the
+            // screen up here too.
+            heap_delete(alt);
+            heap_delete(keys);
+            alt  = nullptr;
+            keys = nullptr;
+            break;
         }
     }
 
@@ -123,6 +141,12 @@ struct Handle {
     u32 set  = 0;     // PickFile: the descriptor of the set it came from
     usize ix = 0;     // PickFile: which of that set's files
     u64 off  = 0;     // Body and PickFile: how far it has been read
+
+    // Console: the screen and this descriptor's claims on it. Here rather than
+    // on Proc, so one process may hold them on two terminals at once.
+    Term *term      = nullptr;
+    KeyInput *keys  = nullptr;
+    FullScreen *alt = nullptr;
 
     // What a short Sys::Read left of a chunk this descriptor had already taken
     // off its stream. The next read serves it before asking again; it dies with
@@ -250,6 +274,10 @@ struct Proc {
     // reached from exec_process's End on ^C, kill and a destroyed frame alike.
     KeyInput *keys  = nullptr;
     FullScreen *alt = nullptr;
+
+    // A KeyRead parked on this terminal's ring; Handle::busy_r is the same
+    // guard for a named screen. A ring has one receiver.
+    bool keys_busy = false;
 
     // The call the host is staging bytes for, not yet issued, and the ones
     // that have been. A process owns them both, so a server task cancelled
