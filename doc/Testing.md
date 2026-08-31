@@ -152,6 +152,13 @@ keystrokes is the thing under test — and it is what the rules are about.
 8. **The archive is optional in form only.** Cases marked `ARCHIVE` in the table
    are skipped without `rootfs.zip`, but a kernel with no archive does not reach
    a prompt, so the suite is run with one.
+9. **A submitted line is at most 64 keys.** `submit` types the whole line before
+   the kernel runs again, and what is typed waits in that terminal's keyboard
+   queue — `Channel<Key>`'s default capacity, 64 (`src/kernel/key.cpp`) — so
+   the sixty-fifth key of a line is dropped silently and the line arrives cut,
+   which reads like a shell bug rather than a full ring. A fixture that would
+   be longer is two lines. `term` is the case that pastes past the ring on
+   purpose, and it paces the keys the way `web/worker.js` does.
 
 ## 6. Adding a case
 

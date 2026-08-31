@@ -65,8 +65,6 @@ Adding a program also moves two counts that are written down: `compared` in
 `test/unit/test_zip.cpp` (the archive's file count) and the byte count in
 `test/system/subst.mjs` (which concatenates `/etc/help` three times).
 
-- [ ] **A4. `sort`, `uniq`** — pipeline staples. `sort` is bounded by memory;
-      say so in `help` and in the release note rather than pretending otherwise.
 - [ ] **A5. `du`** — over `proc/io.h`'s `TreeWalk`, which `copy_tree` and
       `/bin/find` are already written on.
 - [ ] **A6. `tee`, `cut`, `tr`, `seq`** — one read/write loop each.
@@ -74,12 +72,22 @@ Adding a program also moves two counts that are written down: `compared` in
       what answers for `find -exec`, which A3 left out for it.
 - [ ] **A8. `cmp`, `diff`** — `diff` last, the only one needing an algorithm.
 
-Size is not the constraint: `rootfs/` is around 1.4 MB of the 2 MB in
-`tools/size_budget.txt`, at 13–19 KB a program, or 20–27 KB for one carrying a
+Size is not the constraint: `rootfs/` is around 1.5 MB of the 2 MB in
+`tools/size_budget.txt`, at 13–19 KB a program, or 27–37 KB for one carrying a
 `File`.
 
 ## B — program-layer correctness
 
+- [ ] **B3. A `getline` loop is a stack frame per line.** A `Task` that answers
+      without suspending resumes its awaiting coroutine on the awaiter's own
+      stack, so a loop over an already-buffered stream never gets back to the
+      trampoline and the shadow stack grows per line: `grep zzz` over a
+      65,536-line file traps, and `head`, `tail` and `LineReader`'s two callers
+      have the same shape. `/bin/sort` and `/bin/uniq` split chunks themselves,
+      which is an avoidance and not the fix. The fix is `File::getline` as an
+      awaiter with an `await_ready` fast path — the shape `FileGet`, `FileRead`
+      and `FileWrite` already have, and the reason those never grow: a line
+      already in the buffer must not enter a coroutine at all.
 - [ ] **B2. `copy_tree` will not merge.** Its destination must not exist, so
       `cp -r a b` with `b/a` already there fails rather than merging. `mv` has
       the same shape. Distinguishing "a directory is already there" from "a file

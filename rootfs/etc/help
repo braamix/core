@@ -76,6 +76,8 @@ Programs in /bin
   rm        [-r] <path>... — remove files, or directories with -r
   sh        [-eux] [-s | -c <command> | <file>] [<arg>...] — the shell
   sleep     [-m] <secs> — wait, in seconds, or milliseconds with -m
+  sort      [-bfnru] [-t <char>] [-k <key>]... [<file>...] — sort lines; the
+            input is held in memory, and -k names a field rather than the line
   spin      [<millions>] — loop without stopping, so you can kill it
   tail      [-n <count>] [<file>...] — the last lines, ten by default
   test      <expr> — test a condition; the result is the exit status
@@ -87,6 +89,8 @@ Programs in /bin
   true      do nothing, and succeed
   uname     [-a|-s|-r|-m|-g] — name the system, with -a the host it runs on
             and -g this terminal's geometry
+  uniq      [-cdu] [-f <n>] [-s <n>] [<file>...] — drop the repeats of a line
+            next to itself; -c counts them, -f and -s skip fields and bytes
   unzip     [-l] [-p] [-d <dir>] <archive> [<name>...]
             — extract a zip, list it with -l, or print one entry with -p
   vmstat    [-s] [-m] [<secs> [<count>]] — what the kernel is doing, as rates

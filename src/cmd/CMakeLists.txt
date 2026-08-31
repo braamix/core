@@ -9,8 +9,8 @@ add_subdirectory(sh)
 
 set(BRAAM_BIN_LIST basename cat chat clear cp curl date df dirname echo edit env false fexport
                    fimport find grep head hog less ln ls mkdir mount mv pbcopy pbpaste pkg ps pwd
-                   rm sh sleep spin tail test timeout touch truncate true uname unzip vmstat watch
-                   wc)
+                   rm sh sleep sort spin tail test timeout touch truncate true uname uniq unzip
+                   vmstat watch wc)
 set(BRAAM_BIN_PROGRAMS ${BRAAM_BIN_LIST} PARENT_SCOPE)
 
 # Every one of them takes a worker of its own, the shell included. There is

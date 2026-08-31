@@ -240,3 +240,136 @@ mtime for a directory, a directory is newer than nothing and a `-newer` whose
 reference resolves to one matches everything. The help line says so.
 
 `/bin/find` is 37,025 bytes and `rootfs/` is 1,415,017 of the 2 MB budget.
+
+---
+
+## `sort` and `uniq`, and the memory that bounds one
+
+[TODO.md](TODO.md)'s A4, read against v7 by way of `v7besm/cmd/sort/` and
+`v7besm/cmd/uniq/`. Almost none of v7's `sort` survives the move, and naming
+what does not is most of what is worth recording: the `brk()` arena, the
+back-off in 512-byte clicks, the stdio buffers reserved by allocating and
+freeing them, the seven-way temp-file merge and the four character tables are
+every one of them an answer to a PDP-11. What survives is the *semantics* — the
+key model, the option letters and the tie-break rule.
+
+**The input is held, and the entry said to say so.** A process has 256 pages
+(`BRAAM_BIN_MAX_PAGES`), so `sort` is bounded at 16 MB of address space rather
+than by a temp directory, and the usage block and `/etc/help` both carry the
+sentence. There is no spill path and none is planned: spilling would mean
+writing runs to the store and merging them back, which is the half of v7 that
+cost it its arena, its `-T`, its `-m` and two of its bugs. A ceiling that is
+said out loud is a better trade than a merge nobody can see working.
+
+**Neither program reads through `File::getline`, and finding out why is what
+this task actually cost.** The first `sort` was `grep`'s loop with a `keep()`
+where the write was, and it trapped on a 512-line file with the stack four
+hundred frames deep, alternating `proc_main` and `getline`. A `Task` that
+answers **without suspending** resumes its awaiting coroutine from inside its
+own final suspend, so the loop's next iteration runs on top of the frame that
+was meant to have ended: over an already-buffered stream nothing ever returns to
+the trampoline, and the shadow stack grows a frame a line. `FileGet`, `FileRead`
+and `FileWrite` are awaiters with an `await_ready` that answers from the buffer
+**without entering a coroutine at all**, which is why nothing else in the tree
+had shown it — and `grep`, whose loop writes, unwinds on the flush. `grep zzz`
+over 65,536 short lines traps like the first `sort` did. That is
+[TODO.md](TODO.md)'s new B3, since the fix belongs in `getline` rather than in
+its callers; what is here is the avoidance — both programs read a chunk at a
+time through `Input` and split it themselves, so the only coroutine in the loop
+is the one syscall that always suspends. Both write in 4 KB batches for the same
+reason and gained the rest of D2's argument for nothing: dropping `File`
+altogether took `sort` from 36,588 bytes to 26,277 and `uniq` from 31,216 to
+21,173.
+
+**What that ceiling buys is a storage decision, and it is the one thing here
+worth copying.** Lines go into a chain of 64 KiB `String` blocks, each reserved
+once and never appended past its capacity, with a `Vec<Str>` of views over
+them; a line longer than a block takes a block of its own. A `String` that never
+regrows never reallocates, which is what keeps a view valid — so the line table
+is 8 bytes an entry and points straight at the bytes. The obvious alternative,
+one arena that doubles, has a peak of three times its steady state at the copy
+(the old block, the new block, and no way to overlap them), and under a hard cap
+that is the difference between sorting about 5 MB and about 14 MB. The other
+alternative, a `String` per line, pays an allocator block and a size class per
+line for a table that is no smaller.
+
+**Heapsort, in place.** O(n log n) with no recursion and no second table: a
+bottom-up mergesort would be stable, but it wants another 8 bytes a line of the
+same 16 MB, and stability is not what a sort is for here. GNU's is not stable
+either without `-s`, and v7's own page already says which member of a set of
+equal lines survives `-u` is not defined. What replaces stability is the
+last-resort comparison POSIX asks for: when every key ties, the whole line is
+compared with every byte significant — and under `-u` that one is skipped, since
+equal keys are equal lines.
+
+**The comparison needs no table at all.** `v7besm`'s port found `fold[]`,
+`nofold[]`, `nonprint[]` and `dict[]` rotated by 128 for a signed `char`, and
+read 128 bytes off the end of each of them on a machine whose `char` is
+unsigned; it then had to decide what `-d` and `-i` mean above `0177` and write
+the divergence down. None of that arises. The default order is bytes, and in
+UTF-8 byte order *is* codepoint order — the one line of v7's `cmpa()` that was
+already right — so `-d` and `-i` are simply not here, and `-f` folds ASCII alone
+because a Cyrillic letter's case is a two-byte operation and `grep -i` in this
+tree already draws the line there.
+
+**`-n` compares text rather than a number.** The sign, the integer digits with
+leading zeros dropped, then the fraction column by column with a missing digit
+read as zero. That is a dozen lines, it has no range — the system case sorts a
+23-digit value — and it keeps `braam_math` out of a binary that would otherwise
+link a libm to compare `1.5` with `1.25`. A line with no digits in it is zero,
+which is what every `sort -n` does.
+
+**`-k` is the whole of v7's key model in POSIX spelling.** `<field>[.<byte>]`,
+optional `bfnr` modifiers that replace the globals for that key, an optional
+end position after a comma, and `-t` for the separator. Without `-t` a field is
+a run of non-blanks *together with the blanks in front of it*, which is what
+makes `-b` mean something; with `-t` a field is what lies between two
+separators, so a key spanning fields carries the separators between them. The
+`.byte` is a byte and not a character, the divergence `uniq.1.umm` had to write
+down for `+n` and for the same reason. v7's `+pos1 -pos2` form is not accepted:
+it says what `-k` says, and a `+1` on a command line here is a file name.
+Without any `-k` the key is one that runs from field 1 to the end of the line,
+so there is no second code path for the common case — `-b` reaches the whole
+line through the same door.
+
+**`uniq` cannot repeat any of its three upstream bugs.** `gline()` had no bound
+and wrote through the end of a 1000-byte buffer into the one beside it;
+`File::getline` grows a `String`, so there is no buffer to run off. Its end of
+file threw away a final line with no newline, twice over — `File::getline` calls
+that fragment a line, and the system case pins it. And `isdigit(argv[1][1])`
+indexed a 129-entry table with a byte the caller chose, which cannot arise when
+the skips are `-f` and `-s` values rather than a flag letter that might be a
+digit. That last is also the flag-spelling change: v7's `-n` and `+n` become
+BSD's `-f` and `-s`, since a `-2` that means "two fields" cannot coexist with
+option bundling. `-c` combines with `-d` or `-u` rather than superseding them,
+which is POSIX rather than v7's single `mode` character, and the count keeps
+v7's four-column field. Input is files-or-stdin through `Input` like every other
+filter here rather than v7's `[input [output]]` pair: the second operand there
+is a file to *write*, and a redirection is how this tree spells that.
+
+The blank-delimited field walk is written twice, once in each binary. There is
+no library between two programs and there should not be one for nine lines;
+`/bin/sort` reaches it through a key and `/bin/uniq` through a skip, and the two
+would not share a signature anyway.
+
+The two system cases turned up a rule the harness had never written down.
+`submit` types a whole line before the kernel runs again, and what is typed
+waits in that terminal's keyboard queue — `Channel<Key>`'s default 64 — so a
+fixture line of 73 characters arrived cut at 64, with an unterminated quote and
+every line after it answering a continuation prompt. It is now
+[Testing.md](Testing.md) §5's ninth rule, since the failure is silent and reads
+like a shell bug rather than a full ring. **Raising the queue was weighed and
+dropped.** The two candidates are not the same constant: `KEY_RING` (32,
+`src/user/tty.h`) is a claimant's ring and lives on the heap, where 64 slots is
+536 bytes — past `MAX_SMALL`, so each one would cost a whole 64 KiB span
+instead of a 384-byte block; the keyboard queue is a global and doubling it is
+2 KiB of static memory, but `term` pastes past the ring **on purpose**, to prove
+the pacing loop in `web/worker.js`, and a bigger ring only moves the length that
+case has to paste. Nothing in the running system is bounded by either number —
+a real paste is already paced — so the limit is the harness's alone, and it is
+cheaper to write it down than to raise it.
+
+`/bin/sort` is 26,277 bytes, `/bin/uniq` 21,173, and `rootfs/` is 1,462,781 of
+the 2 MB budget. The system cases sort 65,536 lines and 128 KB — past one block,
+which is the only thing that tells a chain of blocks from a single buffer, and
+far past the depth the first version died at.

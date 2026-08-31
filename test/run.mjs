@@ -47,6 +47,7 @@ import * as rename from "./system/rename.mjs";
 import * as respawn from "./system/respawn.mjs";
 import * as script from "./system/script.mjs";
 import * as sh from "./system/sh.mjs";
+import * as sort from "./system/sort.mjs";
 import * as signal from "./system/signal.mjs";
 import * as spawn from "./system/spawn.mjs";
 import * as subst from "./system/subst.mjs";
@@ -58,6 +59,7 @@ import * as truncate from "./system/truncate.mjs";
 import * as chunk from "./system/chunk.mjs";
 import * as cp from "./system/cp.mjs";
 import * as path from "./system/path.mjs";
+import * as uniq from "./system/uniq.mjs";
 import * as unzip from "./system/unzip.mjs";
 import * as vars from "./system/vars.mjs";
 import * as worker from "./system/worker.mjs";
@@ -113,6 +115,8 @@ const CASES = [
     ["chunk",      chunk.check],
     ["cp",         cp.check],
     ["find",       find.check],   // after cp: the walk proc/io.h now shares with it
+    ["sort",       sort.check],
+    ["uniq",       uniq.check],       // after sort: the pipeline it is written for
     ["truncate",   truncate.check],
     ["path",       path.check],
     ["unzip",      unzip.check],
