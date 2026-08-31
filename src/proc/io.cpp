@@ -1,5 +1,7 @@
 #include "io.h"
 
+#include "fs/path.h"
+
 Task<Result<void>> write_all(u32 fd, Str s)
 {
     while (!s.empty()) {
@@ -320,6 +322,51 @@ Task<Result<void>> copy_file(Str from, Str to)
     co_return r;
 }
 
+Task<Result<bool>> TreeWalk::next(String &path, DirEntry &e)
+{
+    at_.clear();
+
+    // The root the first time, then whichever directory was reported last: one
+    // listing per call at most, so a failure names one directory.
+    if (!began_ || !pending_.empty()) {
+        TreeLevel lv;
+        if (!lv.path.assign(began_ ? pending_.str() : root_))
+            co_return Err(Error::NoMemory);
+        began_ = true;
+        pending_.clear();
+
+        Result<Vec<DirEntry>> got = Err(Error::NoMemory);
+        if (Task<Result<Vec<DirEntry>>> t = list_dir(lv.path.str()))
+            got = co_await t;
+        if (got.is_err()) {
+            at_ = move(lv.path);
+            co_return Err(got.error());
+        }
+        lv.ents = move(got.value());
+        if (!levels_.push(move(lv)))
+            co_return Err(Error::NoMemory);
+    }
+
+    // Deepest first, and a level with nothing left is popped: an empty
+    // directory adds one and loses it again without reporting anything.
+    while (!levels_.empty() && levels_.back().at == levels_.back().ents.size())
+        levels_.pop();
+    if (levels_.empty())
+        co_return false;
+
+    TreeLevel &lv = levels_.back();
+    e             = move(lv.ents[lv.at]);
+    lv.at++;
+    if (path_join(lv.path.str(), e.name.str(), path).is_err())
+        co_return Err(Error::NoMemory);
+
+    // Descended into on the next call, so the caller sees a directory before
+    // what is in it.
+    if (e.kind == SYS_KIND_DIR && !pending_.assign(path.str()))
+        co_return Err(Error::NoMemory);
+    co_return true;
+}
+
 Task<Result<void>> copy_tree(Str from, Str to)
 {
     Result<void> made = Err(Error::NoMemory);
@@ -328,51 +375,38 @@ Task<Result<void>> copy_tree(Str from, Str to)
     if (made.is_err())
         co_return made;
 
-    Vec<String> stack; // directories still to walk, relative to `from`
-    if (!stack.push(String()))
-        co_return Err(Error::NoMemory);
+    TreeWalk walk(from);
+    String src, dst;
+    DirEntry e;
+    for (;;) {
+        Result<bool> more = Err(Error::NoMemory);
+        if (Task<Result<bool>> t = walk.next(src, e))
+            more = co_await t;
+        if (more.is_err())
+            co_return Err(more.error());
+        if (!more.value())
+            break;
 
-    while (!stack.empty()) {
-        String rel = move(stack[stack.size() - 1]);
-        stack.pop();
-
-        String dir;
-        if (!dir.assign(from) || !dir.append(rel.str()))
+        if (!dst.assign(to) || !dst.append(src.str().substr(walk.root_len())))
             co_return Err(Error::NoMemory);
 
-        Result<Vec<DirEntry>> got = Err(Error::NoMemory);
-        if (Task<Result<Vec<DirEntry>>> t = list_dir(dir.str()))
-            got = co_await t;
-        if (got.is_err())
-            co_return Err(got.error());
-
-        for (const DirEntry &e : got.value()) {
-            String child, src, dst;
-            if (!child.assign(rel.str()) || !child.push('/') || !child.append(e.name.str()) ||
-                !src.assign(from) || !src.append(child.str()) || !dst.assign(to) ||
-                !dst.append(child.str()))
-                co_return Err(Error::NoMemory);
-
-            Result<void> one = Err(Error::NoMemory);
-            if (e.kind == SYS_KIND_DIR) {
-                if (Task<Result<void>> t = make_dir(dst.str()))
-                    one = co_await t;
-                if (one.is_ok() && !stack.push(move(child)))
-                    one = Err(Error::NoMemory);
-            } else if (e.kind == SYS_KIND_LINK) {
-                Result<String> target = Err(Error::NoMemory);
-                if (Task<Result<String>> t = read_link(src.str()))
-                    target = co_await t;
-                if (target.is_err())
-                    one = Err(target.error());
-                else if (Task<Result<void>> t = make_link(target.value().str(), dst.str()))
-                    one = co_await t;
-            } else if (Task<Result<void>> t = copy_file(src.str(), dst.str())) {
+        Result<void> one = Err(Error::NoMemory);
+        if (e.kind == SYS_KIND_DIR) {
+            if (Task<Result<void>> t = make_dir(dst.str()))
                 one = co_await t;
-            }
-            if (one.is_err())
-                co_return one;
+        } else if (e.kind == SYS_KIND_LINK) {
+            Result<String> target = Err(Error::NoMemory);
+            if (Task<Result<String>> t = read_link(src.str()))
+                target = co_await t;
+            if (target.is_err())
+                one = Err(target.error());
+            else if (Task<Result<void>> t = make_link(target.value().str(), dst.str()))
+                one = co_await t;
+        } else if (Task<Result<void>> t = copy_file(src.str(), dst.str())) {
+            one = co_await t;
         }
+        if (one.is_err())
+            co_return one;
     }
     co_return {};
 }

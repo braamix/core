@@ -55,6 +55,8 @@ Programs in /bin
   false     do nothing, and fail
   fexport   <file> [<name>] — download a file to your computer
   fimport   [<dir>] — copy files from your computer into /import
+  find      <path>... [<expression>] — walk a tree and print what matches
+            -name, -type and -newer, with ! ( ) and -o between them
   grep      [-i] [-v] <text> [<file>...] — print the lines that match
   head      [-n <count>] [-c <count>] [<file>...] — the first lines, ten by
             default, or the first bytes

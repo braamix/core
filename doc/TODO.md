@@ -65,18 +65,16 @@ Adding a program also moves two counts that are written down: `compared` in
 `test/unit/test_zip.cpp` (the archive's file count) and the byte count in
 `test/system/subst.mjs` (which concatenates `/etc/help` three times).
 
-- [ ] **A3. `find`** — `-name`, `-type`, `-newer`; `Sys::List` already carries
-      kind and mtime per entry, and `copy_tree`'s explicit-stack walk is the
-      shape to reuse. Consider lifting that walk beside the copy helpers when
-      the second caller appears.
 - [ ] **A4. `sort`, `uniq`** — pipeline staples. `sort` is bounded by memory;
       say so in `help` and in the release note rather than pretending otherwise.
-- [ ] **A5. `du`** — over the same walk as A3's `find`.
+- [ ] **A5. `du`** — over `proc/io.h`'s `TreeWalk`, which `copy_tree` and
+      `/bin/find` are already written on.
 - [ ] **A6. `tee`, `cut`, `tr`, `seq`** — one read/write loop each.
-- [ ] **A7. `xargs`** — `Spawn`/`Wait`; watch `SYS_CHILD_MAX` (16).
+- [ ] **A7. `xargs`** — `Spawn`/`Wait`; watch `SYS_CHILD_MAX` (16). It is also
+      what answers for `find -exec`, which A3 left out for it.
 - [ ] **A8. `cmp`, `diff`** — `diff` last, the only one needing an algorithm.
 
-Size is not the constraint: `rootfs/` is around 1.3 MB of the 2 MB in
+Size is not the constraint: `rootfs/` is around 1.4 MB of the 2 MB in
 `tools/size_budget.txt`, at 13–19 KB a program, or 20–27 KB for one carrying a
 `File`.
 

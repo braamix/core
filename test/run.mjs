@@ -15,6 +15,7 @@ import * as boot from "./system/boot.mjs";
 import * as cwd from "./system/cwd.mjs";
 import * as dual from "./system/dual.mjs";
 import * as entry from "./system/entry.mjs";
+import * as find from "./system/find.mjs";
 import * as flow from "./system/flow.mjs";
 import * as fullscreen from "./system/fullscreen.mjs";
 import * as glob from "./system/glob.mjs";
@@ -111,6 +112,7 @@ const CASES = [
     ["tail",       tail.check],
     ["chunk",      chunk.check],
     ["cp",         cp.check],
+    ["find",       find.check],   // after cp: the walk proc/io.h now shares with it
     ["truncate",   truncate.check],
     ["path",       path.check],
     ["unzip",      unzip.check],

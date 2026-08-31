@@ -96,10 +96,51 @@ Task<Result<void>> make_dir_all(Str path);
 // One file's bytes into another, which is created or truncated.
 Task<Result<void>> copy_file(Str from, Str to);
 
-// A whole tree, with an explicit stack rather than recursion: a deep tree must
-// not be a deep chain of coroutine frames. Descends on SYS_KIND_DIR alone, so a
-// link is recreated rather than followed and no cycle guard is needed. `to`
-// must not exist.
+// Everything under `root`, pre-order, with an explicit stack rather than
+// recursion: a deep tree must not be a deep chain of coroutine frames.
+// Descends on SYS_KIND_DIR alone, so a link is handed over rather than followed
+// and no cycle guard is needed. `root` itself is not reported — a caller that
+// wants it stats it — and is a view, so it must outlive the walk.
+struct TreeWalk {
+    explicit TreeWalk(Str root) : root_(root)
+    {
+        // One trailing slash or several: what is reported is the trimmed root,
+        // a '/', and the rest, so root_len() splices a destination on.
+        while (root_.size() > 1 && root_[root_.size() - 1] == '/')
+            root_ = root_.substr(0, root_.size() - 1);
+    }
+
+    TreeWalk(const TreeWalk &)            = delete;
+    TreeWalk &operator=(const TreeWalk &) = delete;
+
+    // ok(true) with `path` the whole path from `root` and `e` the entry;
+    // ok(false) past the last one. A directory that will not list is an Err
+    // naming it in `at()`, and that level is dropped — so a caller that reports
+    // and calls again walks the rest, and one that returns stops here.
+    Task<Result<bool>> next(String &path, DirEntry &e);
+
+    // How much of a reported path is the root: path.substr(root_len()) is what
+    // lies under it, leading '/' and all. The root itself contributes none.
+    usize root_len() const { return root_.size() == 1 && root_[0] == '/' ? 0 : root_.size(); }
+
+    // Whichever directory the last Err was about.
+    Str at() const { return at_.str(); }
+
+private:
+    struct TreeLevel {
+        Vec<DirEntry> ents;
+        usize at = 0;
+        String path;
+    };
+
+    Vec<TreeLevel> levels_;
+    Str root_;
+    String pending_; // the directory reported last, listed on the next call
+    String at_;
+    bool began_ = false;
+};
+
+// A whole tree, over the walk above. `to` must not exist.
 Task<Result<void>> copy_tree(Str from, Str to);
 
 Task<Result<void>> remove_path(Str path, bool all);

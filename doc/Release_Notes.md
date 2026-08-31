@@ -155,3 +155,88 @@ Separately, the three actions leave Node 20, which GitHub is forcing onto Node
 is the first of each that targets Node 24; `upload-artifact`'s `v5` still does
 not, so it goes to `v6` — its `v7` is an ESM rewrite with a new direct-upload
 mode, and none of that is wanted for one `path:`.
+
+---
+
+## `find`, and the walk lifted out of `copy_tree`
+
+`/bin/find` is [TODO.md](TODO.md)'s A3, and the port it was read against is
+v7's, by way of `v7besm/cmd/find/`. Two of that port's three headline findings
+do not survive the move, and saying which is most of what is worth recording.
+
+**Its parse tree was a union by pointer reinterpretation.** `struct anode { int
+(*F)(); struct anode *L, *R; }` carried, in `L` and `R`, whichever of an `int`,
+a `char` or a `char *` the primary wanted, and each of eighteen primaries read
+the three words back through a private struct shape of its own. On the BESM-6
+that was a live bug — a fat `char *` cast to `struct anode *` floors to the
+word, so `-name` matched the wrong bytes. `FindNode` here carries a `pat`, a
+`kind` and an `mtime` of the right types, three fields nobody reinterprets.
+
+**`descend()` recursed once per directory, and the whole of that port's second
+section is a measured ceiling** — `MAXDEPTH 20`, arrived at by disassembling the
+prologue after an estimate came out wrong by a factor of two in the unsafe
+direction. There is no ceiling to measure here, because §8.2 forbids the shape
+that would need one: a deep tree must not be a deep chain of coroutine frames.
+`copy_tree` has walked an explicit stack since it was written, and A3's entry
+said to consider lifting that walk when a second caller turned up.
+
+**So `TreeWalk` is the lift** — a pull-style walker in
+[proc/io.h](../src/proc/io.h) beside the copy helpers, `next(path, entry)`
+reporting everything under a root until it answers `ok(false)`. Pull rather than
+a callback, because a callback that may `co_await` is a `Task`-returning virtual
+and a frame per entry; the shape is `LineReader::next`'s, which a program's loop
+already reads like. `copy_tree` is rewritten over it in the same commit rather
+than left beside it, since two walks was the duplication the lift was for, and
+A5's `du` is the third caller.
+
+The one behaviour that changed with the conversion is the **order**.
+`copy_tree`'s stack listed a whole directory, pushed its subdirectories and
+popped the last of them, so `a/b`'s children came after `a/c`; `TreeWalk` keeps
+a level per open listing and is a true pre-order, so a directory is reported
+immediately before what is in it. `copy_tree` never cared. `find`'s reader does,
+and `list_dir` delivers name order, so a whole listing is a thing a test can
+assert. The cost is a level's entries held per level of depth rather than a path
+of names — bounded by the tree, on the heap, and never a frame.
+
+A directory that will not list is an `Err` naming itself in `at()`, and the
+walk drops that level so a further `next()` carries on. That is the one place
+the two callers want different things: `find` reports and keeps walking,
+`copy_tree` returns. Making it the caller's decision is cheaper than a policy
+flag, and neither has to say which it is.
+
+**The expression is evaluated by a plain recursion, not a coroutine.** `-print`
+is the only action `find` has, so nothing in the tree writes: `eval()` records
+that a live `-print` was reached and the walk writes the path once. A tree of
+`co_await`ing nodes would have cost a suspension point per node — D2 measured
+that at ~375 bytes of state machine each — for a program whose whole output is
+one line per name. It costs one deviation from v7, and only one: `-print
+-print` prints once rather than twice. Everything else follows, including `find
+. -name a -o -print`, where the short circuit is what keeps `-print` from being
+reached, and `find . ! -print`, where the side effect happens and the negation
+does not undo it.
+
+**The implicit print is ours, not v7's.** v7 prints nothing without `-print`;
+POSIX prints, and so does every reader's muscle memory. A positioned `-print` is
+what turns the implicit one off, which is the rule that makes the two agree.
+
+What did not come across, and why: `-cpio` wrote a PDP-11 archive to a tape reel
+this system has no driver for; `-user`, `-group`, `-perm` and `-inum` name
+things that do not exist here — no uids, no permissions, no inode numbers —
+and `-links` none either, since there are no hard links; `-mtime`, `-atime` and
+`-ctime` want three timestamps where there is one, and `-newer` orders it.
+`-exec` and `-ok` are left to A7's `xargs`, which is the entry that owns
+`Spawn`/`Wait`, and `find … | xargs` is the composition in the meantime.
+
+`-name` is the shell's own matcher, [sh/match.h](../src/cmd/sh/match.h), linked
+as one pure file the way `/bin/test` links `sh/cond.cpp`. It has no
+leading-dot rule — the shell's is in `glob.cpp`'s walk, not in the matcher —
+which is what POSIX `find` wants and v7's `gmatch` got wrong.
+
+An operand is stat'd without following, so a link named on the command line is
+the link; a link inside the tree is reported and not descended, which is
+`SYS_KIND_DIR`-only descent and the reason no cycle guard is needed. `-newer`
+*does* follow, so its reference file may be a link — and since OPFS keeps no
+mtime for a directory, a directory is newer than nothing and a `-newer` whose
+reference resolves to one matches everything. The help line says so.
+
+`/bin/find` is 37,025 bytes and `rootfs/` is 1,415,017 of the 2 MB budget.

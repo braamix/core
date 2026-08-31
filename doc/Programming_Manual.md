@@ -367,7 +367,7 @@ Each is a `Task<Result<T>>`. `Result` carries an `Error` and is unpacked with
 | Group | What is there |
 | --- | --- |
 | Streams | `write_all(fd, Str)`, `read_chunk(fd)`, `read_some(fd, max)`, `close_fd(fd)` |
-| Files | `open_at(path, flags)`, `open_read`, `read_file`, `stat_of`, `list_dir`, `make_dir`, `make_dir_all`, `remove_path`, `touch_path`, `make_link`, `read_link`, `rename_path`, `seek_fd(fd, off, whence)`, `truncate_fd(fd, n)`, `copy_file`, `copy_tree` |
+| Files | `open_at(path, flags)`, `open_read`, `read_file`, `stat_of`, `list_dir`, `make_dir`, `make_dir_all`, `remove_path`, `touch_path`, `make_link`, `read_link`, `rename_path`, `seek_fd(fd, off, whence)`, `truncate_fd(fd, n)`, `copy_file`, `copy_tree`, `TreeWalk(root)` |
 | Directory | `cwd_get()`, `cwd_set(path)` — this process's own, inherited from whoever spawned it |
 | Children | `make_pipe()`, `spawn(Args, ChildIo, const Args *env)`, `wait_child(pid)`, `kill_child(pid)`, `set_fg(pid)` |
 | Terminal | `tty_of(fd)`, `keys_claim(bool)`, `screen_claim(bool)`, `key_read()`, `cursor_get()`, `cursor_set(x, y, on)`, `style_set(fg, bg, attrs)`, `cursor_echo(x, y, cur, flags, runs)` |
@@ -437,6 +437,15 @@ reads against the directory the link is in.
 each missing one and tolerating a directory that stands already. A leaf standing
 as anything else is `Err(Exists)` still, and a file part-way along fails the
 component below it.
+
+`TreeWalk(root)` is the walk over a whole tree: `next(path, entry)` reports
+everything under `root` pre-order — a directory before what is in it — until it
+answers `ok(false)`. The stack is explicit and on the heap, so depth costs no
+coroutine frame and there is no ceiling to declare; `root` itself is not
+reported, since a caller that wants it has already stat'd it. A directory that
+will not list is an `Err` naming itself in `at()`, and that level is dropped —
+report it and call again to walk the rest, or return and stop. `copy_tree`
+and `/bin/find` are both written over it.
 
 `rename_path(from, to)` follows neither end and replaces the destination — and
 its `Err(Unsupported)` is an instruction rather than a failure: the store cannot

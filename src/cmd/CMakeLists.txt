@@ -8,8 +8,9 @@ add_subdirectory(pkg)
 add_subdirectory(sh)
 
 set(BRAAM_BIN_LIST basename cat chat clear cp curl date df dirname echo edit env false fexport
-                   fimport grep head hog less ln ls mkdir mount mv pbcopy pbpaste pkg ps pwd rm sh
-                   sleep spin tail test timeout touch truncate true uname unzip vmstat watch wc)
+                   fimport find grep head hog less ln ls mkdir mount mv pbcopy pbpaste pkg ps pwd
+                   rm sh sleep spin tail test timeout touch truncate true uname unzip vmstat watch
+                   wc)
 set(BRAAM_BIN_PROGRAMS ${BRAAM_BIN_LIST} PARENT_SCOPE)
 
 # Every one of them takes a worker of its own, the shell included. There is
@@ -27,6 +28,10 @@ set(BRAAM_BIN_SRC_sh sh/main.cpp)
 # evaluator over a proc_main, and linking braam_sh for it would drag the whole
 # shell in for two files.
 set(BRAAM_BIN_SRC_test test.cpp sh/cond.cpp sh/condrun.cpp)
+
+# /bin/find's -name is the shell's own pattern matcher, which is pure. The one
+# file rather than braam_sh, for the same reason.
+set(BRAAM_BIN_SRC_find find.cpp sh/match.cpp)
 
 # /bin/unzip is the package manager's zip reader over an archive that need not
 # be a package. The two files rather than braam_pkg, for the same reason.
