@@ -458,13 +458,16 @@ which is why the helper stats after it. A file meeting a directory is the
 open's `Err(IsDir)`. `-n` and `-i` are `/bin/cp`'s decisions about the name it
 was given, not rules the walk carries.
 
-`rename_path(from, to)` follows neither end and replaces the destination — and
+`rename_path(from, to)` follows neither end and replaces the destination — a
+directory only if it is empty, one with children being `Err(NotEmpty)` — and
 its `Err(Unsupported)` is an instruction rather than a failure: the store cannot
 move *this* one, so copy and remove instead. That is the answer for a move
 across mounts, for a directory, and on any engine whose OPFS has no
 `FileSystemHandle.move()`. Every other error is real. `/bin/mv` is the worked
 example, and the reason to bother trying: a rename keeps the mtime, and a copy
-cannot.
+cannot. Remove the destination non-recursively when standing in for one: the
+rename would have refused a directory with children, so the fallback must not
+delete one.
 
 `tty_of(SYS_STDOUT)` is how a program lays its output out: it reports whether
 that descriptor is the terminal and, if it is, how wide. The geometry is zero

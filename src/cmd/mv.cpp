@@ -74,11 +74,13 @@ Task<Result<void>> move_one(Str from, Str to, Flags f, LineReader &answers)
     if (r.is_ok() || r.error() != Error::Unsupported)
         co_return r;
 
-    // A rename replaces, so the copy needs a clean name first. Nothing puts
-    // the destination back if what follows fails.
+    // A rename replaces, so the copy needs a clean name first. Not recursive:
+    // the rename would have refused a directory with children, and this must
+    // not do what it would not. Nothing puts the destination back if what
+    // follows fails.
     if (dst.is_ok()) {
         Result<void> d = Err(Error::NoMemory);
-        if (Task<Result<void>> t = remove_path(to, true))
+        if (Task<Result<void>> t = remove_path(to, false))
             d = co_await t;
         if (d.is_err())
             co_return d;

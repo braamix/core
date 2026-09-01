@@ -31,6 +31,73 @@ first:
 
 ---
 
+## The empty directory a rename would not step into
+
+[TODO.md](TODO.md)'s B4, and the divergence the section below it deferred.
+`rename(2)` replaces a destination directory that is *empty* and answers
+`ENOTEMPTY` for one that is not. `vfs_rename` refused both with `Err(Exists)`,
+so `mv a b` with an empty `b/a` was `mv: a: already exists` where Unix moves.
+
+**Telling the two apart is a listing, and that is the whole change.** The kinds
+still have to agree, a merge is still refused, and the destination is still not
+removed here: `Fs::rename`'s contract already says it replaces what it lands on,
+so the VFS decides *whether* and the store does it. Which matters more than it
+sounds, because no store moves a directory — `FileSystemHandle.move()` is
+`getFileHandle` only — so an approved empty destination falls out of
+`vfs_rename` as `Err(Unsupported)` and `/bin/mv` performs the replacement on
+its copy path. Removing the destination in the VFS would destroy it for an
+operation that then never happens, and mv's own `remove_path` would answer
+`NotFound` over the corpse.
+
+**`Err(NotEmpty)` rather than `Err(Exists)`.** It is `ENOTEMPTY`, the enum
+already had it for `rm` without `-r`, and `error_name` already printed
+"directory not empty" — so `mv: a: directory not empty` cost nothing and reads
+as what happened. Nothing about the ABI moves; `NotEmpty` is 13 on both sides
+already.
+
+**The ordering is the safety property, not a preference.** The verdict has to
+be reached before the cross-mount `Err(Unsupported)`, because that answer is an
+*instruction* with a destructive half: the caller removes the destination and
+copies over it. Move the emptiness test below `mf != mt` and a cross-mount
+`mv a b` onto a populated `b/a` recursively deletes it — which is the case
+`ENOTEMPTY` exists to prevent. The unit suite pins it from both mounts for that
+reason.
+
+**mv's fallback removes non-recursively now.** It was `remove_path(to, true)`,
+which is the same recursive delete the section below caught in `cp`; it was
+unreachable for a populated directory only because `vfs_rename` refused every
+directory destination outright, and B4 is exactly what makes it reachable. `-f`
+onto a populated directory is `ENOTEMPTY` in POSIX, so the recursive form was
+always a latent violation. Non-recursive is identical on a file or a link, and
+on a directory it now refuses whatever the VFS would have refused, which closes
+the window between the listing and the removal.
+
+**A mount point is now guarded at both ends.** The source check was there and
+the destination one was not, because `Err(Exists)` masked every directory
+destination. An empty mount point is empty, so without it `vfs_rename` would
+ask a store to rename over its own root — `vfs_lookup` hands back `"/"` for a
+path equal to the prefix. `/bin/mv` cannot reach it (a directory operand is
+descended into, not replaced), which is why it was worth one line rather than
+an argument.
+
+**What it costs.** One listing, on the one path that already resolved the
+destination and is about to copy a whole tree, and `vfs_list` rather than a
+bespoke probe so that "what is in this directory" keeps one definition — a
+mount folded under the destination has to count as a child, and two places that
+must agree about that is two places one of them can be wrong in the direction of
+deleting something. `vfs_rename`'s frame went 1008 to 1720 bytes and that is
+free: the top size class is 512, so it was a whole span before and is a whole
+span now. A helper coroutine to keep the `Vec<Entry>` out of the frame was built
+and reverted for the same reason — it bought no allocation, cost one, and cost
+593 bytes of kernel. The kernel is 192,517 bytes against a 262,144 budget.
+
+**What did not change.** The replacement is still a copy, so it still restamps
+— "a rename that is sometimes a copy" stays in the known gaps, and a store that
+gains directory `move()` starts using it without another edit. `mv -i` still
+asks before it discovers the destination is populated, as it did when the answer
+was `Exists`. A destination symbolic link still resolves to `Link`, so a
+directory onto one is `Err(NotDir)` and the new branch is never reached.
+
 ## The merge `cp -r` was deleting its way around
 
 [TODO.md](TODO.md)'s B2 said `copy_tree`'s destination must not exist, so

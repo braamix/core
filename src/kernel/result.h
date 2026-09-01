@@ -18,7 +18,7 @@ enum class Error : u8 {
     Again,
     Unsupported,
     Closed,   // the far end of a stream is gone: EOF to a reader, EPIPE to a writer
-    NotEmpty, // a directory with children, removed without -r
+    NotEmpty, // a directory with children, removed without -r or renamed onto
     Loop,     // a path with more than FS_LINK_MAX symbolic links in it
     Intr,     // a syscall abandoned by a signal; the process is still alive
 };

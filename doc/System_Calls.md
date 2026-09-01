@@ -977,14 +977,25 @@ no setter, so a copy restamps and a move cannot. That is what the system suite
 asserts, and what makes the two paths distinguishable from a shell.
 
 The policy is the VFS's and the mechanism the store's, which is why
-`vfs_rename` refuses ahead of the round trip: the two paths naming one file is
-`Ok` and nothing done — `rename(2)`'s answer, and what keeps `mv a a` from
-removing the file it was about to move — a directory into itself is
-`Err(Invalid)`, a mount point is `Err(Perm)` before the cross-mount answer since
-copying one is no better, disagreeing kinds are `Err(IsDir)`/`Err(NotDir)`, and
-two directories are `Err(Exists)` rather than a merge. A source with an open
-descriptor is `Err(Perm)`: `OpenShared` is keyed on the path, and OPFS holds an
-open file exclusively anyway.
+`vfs_rename` refuses without asking it: the two paths naming one file is `Ok`
+and nothing done — `rename(2)`'s answer, and what keeps `mv a a` from removing
+the file it was about to move — a directory into itself is `Err(Invalid)`, a
+mount point at *either* end is `Err(Perm)` before the cross-mount answer since
+copying one is no better and neither is the filesystem's to be replaced over,
+disagreeing kinds are `Err(IsDir)`/`Err(NotDir)`, and two directories are
+`rename(2)`'s own rule: an empty destination is replaced, one with children is
+`Err(NotEmpty)`, and neither is a merge. A source with an open descriptor is
+`Err(Perm)`: `OpenShared` is keyed on the path, and OPFS holds an open file
+exclusively anyway.
+
+**That last one is the exception to "without asking".** Telling an empty
+directory from a full one is a listing, so it is the one refusal that costs a
+round trip, and it has to stay *ahead* of the cross-mount `Err(Unsupported)`.
+The instruction to copy carries a destructive half — the caller removes the
+destination before copying over it — so what reaches it must be a name the VFS
+has already agreed may go. `/bin/mv` removes it non-recursively for the same
+reason: the rename would have refused a directory with children, and the
+fallback must not do what the fast path would not.
 
 **`..` stays lexical**, which is `cd -L`: `path_resolve` pops a component
 textually and never sees a link, so `/a/link/..` is `/a`. That is what keeps it

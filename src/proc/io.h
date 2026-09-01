@@ -206,7 +206,8 @@ Task<Result<void>> make_link(Str target, Str path);
 // The target of a symbolic link, unresolved. Err(Invalid) for anything else.
 Task<Result<String>> read_link(Str path);
 
-// Renames `from` to `to`, following neither and replacing the destination.
+// Renames `from` to `to`, following neither and replacing the destination — a
+// directory only if it is empty, one with children being Err(NotEmpty).
 // Err(Unsupported) is not a failure but an instruction: the store cannot move
 // this — a different mount, or a directory — so copy and remove instead.
 Task<Result<void>> rename_path(Str from, Str to);

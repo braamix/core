@@ -691,12 +691,28 @@ void test_vfs()
         // One into itself is refused before that, so no caller ever copies it.
         CHECK(run_now(vfs_rename("/home/d", "/home/d/sub")).error() == Error::Invalid);
 
-        // The kinds must agree, and two directories are Exists rather than a
-        // merge — all three before the Unsupported above.
+        // The kinds must agree, and an empty destination directory is replaced
+        // where one with children is NotEmpty — all before the Unsupported
+        // above, which is what keeps a caller from copying over either.
         CHECK(run_now(vfs_mkdir("/home/d2")).is_ok());
         CHECK(run_now(vfs_rename("/home/two", "/home/d")).error() == Error::IsDir);
         CHECK(run_now(vfs_rename("/home/d", "/home/two")).error() == Error::NotDir);
-        CHECK(run_now(vfs_rename("/home/d", "/home/d2")).error() == Error::Exists);
+        CHECK(run_now(vfs_rename("/home/d", "/home/d2")).error() == Error::Unsupported);
+
+        CHECK(run_now(vfs_mkdir("/home/d3")).is_ok());
+        CHECK(run_now(vfs_mkdir("/home/d3/kid")).is_ok());
+        CHECK(run_now(vfs_rename("/home/d", "/home/d3")).error() == Error::NotEmpty);
+
+        // Before the cross-mount answer too: a caller told to copy removes the
+        // destination first, and must never be handed one with children.
+        CHECK(run_now(vfs_mkdir("/d4")).is_ok());
+        CHECK(run_now(vfs_mkdir("/d4/kid")).is_ok());
+        CHECK(run_now(vfs_rename("/home/d", "/d4")).error() == Error::NotEmpty);
+        CHECK(run_now(vfs_remove("/d4", true)).is_ok());
+
+        // An empty mount point is empty and still not a name to replace.
+        CHECK(vfs_mount("/mp", heap_new<TempFs>()).is_ok());
+        CHECK(run_now(vfs_rename("/home/d", "/mp")).error() == Error::Perm);
 
         // A link moves as itself rather than being followed.
         CHECK(run_now(vfs_symlink("/home/two", "/home/link")).is_ok());
@@ -715,6 +731,7 @@ void test_vfs()
         CHECK(run_now(vfs_remove("/home/moved", false)).is_ok());
         CHECK(run_now(vfs_remove("/home/d", true)).is_ok());
         CHECK(run_now(vfs_remove("/home/d2", true)).is_ok());
+        CHECK(run_now(vfs_remove("/home/d3", true)).is_ok());
     }
 
     // Two descriptors still on one file at reset: ~Vfs drops each reference and

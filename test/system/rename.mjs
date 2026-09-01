@@ -70,6 +70,25 @@ export function check() {
         t.is("echo n | mv -fi /home/m/f /home/m/e/x", "");
         t.is("cat /home/m/e/x", "three");
 
+        // `mv a b` where `b/a` is an empty directory: rename(2) replaces one,
+        // and the copy path performs it since no store moves a directory.
+        submit("mkdir /home/m/g", t.at());
+        submit("mkdir /home/m/g/sub", t.at());
+        submit("mkdir /home/m/i", t.at());
+        submit("mkdir /home/m/i/g", t.at());
+        submit("mv /home/m/g /home/m/i", t.at());
+        t.is("ls /home/m/i/g", "sub/");
+        t.is("ls /home/m/g", "ls: /home/m/g: not found");
+
+        // One with children is refused, and refused before anything is
+        // removed: the copy path clears the destination first.
+        submit("mkdir /home/m/j", t.at());
+        submit("mkdir /home/m/j/i", t.at());
+        submit("mkdir /home/m/j/i/keep", t.at());
+        t.is("mv /home/m/i /home/m/j", "mv: /home/m/i: directory not empty");
+        t.is("ls /home/m/j/i", "keep/");
+        t.is("ls /home/m/i", "g/");
+
         submit("rm -r /home/m", t.at());
     }
 }

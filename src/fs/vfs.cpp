@@ -667,8 +667,15 @@ Task<Result<void>> vfs_rename(Str from, Str to)
         bool to_dir   = st.value().kind == NodeKind::Dir;
         if (from_dir != to_dir)
             co_return Err(to_dir ? Error::IsDir : Error::NotDir);
-        if (to_dir)
-            co_return Err(Error::Exists); // no empty-directory case
+        // An empty destination directory is replaced; one with children is
+        // NotEmpty. Answered ahead of the Unsupported below.
+        if (to_dir) {
+            Task<Result<Vec<Entry>>> t = vfs_list(phys_to.str());
+            if (!t)
+                co_return Err(Error::NoMemory);
+            if (!CO_TRY(co_await t).empty())
+                co_return Err(Error::NotEmpty);
+        }
     }
 
     Str sub_from, sub_to;
@@ -677,8 +684,9 @@ Task<Result<void>> vfs_rename(Str from, Str to)
     if (!mf || !mt)
         co_return Err(Error::NotFound);
     // Before the cross-mount answer: a mount point cannot be moved by copying
-    // either, so telling the caller to try would be a lie.
-    if (mf->prefix == phys_from.str())
+    // either, so telling the caller to try would be a lie. Nor is one the
+    // filesystem's to be replaced over, as it is not its to drop.
+    if (mf->prefix == phys_from.str() || mt->prefix == phys_to.str())
         co_return Err(Error::Perm);
     if (mf != mt)
         co_return Err(Error::Unsupported); // the caller copies instead
