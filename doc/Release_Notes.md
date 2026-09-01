@@ -31,6 +31,90 @@ first:
 
 ---
 
+## The line reader a `File` would only make bigger
+
+[TODO.md](TODO.md)'s D3. `File::getline` replaced the `LineReader` in `grep` and
+`tail`, and `cp`, `mv`, `less`, `chat` and `sh -s` still hold one, so the entry
+asked for the type gone and one line reader left. It was measured on the best of
+the five and it does not pay. D3 joins D2, D2a and D4 — and it was the last of
+them, so section D leaves TODO.md with all four of its answers here, and the
+port kit, P, is the whole of what is left.
+
+**The measurement.** `/bin/less` is the cleanest case in the set — its
+`LineReader` is a pure slurp of eight lines, so the diff is the include, the
+type and the method name and nothing else, and it already links `tty_of`.
+Converted, `less.wasm` went 33,896 → **40,155 bytes, 19%**, and the staging tree
+1,748,289 → 1,754,548 against the 2,097,152 in `tools/size_budget.txt`.
+Accounting the wasm name sections beforehand predicted 4,710, so the symbol
+arithmetic understated the real figure by a third; the other four are no
+cheaper, and `cp`, `mv` and `chat` would each add `tty_of` on top. Call it 31 KB
+across the five, and `chat` — 21,052 bytes today — would carry the worst of it.
+
+**What that buys is 129 lines of source and not one byte of any binary.**
+`LineReader` and `LineNext` are 43 lines of `proc/io.h` and 86 of `proc/io.cpp`.
+Deleting them saves nothing anywhere, because `--gc-sections` already has:
+`LineReader|LineNext` appears 0 times in `cat.wasm` and `grep.wasm`, which use a
+`File`, and 0 times in `kernel.wasm`, whose budget is the tightest in the tree.
+It appears 6 times in `cp` and `mv`, 4 in `sh`, 2 in `less` and `chat` — the
+only places it costs anything, and there it is 1,202 bytes against the 5,912 of
+the read-only half of a `File`. The type is free where it is unused and cheaper
+than its replacement where it is not.
+
+**There is no defect under it, either.** An `Input`-backed `File` allocates no
+block at all — `block_ready_` answers true immediately when `src_` is set — and
+`fill_` calls `src_->read()` at exactly the point `LineReader::next_slow_` did.
+The conversion is syscall-neutral and allocation-neutral by construction, and it
+is in fact a copy *cheaper*: `next_slow_` memmoves its unread tail down and
+appends every chunk into a second heap `String`, where `fill_` moves the chunk
+and adopts it in place. That is worth knowing and it is not worth 6 KB a
+program. `fullscreen.mjs`'s 65,536 lines through the pager passed unchanged
+under the conversion, which is the whole behavioural difference: none.
+
+**`head` had already settled this from the other side.** Its comment says lines
+are split out of chunks there rather than read through `File::getline` because
+"a `File`'s bytes buy nothing else". Generalised, that is D3's answer. The D
+section's criterion is that a `File` earns its bytes where several writes
+coalesce into one syscall; the reading analogue would be several reads
+coalescing into one, and `Input::read()` **is already that**, one `read_chunk`
+per chunk, sitting underneath both line readers. So no reader in this tree can
+earn a `File` on syscall grounds, and the criterion has no subset to pick out:
+it excludes all five or none.
+
+**There are three line readers, and the one D3 would delete is the one the wasm
+suite cannot reach.** Besides `proc/io.h`'s and `File`'s there is the kernel
+twin in `src/user/io.h`, whose comment says it is "the reference the
+process-side twin in src/proc/io.h mirrors, and test_io is what keeps it
+honest". `proc/io.cpp` is not compiled into `tests.wasm`, while
+`FileBuf::take_line` — the core of the reader that would stay — has
+`test_filebuf.cpp` already. So the deletion takes the count from three to two
+rather than two to one, and strands the third's stated reason for existing. The
+duplication D3 wants gone is not the duplication that costs anything.
+
+**The two recorded constraints, re-checked, because both turned out narrower
+than they read.** 0.7 kept `chat` off a `File` because two tasks writing one
+stdout would share one `FileBuf` — that is about stdout, and `chat`'s stdin is
+touched by nothing but the `LineReader`, so `chat` is convertible and is
+excluded on cost alone. 0.3 recorded that `sh -s`'s reader buffers separately
+from the `read` builtin on the same descriptor, which is a real fidelity loss; a
+`File` leaves it exactly as it is, since both over-read a chunk neither can wind
+back and `File::detach()` refuses an `Input`-backed stream outright.
+`read.cpp`'s seek-back stays the only thing that gives bytes back either way.
+
+**Two hazards recorded rather than fixed**, both latent in the `Input`-backed
+`File` that already exists. `fill_`'s four-byte carry is safe today only because
+`FileBuf::take_line` consumes the whole fragment it could not finish, so
+`getline` always refills on an empty buffer; a caller mixing `get()`/`unget()`
+with `getline()` across more than four straddling bytes would get
+`Err(Invalid)`. And such a `File` leaves `fd_` at 0, which is `SYS_STDIN`, so a
+`seek()` on one would seek stdin — unreachable, since nothing seeks a stream it
+did not open.
+
+**One thing came out of it, as with D2 and D2a.** Checking what a conversion
+would have to preserve turned up an asymmetry: `cp` and `mv` ask on the same
+`!force && ask`, and `rename.mjs` pins `mv` for a refusal, an acceptance and
+`-f` overriding the ask, while `cp.mjs` pinned only the refusal, and only on the
+`-r` path. `cp -i` answered `y`, and `cp -fi`, had never run. Both do now.
+
 ## The accumulator a `File` could only make longer
 
 [TODO.md](TODO.md)'s D2a. Three places build every output row into one heap

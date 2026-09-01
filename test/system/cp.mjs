@@ -64,6 +64,20 @@ export function check() {
     is("cp -rn d m; cat m/d/keep", "keep");
     is("echo n | cp -ri d m", "overwrite /home/cp/m/d?");
 
+    // -i on a file: the answer decides, and -f overrides the ask, as in mv.
+    // Only the refusal above had ever run, though cp.cpp asks on the same
+    // `!force && ask` mv does — doc/TODO.md D3 is why that is worth pinning.
+    line("echo old > y1");
+    line("echo fresh > y2");
+    is("echo n | cp -i y2 y1", "overwrite /home/cp/y1?");
+    is("cat y1", "old");
+    is("echo y | cp -i y2 y1", "overwrite /home/cp/y1?");
+    is("cat y1", "fresh");
+    line("echo old > y1");
+    is("echo n | cp -fi y2 y1", "");
+    is("cat y1", "fresh");
+    line("rm y1 y2");
+
     // Bare is asking rather than getting it wrong: 0, and nothing removed.
     is("rm; echo $?", "Usage:|    rm [-r] <path>...|Options:|" +
                       "    -r    remove directories, and what is in them|0");
