@@ -1,26 +1,29 @@
 // The port kit's Group A. Every case names the divergence it exists to pin:
 // the seven ports each wrote these, and disagreed about most of them.
-#include "compat/cenv.h"
-#include "compat/cerr.h"
-#include "harness.h"
-#include "kernel/alloc.h"
-
 #include <arpa/inet.h>
 #include <ctype.h>
 #include <endian.h>
+#include <errno.h>
 #include <fenv.h>
 #include <fnmatch.h>
+#include <limits.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <errno.h>
-#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/queue.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <wchar.h>
 #include <wctype.h>
+
+#include "compat/cenv.h"
+#include "compat/cerr.h"
+#include "compat/cmode.h"
+#include "harness.h"
+#include "kernel/alloc.h"
+#include "kernel/sysabi.h"
 
 namespace {
 
@@ -336,9 +339,9 @@ void test_errno_bridge()
     CHECK_EQ(errno_of(Error::Intr), EINTR);
 
     // Round-trips for everything with a distinct number.
-    Error round[] = { Error::Invalid, Error::NoMemory, Error::NotFound, Error::Exists,
-                      Error::NotDir,  Error::IsDir,    Error::Io,       Error::Again,
-                      Error::Unsupported, Error::Closed, Error::NotEmpty, Error::Loop };
+    Error round[] = { Error::Invalid,     Error::NoMemory, Error::NotFound, Error::Exists,
+                      Error::NotDir,      Error::IsDir,    Error::Io,       Error::Again,
+                      Error::Unsupported, Error::Closed,   Error::NotEmpty, Error::Loop };
     for (Error e : round)
         CHECK(error_of(errno_of(e)) == e);
 
@@ -542,9 +545,9 @@ void test_time()
 
     // mktime reads the fields through tm_gmtoff, which is the whole of what
     // local means without a zone database.
-    struct tm loc  = tm;
-    loc.tm_hour    = 18;
-    loc.tm_gmtoff  = -5 * 3600;
+    struct tm loc = tm;
+    loc.tm_hour   = 18;
+    loc.tm_gmtoff = -5 * 3600;
     CHECK_EQ(mktime(&loc), u32(stamp));
     CHECK_EQ(loc.tm_hour, 18);
     CHECK_EQ(loc.tm_gmtoff, -5 * 3600);
@@ -559,9 +562,9 @@ void test_time()
     CHECK_EQ(n.tm_year, 110);
     CHECK_EQ(n.tm_mon, 0);
 
-    n           = tm;
-    n.tm_mon    = 0;
-    n.tm_mday   = 32; // 1 February
+    n         = tm;
+    n.tm_mon  = 0;
+    n.tm_mday = 32; // 1 February
     timegm(&n);
     CHECK_EQ(n.tm_mon, 1);
     CHECK_EQ(n.tm_mday, 1);
@@ -644,8 +647,8 @@ void test_wide()
 
 void test_wctype()
 {
-    CHECK(iswalpha(L'a') && iswalpha(wchar_t(0x0410)));  // Cyrillic А
-    CHECK(iswalpha(wchar_t(0x4e00)));                    // a letter with no case
+    CHECK(iswalpha(L'a') && iswalpha(wchar_t(0x0410))); // Cyrillic А
+    CHECK(iswalpha(wchar_t(0x4e00)));                   // a letter with no case
     CHECK(!iswalpha(L'1') && iswdigit(L'1') && iswalnum(L'1'));
     CHECK(iswupper(wchar_t(0x0410)) && iswlower(wchar_t(0x0430)));
     CHECK(towlower(wchar_t(0x0410)) == wint_t(0x0430));
@@ -710,6 +713,45 @@ STAILQ_HEAD(QStailHead, QNode);
 
 // Macros only, so what is checked is that they compose and walk. The three
 // flavours iconv names are LIST, STAILQ and TAILQ.
+
+// Group B's three decisions that perform no syscall. The rest of Group B
+// blocks and is a program's to exercise (doc/Testing.md §2).
+void test_bmode()
+{
+    CHECK_EQ(fmode_flags("r"), SYS_O_READ);
+    CHECK_EQ(fmode_flags("w"), SYS_O_WRITE | SYS_O_CREATE | SYS_O_TRUNC);
+    CHECK_EQ(fmode_flags("a"), SYS_O_WRITE | SYS_O_CREATE | SYS_O_APPEND);
+
+    // 'b' and 't' are noise, and the update bit is a '+' anywhere past it.
+    CHECK_EQ(fmode_flags("rb"), SYS_O_READ);
+    CHECK_EQ(fmode_flags("r+"), SYS_O_READ | SYS_O_WRITE);
+    CHECK_EQ(fmode_flags("rb+"), SYS_O_READ | SYS_O_WRITE);
+    CHECK_EQ(fmode_flags("r+b"), SYS_O_READ | SYS_O_WRITE);
+
+    // "w+" and "a+" keep the truncation and the positioning "r+" has not.
+    CHECK_EQ(fmode_flags("w+"), SYS_O_READ | SYS_O_WRITE | SYS_O_CREATE | SYS_O_TRUNC);
+    CHECK_EQ(fmode_flags("a+"), SYS_O_READ | SYS_O_WRITE | SYS_O_CREATE | SYS_O_APPEND);
+    CHECK_EQ(fmode_flags("wx"), SYS_O_WRITE | SYS_O_CREATE | SYS_O_TRUNC | SYS_O_EXCL);
+
+    // Not a mode: 0, so b_fopen answers EINVAL rather than opening for read.
+    CHECK_EQ(fmode_flags(""), 0u);
+    CHECK_EQ(fmode_flags("+"), 0u);
+    CHECK_EQ(fmode_flags("x"), 0u);
+    CHECK_EQ(fmode_flags("rz"), 0u);
+
+    CHECK(S_ISDIR(stat_mode(SYS_KIND_DIR)));
+    CHECK(S_ISLNK(stat_mode(SYS_KIND_LINK)));
+    CHECK(S_ISREG(stat_mode(SYS_KIND_FILE)));
+    CHECK(!S_ISDIR(stat_mode(SYS_KIND_FILE)));
+    CHECK_EQ(stat_mode(SYS_KIND_DIR) & 07777, 0755u);
+
+    // st_ino is a path's identity: le compares device and inode to notice a
+    // file changed under the editor, and a constant makes every file the same.
+    CHECK(stat_ino("/a/b") != stat_ino("/a/c"));
+    CHECK_EQ(stat_ino("/a/b"), stat_ino("/a/b"));
+    CHECK(stat_ino("") != stat_ino("/"));
+}
+
 void test_queue()
 {
     QNode n[4] = { { 0, {}, {}, {} }, { 1, {}, {}, {} }, { 2, {}, {}, {} }, { 3, {}, {}, {} } };
@@ -723,10 +765,10 @@ void test_queue()
     CHECK(TAILQ_LAST(&th, QTailHead) == &n[3]);
     CHECK(TAILQ_PREV(&n[3], QTailHead, tq) == &n[2]);
 
-    int sum = 0;
+    int sum  = 0;
     QNode *p = nullptr;
     TAILQ_FOREACH(p, &th, tq)
-        sum += p->v;
+    sum += p->v;
     CHECK_EQ(sum, 6);
 
     QNode extra = { 9, {}, {}, {} };
@@ -735,7 +777,7 @@ void test_queue()
 
     QNode *tmp = nullptr;
     TAILQ_FOREACH_SAFE(p, &th, tq, tmp)
-        TAILQ_REMOVE(&th, p, tq);
+    TAILQ_REMOVE(&th, p, tq);
     CHECK(TAILQ_EMPTY(&th));
 
     struct QListHead lh;
@@ -757,7 +799,7 @@ void test_queue()
     CHECK(STAILQ_FIRST(&sh) == &n[1]);
     sum = 0;
     STAILQ_FOREACH(p, &sh, sq)
-        sum += p->v;
+    sum += p->v;
     CHECK_EQ(sum, 6);
 }
 
@@ -785,4 +827,5 @@ void test_compat()
     test_wctype();
     test_fnmatch();
     test_queue();
+    test_bmode();
 }

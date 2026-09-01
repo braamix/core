@@ -62,16 +62,15 @@ of the opt-in. No entry here moves `PROC_ABI` or adds an operation; the caller
 each names is a **ported package**, since the kit exists for callers outside
 this tree.
 
-- [ ] **P2. Group B.** `FILE` over `proc/file.h`, the `b_*` family, `struct
-      stat`, dirent. `zip` and `le` each wrote this; `vi` is the smallest real
-      surface and the migration to prove it on.
 - [ ] **P3. Migrate `duremark` and `adventure`.** The smallest shims, and
       `duremark` at 23,601 bytes is the honest size worst case: record both
       numbers.
-- [ ] **P4. Migrate the rest**, `iconv` last. Group A is complete, so each
-      migration is now a deletion: `le`'s `lewchar.h`, `lewchar.cpp`,
-      `wcwidth.c` and its `fnmatch`; `zip`'s `time_t` and the
-      `days_from_civil` that `civil_secs()` answers; `iconv`'s wide half and
+- [ ] **P4. Migrate the rest**, `iconv` last. Groups A and B are complete, so
+      each migration is now a deletion: `le`'s `lewchar.h`, `lewchar.cpp`,
+      `wcwidth.c`, its `fnmatch` and all four of `leio.h`, `leio.cpp`,
+      `lefile.h`, `lefile.cpp`; `zip`'s `time_t`, the `days_from_civil` that
+      `civil_secs()` answers and its whole `z*` stream family; `uemacs`'s
+      `fileio.cpp` and its one global stream; `iconv`'s wide half and
       its whole copy of `sys/queue.h`. `iconv`'s errno numbers change, and its
       `#undef`s of `PATH_MAX` to 256 and `LINE_MAX` to 256 have to be settled
       against the kit's 512 and 2048. `le` inherits a `fnmatch` that honours

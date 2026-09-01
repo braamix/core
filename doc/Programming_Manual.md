@@ -36,7 +36,8 @@ Either way, this is what you get:
 | `lib/braam/libbraam_proc.a` | the process runtime: the allocator, the strings, the task scheduler, the syscall wrappers |
 | `lib/braam/libbraam_ui.a` | the layout layer, for a program that paints |
 | `lib/braam/libbraam_math.a` | musl's libm, for a program that asks for it (§6) |
-| `lib/braam/libbraam_compat_pure.a` | the opt-in port kit, for a *ported* C program (doc/Compat.md) |
+| `lib/braam/libbraam_compat_pure.a` | the opt-in port kit's pure half, for a *ported* C program (doc/Compat.md) |
+| `lib/braam/libbraam_compat_proc.a` | the same kit's blocking half — Group B's `b_*` family, over `braam::proc` |
 | `include/braam/compat/include/` | the kit's system header names — on a `PORT` target's path and no other's |
 | `lib/cmake/braam/wasm32-unknown-unknown.cmake` | the toolchain file |
 | `lib/cmake/braam/braamConfig.cmake` | `find_package(braam)` |

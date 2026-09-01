@@ -105,8 +105,10 @@ add_subdirectory(src/cmd)
 # worked example, and compiling it here is what keeps it from rotting.
 add_subdirectory(examples/hello)
 
-# The port kit's worked example, and the in-tree caller that keeps it building.
+# The port kit's worked examples, and the in-tree callers that keep it
+# building: portlet is Group A, portio is Group B.
 add_subdirectory(examples/portlet)
+add_subdirectory(examples/portio)
 
 # kernel.wasm — main.cpp holds the exports, so it links into the executable
 # directly; --gc-sections would not pull it out of an archive.

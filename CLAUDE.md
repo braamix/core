@@ -41,8 +41,11 @@ and the three passing CTest cases.
   whether it moves `PROC_ABI`. It also records why the syscall table is *not*
   the gap, so that question is not re-derived.
 - **[doc/Compat.md](doc/Compat.md)** is the opt-in port kit `braam::compat` —
-  what a *ported* Unix program may link, the A/B/C split, and what it costs. The
-  system itself still has no libc, and `PORT` is the whole of the opt-in.
+  what a *ported* Unix program may link, the A/B/C split, and what it costs.
+  Groups A and B are complete: §4 is the `b_*` family, `compat/cio.h` its one
+  header, and `examples/portlet` and `examples/portio` the two in-tree callers
+  that keep it building. The system itself still has no libc, and `PORT` is the
+  whole of the opt-in.
 - **[doc/Testing.md](doc/Testing.md)** is how the two suites are organised, what
   can be tested in which, and the rules the system suite's one cumulative
   session runs by. Read it before adding a case or moving one.

@@ -14,6 +14,10 @@
 #
 # cstrtod.cpp is a translation unit of its own: a port naming only strtol must
 # not pull musl's __floatscan in behind it.
+#
+# cmode.cpp is Group B's three decisions that perform no syscall -- the mode
+# string, the kind's st_mode and the path's st_ino -- so that the half which
+# can be tested is.
 add_library(braam_compat_pure STATIC
     calloc.cpp
     cctype.cpp
@@ -23,6 +27,7 @@ add_library(braam_compat_pure STATIC
     cfnmatch.cpp
     cmem.cpp
     cmisc.cpp
+    cmode.cpp
     csort.cpp
     cstring.cpp
     cstrtod.cpp
@@ -46,11 +51,16 @@ target_include_directories(braam_compat_pure INTERFACE
 target_include_directories(braam_compat_pure PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(braam_compat_pure PUBLIC braam_math braam_flags)
 
-# Group A's one member that is not pure: getenv reads the environment block,
-# which is braam_proc's. Separate so braam_compat_pure stays linkable into
-# tests.wasm, where a reference to braam_proc is a link error.
+# The half that reaches braam_proc: Group B, which blocks, plus Group A's one
+# member that is not pure -- getenv reads the environment block, which is
+# braam_proc's. Separate so braam_compat_pure stays linkable into tests.wasm,
+# where a reference to braam_proc is a link error.
 add_library(braam_compat_proc STATIC
-    cenv.cpp)
+    cdir.cpp
+    cenv.cpp
+    cfd.cpp
+    cio.cpp
+    cstat.cpp)
 target_compile_options(braam_compat_proc PUBLIC -fno-builtin)
 target_include_directories(braam_compat_proc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(braam_compat_proc PUBLIC braam_compat_pure braam_proc)

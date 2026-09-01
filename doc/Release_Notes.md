@@ -31,6 +31,197 @@ first:
 
 ---
 
+## Group B, and the header that will not include `<stdio.h>`
+
+[TODO.md](TODO.md)'s P2, and with it the port kit is complete: streams,
+descriptors, directories and `struct stat`, as `compat/cio.h` and the `b_*`
+family. No operation, no `PROC_ABI`, no Concept.md amendment. `kernel.wasm`,
+every binary and `rootfs.zip` are byte-identical, because nothing in the tree
+links the kit.
+
+### What was already written down, and not written
+
+The tree had been advertising this for a release. `src/compat/include/stdio.h`
+declared twenty blocking names `unavailable`, each naming a `b_*` replacement
+"from `compat/cio.h`" — and there was no `compat/cio.h`, no `b_*` anywhere, and
+`FILE` was `typedef struct CompatFile FILE;` with `CompatFile` defined nowhere.
+`compat/cerr.h` had been written *for* this task: its comment names "the `b_*`
+read family" and documents `fail_with` as "what most of Group B returns", and
+it had no caller. `<sys/stat.h>`, `<dirent.h>`, `<unistd.h>` and `<fcntl.h>`
+did not exist at all, so a port reaching for `open` or `readdir` met "file not
+found" rather than a diagnostic naming the fix.
+
+That is P1's own complaint one level up — a name the compiler accepts and the
+linker refuses — with the difference that here the message was right and the
+destination was missing.
+
+### `b_fopen` returns a `FILE *`
+
+`stdio.h`'s diagnostic said `b_fopen(&f, path, mode)`: an out-parameter and a
+status. It has been changed to `b_fopen(path, mode)`, null on failure with
+`errno` set, because §2's own rule is that C's error conventions are kept *so
+the surrounding code does not change* — and
+
+```c
+    if ((f = co_await b_fopen(p, "r")) == NULL)
+```
+
+is upstream's line with three words in front of it, where the out-parameter
+form is a rewrite at every call site. `le` set an errno on a failed open and
+`zip` dropped the reason on the floor; the kit takes `le`'s answer, since
+"could not open it" and "could not open it because it is a directory" are
+different diagnostics and only one of them is worth printing.
+
+### A byte is an awaiter, and its buffer belongs to the stream
+
+`b_fgetc` and `b_fputc` are awaiters over `FileRead` and `FileWrite`, not
+`Task`s. §3.3's rule is the reason: a `Task` that answers without suspending
+resumes its awaiter on the awaiter's own stack, so a loop calling one per byte
+never reaches the trampoline and the shadow stack grows a frame a byte. `zip`
+found this and wrote `Zfgetc`/`Zfputc` for it.
+
+It also found the flaw the kit does not keep. `File::get` and `File::put` are
+*runes*, so a byte-level `fgetc` cannot forward to them and needs a one-byte
+buffer whose address outlives the call; `zip` parked that byte in a file-scope
+global and documented it as safe because the write is awaited before anything
+else runs. That holds for one stream and not for two, and `PROC_TASKS` is 8.
+Here the byte is a field of the `FILE`, which costs nothing and is reentrant.
+
+`b_ungetc` gets a slot of its own in the `FILE` rather than calling
+`File::unget`, which encodes a rune: pushing back byte 0xC3 through it would
+put back two bytes. One byte is all C promises, and `b_fgetc`, `b_fgets` and
+`b_fread` all consult it.
+
+### `printf` cannot be a coroutine
+
+A variadic function may not be a coroutine, and the reason survives the
+language rule: the caller's arguments live in the caller's frame, which is gone
+by the time a suspended body would read them. So `b_printf`, `b_fprintf` and
+`b_vfprintf` are ordinary functions that format into a heap block *before*
+returning, and hand back a `Task` that only writes it and frees it. There is no
+shared format buffer — `zip`'s was 5,120 bytes at file scope — so two of a
+process's eight tasks printing at once cannot interleave into one another.
+
+### What a `struct stat` can honestly say
+
+There are no permissions, no owners, no hard links and no devices here, so most
+of the struct is furniture. `st_mode` is a kind plus a plausible constant and
+answers `S_ISDIR`, `S_ISLNK` and `S_ISREG`; `st_dev` is 1, `st_nlink` 1,
+`st_uid` and `st_gid` 0, and `st_atime` and `st_ctime` are `st_mtime`. Each
+constant is written beside its field so a port reads what it is getting.
+
+`st_ino` is the exception, and it is `le`'s discovery: it is **a hash of the
+path**. `le` compares device and inode to decide whether a file changed under
+the editor, and a constant inode makes every file look like every other, which
+fires the warning on the first save. `b_fstat` has no path and so answers 0 —
+a descriptor has no identity to give.
+
+`vi`'s `ex_file.cpp` had already argued the other half of this: upstream used
+the mode bits to warn about writing over a file it had not read, and the device
+to keep a temp file on one filesystem, and "neither question has an answer
+here". Group B does not tempt either back.
+
+### `readdir` does not block, and says so
+
+`Sys::List` answers with the whole listing, so `b_opendir` performs the syscall
+and `b_readdir`, `b_closedir`, `b_rewinddir`, `b_telldir` and `b_seekdir` walk
+a `Vec<DirEntry>` already in hand. The same is true of `b_feof`, `b_ferror`,
+`b_clearerr`, `b_ungetc`, `b_fileno` and `b_setvbuf`, which the buffer answers.
+
+Calling those without a `co_await` is not something to leave a porter to
+discover, so `<sys/cdefs.h>` — one copy of the three diagnostics, in BSD's own
+name for the file, rather than a copy per header — grew `BRAAM_RENAMED` beside
+`BRAAM_BLOCKS` and `BRAAM_ABSENT`. "Renamed in the port kit: `b_readdir(d)`"
+where `BRAAM_BLOCKS` would have said "blocking: `co_await` …" and been wrong.
+
+### `compat/cio.h` does not include `<stdio.h>`
+
+This is the rule the migration found, and it is `vi`'s. `vi` declares its own
+`printf`, `putchar` and `getchar` — 104 call sites — and `#define`s `BUFSIZ` to
+1024, which `ex_buf.h`'s block packing needs (`OFFBTS 10` degenerates to
+identity only against 1024). Its output **cannot** block: `ex_out.cpp`
+accumulates into one growable heap buffer that a single `exflush()` drains,
+because upstream wrote to fd 1 from plain functions six frames down.
+
+So a port may reasonably own the stdio names it does not want from the kit, and
+`cio.h` pulling `<stdio.h>` in behind `<sys/stat.h>` would make Group B and
+those names mutually exclusive. `cio.h` declares `FILE` itself — the identical
+`typedef`, which is legal repeated — guards `EOF`, and leaves `BUFSIZ` alone.
+`examples/portio` includes both headers and is what keeps that working.
+
+`stdin`, `stdout` and `stderr` are macros over `b_stdin()` and its two
+siblings, because the streams behind them are built on first use;
+`<stdio.h>`'s declaration of the three is guarded so that either include order
+works.
+
+### `braam_compat_proc` stops being `getenv`'s odd corner
+
+Group B blocks, so it cannot go in `braam_compat_pure` — that archive links
+into `tests.wasm`, where a reference to `braam_proc` is a link error, and that
+is the whole point of the split. It goes in `braam_compat_proc`, which already
+linked `braam_proc` for `getenv`'s four lines and is already installed and
+aliased, so no top-level `CMakeLists.txt`, `braamConfig.cmake.in` or install
+list moves. The archive stops being "Group A's one impure member" and becomes
+what its comment always described: the half that reaches `braam_proc`.
+
+`cmode.cpp` is the counterweight. Group B's three decisions that perform no
+syscall — the `fopen` mode string, `SYS_KIND_*` to an `st_mode`, and the path
+hash — are pure, so they are in `braam_compat_pure` and `test_compat.cpp`
+covers them. The mode string is where the bugs are: `"w+"` must keep its
+truncation and `"a+"` its positioning, `"rb+"` and `"r+b"` are the same thing,
+and `"x"` alone is not a mode at all and must answer `EINVAL` rather than
+silently open for reading.
+
+### Verified by a second example, not a system case
+
+The in-wasm suite cannot run a program and the system suite needs one in
+`rootfs/`; examples are not staged there, and making one a system program would
+cost an `/etc/help` line, `test_zip.cpp`'s file count and `subst.mjs`'s three.
+So the blocking half is verified by linking: `examples/portio` names all of it,
+`--allow-undefined` is absent, and an unresolved symbol is a build failure.
+`vi` running is the rest.
+
+`portio` is a second example rather than an arm on `portlet` because §5
+publishes `portlet` at 10,491 bytes for a named Group A set; it is still
+exactly that.
+
+### What it costs, and the 30 KB that is not the kit's
+
+`portio` is 73,594 bytes, and §5 has the arms. The `FILE` family alone is
++30,817 over a `PORT` program that does nothing, which is larger than it looks
+like it should be: `File::fill_` reaches `Input::read`, which reaches `errln`,
+so opening one stream carries the multi-file reader whether or not the port
+names one. That is `proc/file.h`'s shape and predates this; it is recorded here
+because a port reading §5 will otherwise go looking for it in Group B.
+
+`b_printf` is +20,199, of which the `snprintf` engine is most — including the
+float arm P5 exists to make droppable. A port with both `snprintf` and
+`b_printf` pays for the engine once.
+
+### `vi` deleted its shim
+
+`vi` was already fully coroutine-plumbed — 299 `co_await`s — with a private
+146-line `ex_file.cpp` underneath. That file, the `struct exstat` in `ex.h` and
+the `ex_errno` beside them are gone, replaced by `b_open`, `b_creat`, `b_close`,
+`b_read`, `b_write`, `b_lseek`, `b_stat`, `b_fstat`, `b_unlink` and `b_chdir` at
+thirty call sites, and by `struct stat` and `S_ISDIR` where two hand-cut fields
+were. The `read_some` → `String` → `memcpy` that `ex_file.cpp` apologised for is
+gone with it: `b_read` fills `genbuf` directly.
+
+`syserror()` is the one place the migration did **not** take the kit's answer,
+and it is worth writing down. `strerror` returns `"ENOENT"`; `error_name()`, in
+`kernel/result.h`, returns `"not found"`, which is what every other program on
+this system prints and what twenty-two of `vi`'s pinned messages say. §3 of
+Compat.md had claimed the two mirrored each other — they do not, and the claim
+is now corrected. So `syserror()` reads `error_name(error_of(errno))`, over
+`compat/cerr.h`'s bridge in the direction it had not been used in yet. The kit
+supplies the errno; which vocabulary a diagnostic speaks stays the port's
+choice.
+
+`braam-apps/CLAUDE.md` said "the `b_*` replacements are **not in this SDK** —
+every port keeps the stream layer it wrote"; that is what this entry falsifies,
+and `zip`, `le` and `uemacs` are the three still to go.
+
 ## Group A's remainder, and the six names that were a link error
 
 [TODO.md](TODO.md)'s P1, and with it the port kit's Group A is complete: the

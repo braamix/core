@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <sys/cdefs.h>
 
 #define CLOCKS_PER_SEC 1000000
 
@@ -54,13 +55,6 @@ size_t strftime(char *buf, size_t cap, const char *fmt, const struct tm *tm)
 #endif
 
 #ifndef BRAAM_COMPAT_BUILDING
-
-#ifndef BRAAM_ABSENT
-// A name the kit does not supply: the compiler says so at the call site, rather
-// than the linker at the end.
-#define BRAAM_ABSENT(what)                                                                    \
-    __attribute__((unavailable("not in the port kit: " what " — doc/Compat.md")))
-#endif
 
 // Declared so the diagnostic can name the fix. None of these is defined.
 time_t time(time_t *t) BRAAM_ABSENT("co_await clock_now() (proc/io.h) for the wall clock");

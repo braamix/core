@@ -11,7 +11,7 @@ same `malloc` header and the same `getenv` aliasing bug, and six `printf`
 engines disagreed about `%ld`, precision, `%*d` and the return value. This
 document is what the kit decided instead.
 
-## Asking for it
+## 1. Asking for it
 
 ```cmake
 braam_add_program(NAME zip SOURCES zip.cpp ... PORT)
@@ -26,7 +26,7 @@ warnings upstream code trips that this tree's own code does not.
 Without `PORT`, `#include <string.h>` is still "file not found". That is the
 guard, and it is tested.
 
-## Three groups
+## 2. Three groups
 
 **Group A — pure computation.** Exact C signatures and semantics, drop-in:
 `mem*`, `str*`, `ctype`, `malloc`/`calloc`/`realloc`/`free`, the `strtol` and
@@ -58,16 +58,22 @@ surrounding code does not change:
     if ((c = fgetc(f)) == EOF)          →  if ((c = co_await b_fgetc(f)) == EOF)
 ```
 
-`<stdio.h>` declares the blocking names `__attribute__((unavailable(…)))`, so
-one build hands a porter every call site with its replacement named. `zip` found
-its 1208 `co_await`s by hand.
+`<stdio.h>`, `<sys/stat.h>`, `<fcntl.h>`, `<unistd.h>` and `<dirent.h>` declare
+the blocking names `__attribute__((unavailable(…)))`, so one build hands a
+porter every call site with its replacement named. `zip` found its 1208
+`co_await`s by hand. §4 is the family itself.
 
-The same device covers what the kit has decided *not* to supply, under a second
-macro that says "not in the port kit" rather than "blocking": `sscanf` and
-`vsscanf`, which name `kernel/text.h`'s scanners, and `<time.h>`'s `time`,
-`clock`, `localtime` and `ctime`, which name `clock_now()` and `proc_now()`.
-Those six were declared and defined nowhere before, so a caller met a link
-error naming a mangled symbol; now the compiler answers at the call site.
+`<sys/cdefs.h>` carries the three macros those five headers diagnose with, so
+there is one copy rather than five. Beside `BRAAM_BLOCKS`, `BRAAM_RENAMED` is
+for what the buffer or the listing already answers — `feof`, `ungetc`,
+`readdir` — which keeps C's shape and only moves its name, and `BRAAM_ABSENT`
+is what the kit has decided not to supply: `sscanf` and `vsscanf`, which name
+`kernel/text.h`'s scanners, `<time.h>`'s `time`, `clock`, `localtime` and
+`ctime`, which name `clock_now()` and `proc_now()`, and `<unistd.h>`'s `fork`,
+`pipe`, `exec*`, `dup2`, `getpid`, `sleep` and `sbrk`, which name the
+`proc/io.h` call that does answer them. Each was declared and defined nowhere
+before, so a caller met a link error naming a mangled symbol; now the compiler
+answers at the call site.
 
 **Group C — absent.** `setjmp`/`longjmp` (no restorable value stack; `vi`'s
 `error()` unwinding one frame at a time is the recipe), `fork`, `setenv`
@@ -91,7 +97,7 @@ own vendored sources and a port must not inherit that lie. `<endian.h>` and
 has one, the names derived from its predefines when it does not, since a
 freestanding `<endian.h>` arrived only in clang 23.
 
-## Where this differs from C, deliberately
+## 3. Where this differs from C, deliberately
 
 - **`strtol` takes `0b` in base 0.** A GNU extension, kept so `strtol` and
   `File::scan_i64` do not disagree about the same string.
@@ -144,9 +150,12 @@ freestanding `<endian.h>` arrived only in clang 23.
   because `[[:digit:]]` parsed as an ordinary bracket is a silently wrong
   answer. It is not `sh`'s `glob_match`: that one is `braam_sh`'s and takes the
   expander's quoting mask where `fnmatch` takes flags and a backslash.
-- **`strerror` returns the POSIX *name***, `"ENOENT"`, mirroring `error_name()`
-  in `kernel/result.h`. Every byte of English prose a Unix libc spends here
-  stays unspent.
+- **`strerror` returns the POSIX *name***, `"ENOENT"`. Every byte of English
+  prose a Unix libc spends here stays unspent. It is **not** `error_name()` in
+  `kernel/result.h`, which answers prose — `"not found"` — and is what the rest
+  of the system prints; a port that wants a diagnostic to read like this
+  system's writes `error_name(error_of(errno))` over `compat/cerr.h`'s bridge,
+  as `vi`'s `syserror()` does.
 - **`errno` numbers are musl's**, the dialect already vendored in
   `src/math/musl/`. `errno_of`/`error_of` in `compat/cerr.h` are the one bridge
   to `Error`. `Error::Cancelled` and `Error::Intr` both map to `EINTR`: both mean
@@ -164,7 +173,65 @@ freestanding `<endian.h>` arrived only in clang 23.
 - **No `long double`.** It is 113-bit quad here and every operation on one is a
   compiler-rt link error. `%Lf` is accepted and read as `double`.
 
-## What it costs
+## 4. The `b_*` family
+
+`compat/cio.h` is the whole of Group B, and `examples/portio` is the worked
+example. Every name is C's with a `b_` in front, taking C's arguments and
+answering C's failure — `-1`, `0`, `EOF` or null — with `errno` set through
+`compat/cerr.h`. **An end of input is not a failure and never reaches `errno`.**
+
+```
+FILE          b_fopen b_fdopen b_freopen b_fclose b_fflush b_fgetc b_fputc
+              b_ungetc b_fgets b_fputs b_puts b_fread b_fwrite b_fseek b_ftell
+              b_rewind b_printf b_fprintf b_vfprintf b_perror b_feof b_ferror
+              b_clearerr b_fileno b_setvbuf, and b_stdin/b_stdout/b_stderr,
+              which `stdin`, `stdout` and `stderr` are macros over
+descriptors   b_open b_creat b_close b_read b_write b_lseek b_ftruncate b_dup
+              b_isatty b_unlink b_rmdir b_mkdir b_remove b_rename b_chdir
+              b_getcwd b_access b_symlink b_readlink
+metadata      b_stat b_lstat b_fstat
+directories   b_opendir b_readdir b_closedir b_rewinddir b_telldir b_seekdir
+```
+
+What a port has to know beyond the prefix:
+
+- **`b_fgetc` and `b_fputc` are awaiters, not `Task`s**, over `FileRead` and
+  `FileWrite`: a `Task` per byte would put a coroutine frame on the shadow
+  stack per byte (Concept.md §3.3). Their one byte lives in the `FILE`, so two
+  streams may be read at once — `zip`'s copy kept it in a file-scope global and
+  could not.
+- **`b_readdir`, `b_closedir`, `b_rewinddir`, `b_telldir`, `b_seekdir`,
+  `b_ungetc`, `b_feof`, `b_ferror`, `b_clearerr`, `b_fileno` and `b_setvbuf`
+  do not block**, and are called without a `co_await`. `Sys::List` answers with
+  the whole listing, so `b_opendir` is where the syscall is; the rest is the
+  buffer's.
+- **`b_printf` and `b_fprintf` are not coroutines** — a variadic function
+  cannot be one, and the caller's arguments are gone by the time a suspended
+  body would read them. They format into a heap block first and the `Task` only
+  writes it, so there is no shared format buffer for two of `PROC_TASKS`' eight
+  tasks to collide over.
+- **`b_write` and `b_fwrite` are all-or-nothing.** A short write is not
+  representable here.
+- **`b_fseek` clears the end-of-input indicator**, as C requires, and drops the
+  pushback. `b_ftell` costs the read-ahead: it is `File::seek(0, SEEK_CUR)`,
+  which answers the logical position and leaves the descriptor there.
+- **`b_ungetc` takes one byte**, which is all C promises. It is the kit's own
+  slot and not `File::unget`, which puts back a *rune*.
+- **`struct stat` has no permissions, no owner and no links**, because the
+  system has none. `st_mode` is a kind plus a constant — `S_ISDIR`, `S_ISLNK`
+  and `S_ISREG` are what it answers — `st_dev` is 1, `st_nlink` 1, `st_uid` and
+  `st_gid` 0, and `st_atime` and `st_ctime` are `st_mtime`, which is seconds
+  and 0 wherever the store keeps none. `st_ino` is **a hash of the path**, so
+  that two names compare unequal: `le` compares device and inode to notice a
+  file changed under the editor, and a constant makes every file look like
+  every other. `b_fstat` has no path, so its `st_ino` is 0.
+- **`compat/cio.h` does not include `<stdio.h>`.** A port may have a `printf`
+  of its own that does not block — `vi`'s accumulates into one buffer that a
+  single `exflush()` drains — and pulling `<stdio.h>` in would collide with it,
+  and with a `BUFSIZ` the port has redefined. `cio.h` declares `FILE` itself,
+  identically, and guards `EOF`; a port that wants `<stdio.h>` includes it.
+
+## 5. What it costs
 
 Measured, `MinSizeRel`, against `examples/hello` at 7,769 bytes:
 
@@ -200,10 +267,32 @@ through a table, which `--gc-sections` cannot see past. `strtod` is the largest
 by far — musl's `__floatscan` — which is why `cstrtod.cpp` is a translation
 unit of its own: a port naming only `strtol` does not pay it.
 
+Group B, the same way, over a `PORT` program that does nothing at all — no
+write, so **5,603 bytes** rather than the 7,353 above. Its arms are much larger
+than Group A's because each one reaches `proc/file.h` or `proc/io.h`, and the
+first to do so brings the buffered stream, the UTF-8 codec and the allocator
+with it:
+
+| | over the empty program |
+| --- | --- |
+| `b_unlink` | +2,502 |
+| `b_stat` | +3,953 |
+| `b_opendir`, `b_readdir` | +5,530 |
+| `b_open`, `b_read`, `b_write`, `b_lseek`, `b_close` | +10,149 |
+| `b_printf` | +20,199 |
+| the `FILE` family without `b_printf` | +30,817 |
+
+`examples/portio`, which names all of it, is **73,594**. `b_printf` is the
+`snprintf` engine above with a stream under it, so a port that has both pays
+for the engine once. The `FILE` family's 30 KB is `File` itself: `File::fill_`
+reaches `Input::read`, which reaches `errln`, so a port opening one stream
+carries the multi-file reader whether or not it names one — that is
+`proc/file.h`'s shape, not the kit's.
+
 A program that does not name `braam::compat` pays **zero** — no archive, no
 header, no flag.
 
-## Never link it
+## 6. Never link it
 
 `benchmarks/dhrystone` defines its own `strcpy`/`strcmp`/`strlen` on purpose:
 they are what it *measures*, and `dhry_lib.cpp` keeps them in a translation unit
@@ -213,7 +302,7 @@ would shadow them and invalidate the benchmark.
 `converters/iconv`'s `citrus_bcs_strtol.cpp` is citrus's own private scanner,
 not the C library, and stays upstream.
 
-## A port links the kit or keeps its headers, never both
+## 7. A port links the kit or keeps its headers, never both
 
 `converters/iconv/include/` and `editors/le/cinc/` answer the same names. Which
 `-I` wins is silent. A migration deletes the package's own header set in the
@@ -227,3 +316,10 @@ all of `sys/queue.h`, `le`'s `lewchar.h`/`wcwidth.c` the wide half and its
 adds `PORT` to it, which is `doc/TODO.md` P3 and P4. `iconv`'s is the one with
 a conflict to settle rather than a deletion: it `#undef`s `PATH_MAX` to 256 and
 `LINE_MAX` to 256, against the kit's 512 and 2048.
+
+Group B widens the rule again, and `vi` is where it was first applied: its
+`ex_file.cpp`, the `struct exstat` in `ex.h` and the `ex_errno` beside them are
+gone, and `zip`'s `z*` family, `le`'s `leio.cpp`/`lefile.cpp`/`lesys.h` and
+`uemacs`'s `fileio.cpp` are the three that remain. A stream layer and the kit
+are the same conflict a header set is: which one a call reaches is silent, and
+the errno each keeps is a different dialect.
