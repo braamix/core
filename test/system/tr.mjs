@@ -4,7 +4,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { shows } from "./harness.mjs";
+import { counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(14080);
 
@@ -99,9 +99,9 @@ export function check() {
     line("cat d0 d0 d0 d0 d0 d0 d0 d0 > d1");
     line("cat d1 d1 d1 d1 d1 d1 d1 d1 > d2");
     line("cat d2 d2 d2 d2 d2 d2 d2 d2 > d3; echo >> d3");
-    is("wc d3", "1 1 5121");
+    is("wc d3", counts(1, 1, 5121, "d3"));
     is("cat d3 | tr a-j A-J | cut -b 1-4", "ABCD");
-    is("cat d3 | tr -d a-i | wc", "1 1 513");
+    is("cat d3 | tr -d a-i | wc", counts(1, 1, 513));
 
     // What is asked for, and what is got wrong.
     is("tr --help", USAGE);

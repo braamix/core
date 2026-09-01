@@ -5,7 +5,7 @@
 // test/run.mjs runs the cases in order and doc/Testing.md has the rules they
 // run by.
 
-import { shows } from "./harness.mjs";
+import { counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(14140);
 
@@ -40,7 +40,7 @@ export function check() {
     // run is made over no arguments at all.
     is("echo | xargs echo .", "");
     is("xargs echo . < /dev/null", "");
-    is("seq 40 | xargs -n1 | wc", "40 40 111"); // forty runs, one child at a time
+    is("seq 40 | xargs -n1 | wc", counts(40, 40, 111)); // forty runs, one at a time
 
     // Quoting, which -0 turns off along with everything else.
     is("echo '\"a b\" c' | xargs -n1", "a b|c");
@@ -49,7 +49,7 @@ export function check() {
     is("echo 'a\"b\"c' | xargs", "abc");
     // Quoted, so it is an argument: `echo ""` prints a line, and no argument
     // at all would have run nothing.
-    is("echo \\'\\' | xargs | wc", "1 0 1");
+    is("echo \\'\\' | xargs | wc", counts(1, 0, 1));
     is("echo '\"a' | xargs 2>&1", "xargs: unterminated quote");
     is("echo '\"a' | xargs > /dev/null 2>&1; echo $?", "1");
 
@@ -86,7 +86,7 @@ export function check() {
 
     // The child reads /dev/null, not what is left of this pipe: `wc` in a
     // shell of its own counts nothing, twice.
-    is("seq 2 | xargs -n1 sh -c wc", "0 0 0|0 0 0");
+    is("seq 2 | xargs -n1 sh -c wc", counts(0, 0, 0) + "|" + counts(0, 0, 0));
 
     // What A7 exists for, and what /bin/find was left without.
     line("mkdir /home/sx");

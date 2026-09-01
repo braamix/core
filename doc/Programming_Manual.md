@@ -239,8 +239,8 @@ do
   show $f
 done
 $ sh /home/report.sh
-/home/notes.txt: 12 84 501
-/home/todo.txt: 3 9 46
+/home/notes.txt:      12      84     501
+/home/todo.txt:       3       9      46
 done
 ```
 

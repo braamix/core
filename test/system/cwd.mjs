@@ -3,7 +3,7 @@
 // doc/Testing.md has the rules they run by.
 
 import {
-    CTRL, KEY, chdir, fail, press, prompt, row, rows, run, screen, submit, type,
+    CTRL, KEY, chdir, counts, fail, press, prompt, row, rows, run, screen, submit, type,
 } from "./harness.mjs";
 
 export function check() {
@@ -122,7 +122,7 @@ export function check() {
     // `<` and `2>` both reach the filesystem too.
     s = submit("clear", 1175);
     s = submit("wc < notes", 1176);
-    if (!rows(s).some((line) => line.startsWith("2 2 8")))
+    if (!rows(s).some((line) => line === counts(2, 2, 8)))
         fail(`wc < notes printed ${JSON.stringify(rows(s))}, expected 2 2 8`);
     submit("cat nosuchfile 2> err", 1177);
     s = submit("clear", 1178);

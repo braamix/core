@@ -31,6 +31,123 @@ first:
 
 ---
 
+## `wc` and `head`, and the columns twenty assertions were pinning
+
+Both are ported against FreeBSD's `usr.bin/wc` and `usr.bin/head`, and neither
+needed an operation the kernel did not have, so `PROC_ABI` does not move. They
+were the two filters in `src/cmd/` that section A never came back for: `wc` had
+**no options at all** — not `-l`, `-w` or `-c` — and `head` parsed argv by hand,
+so `-n5`, `-5` and a bad option's diagnostic were all missing while every
+command touched since carries them.
+
+**What did not come across is most of each file.** From `wc.c`: libxo entire —
+it is a third of that program, and `--libxo` goes with it; `SIGINFO`, which is
+BSD-only and has nothing here to be (a process gets `Error::Cancelled`, not a
+signal, and the interim counts it prints go to a stderr this program does not
+have a second handle for); capsicum and casper; and `setlocale`, `mbstate_t`,
+`mbrtowc` and `iswspace`. From `head.c`: casper, `getopt_long`'s long options —
+`opt.h` says "no long options" and that stands — and `expand_number`.
+
+**The encoding is always UTF-8, so `-m` needs no decoder and no state.** It
+counts the bytes that are *not* continuation bytes, `(b & 0xC0) != 0x80`, which
+is one test in the loop the byte count was already walking. That is exact for
+well-formed UTF-8 and it is correct across a chunk boundary **for free** —
+which is the whole of what `mbstate_t` was carrying upstream, and the whole of
+why `wc.c` has a `(size_t)-2` case, a `memset(&mbs, 0, …)` on a bad sequence,
+and a dangling-state check after the last read. None of the three arises. Words
+stay ASCII-blank delimited, which is what BSD's own non-`-m` path does: a
+continuation byte is never `iswspace`, so the two agree on every input either
+can decode. What is given up is `iswspace`'s U+00A0 and U+2028, and that is
+[TODO.md](TODO.md)'s **P1** rather than something to half-do here.
+
+**`-L` fixes an upstream bug rather than reproducing it.** `wc.c` folds the
+running length into the maximum only when it sees a `'\n'`, and never at the
+end of input — so `printf 'abcd' | wc -L` reports **0** there. A final fragment
+with no newline is a line everywhere else in this tree (`File::getline`,
+`tail`, `cut`, `uniq`, and `uniq`'s own entry above), so it is one here. It is
+still not a *line* to `-l`, which counts newlines and is what POSIX says; the
+two answers differ on that file and both are right, which is why `wc f` prints
+`0 1 4` and `wc -L f` prints `4`.
+
+**`-c` alone is a stat, not a read.** `stat_fd` was already in `proc/io.h`, and
+BSD's guard comes with it: a pseudo-filesystem advertises a zero size, so
+`/proc` and `/dev` fall through to the read loop rather than reporting nothing.
+Anything that does not stat at all is `Err(Unsupported)` and falls through too,
+so the fast path can only ever be an optimisation. It does not touch
+`chunk.mjs`'s round-trip measurement, which counts `wc file` — the default
+`-lwc`, which has to read.
+
+**`Input` had to go, and that is the interesting part.** `Input` is the
+files-or-stdin decision and reads the operands as **one concatenation**, which
+is exactly the boundary a per-file row needs — so both programs open each
+operand themselves. That is also the bug it fixes in `head`: `head -n 2 a b`
+was printing the first two lines of `a` and `b` joined, where every `head`
+prints two from each. `Input` stays where it belongs; three of the four filters
+below still use it.
+
+**BSD's columns, and the twenty assertions that were pinning the old ones.**
+`wc` now writes `" %7ju"` per count and then the name, which is `du`'s
+"right-aligned in seven" argument a second time and byte-for-byte what BSD and
+macOS print. The old `"%u %u %u"` was pinned by about twenty exact-match
+assertions across the suite — `pipe`, `subst`, `sort`, `seq`, `redirect`,
+`cut`, `find`, `du`, `tee`, `tr`, `uniq`, `xargs`, `truncate`, `chunk`, `vars`,
+`language`, `net`, `process`, `spawn`, `cwd` — because `wc` is the suite's
+favourite instrument for "how much came out of that pipeline". They are now one
+`counts(...)` helper in `harness.mjs` rather than twenty padded literals, so
+the format is written down once and the next change to it is one line. Two that
+looked at risk were not: `procfs.mjs` calls `.trim()` before `.split(/\s+/)`,
+so the leading pad falls off and the byte column is still index `[2]`.
+
+Three of the old assertions moved for a second reason and are worth naming.
+`wc /home/ck/big` gained a **name** as well as a pad, since it names a file.
+`echo $(echo hi | wc)` did **not** move at all — the substitution is unquoted,
+so the shell splits it on blanks and `echo` rejoins with single spaces, which
+is the padding cancelling itself out. And `echo "$1: $(wc < $1)"` in
+`language.mjs`'s script *did*, because that one is quoted: it is the same
+substitution with the field splitting turned off, and the two sitting three
+lines apart in the suite is a better demonstration of what quoting does than
+anything written to demonstrate it.
+
+**The total counts operands, not successes.** `wc missing1 missing2` prints a
+`total` row of zeros and exits 1, which is BSD's, because `total > 1` is a
+count of what was named. `head nope b` heads `b` for the same reason. Both look
+odd in isolation and both are what a shell loop over `"$@"` wants: whether a
+header appears must not depend on which operands happened to open.
+
+**`-NUM` is accepted where `sort` refused v7's `+pos`.** That refusal was
+because "a `+1` on a command line here is a file name"; `-5` cannot be one, so
+BSD's `obsolete()` rewrite comes across — as a scan in front of `OptParse`
+rather than a rewrite of argv, since the value is a view into argv and nothing
+needs allocating. It consumes a *leading* run only, as `obsolete()` does, so
+`head -q -5 f` is still `bad option: 5` on both.
+
+**Counts take `truncate`'s units, not `expand_number`'s.** `parse_size` was
+already here, already pure and already unit-tested, and it is what `truncate
+-s` documents — K/M/G/T are 1024, KB/MB/GB/TB are 1000. `expand_number`'s
+lower-case `k`, its base-0 `strtoumax` (so `-c 010` is 8 bytes there) and its
+optional trailing `b` are not reproduced; one spelling of a size in this tree
+is worth more than agreement with a function nothing else here calls. A
+modifier is rejected, so `head -n +5` is a usage error rather than a size
+relative to nothing.
+
+**`head` lost its `File`, which is B3's shape gone from one more caller.** Its
+`-n` path was a `File::getline` loop, so `head -n 65536` had the frame-per-line
+problem `sort` found; it now splits chunks itself like `cut`, `sort` and
+`uniq`, and the system case runs 65,536 lines through it. That is an avoidance
+and not the fix — B3 stands, and now names `tail` and `LineReader`'s two
+callers. The binary went from **30,317 bytes to 24,898** on the trade `sort`
+and `uniq` measured; `wc` went from 15,049 to **21,992** buying five options, a
+per-file loop and a total, so the pair costs 1,524 bytes between them.
+`rootfs/` is 1,637,124 of the 2 MB budget.
+
+A last divergence, small and deliberate: a final line with no newline is
+printed **without one**, where the old `head` added it. That is BSD's `getline`
+and `fwrite` pair, it is what `cat` does with the same file, and a program that
+invents a byte its input did not have is the wrong half of the pipe to fix that
+in.
+
+---
+
 ## `xargs`, and the stdin a child must not share
 
 [TODO.md](TODO.md)'s **A7**, ported from FreeBSD's `usr.bin/xargs`. It needed

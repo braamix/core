@@ -3,7 +3,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { shows } from "./harness.mjs";
+import { counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(13920);
 
@@ -106,7 +106,7 @@ export function check() {
     is("find /proc -name host", "/proc/host");
 
     // A pipeline's input, so the output is not the terminal's.
-    is("find /home/fd -type f | wc", "5 5 64");
+    is("find /home/fd -type f | wc", counts(5, 5, 64));
 
     // What is asked for, and what is got wrong.
     is("find --help", USAGE);

@@ -2,7 +2,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, output, screen, shows, submit } from "./harness.mjs";
+import { counts, fail, output, screen, shows, submit } from "./harness.mjs";
 
 export function check() {
     let s = screen();
@@ -30,8 +30,8 @@ export function check() {
     rlines(["cat <<EOF", "a", "b", "EOF"], "a|b");
     rlines(["v=x; cat <<EOF", "$v", "EOF"], "x");
     rlines(["cat <<'EOF'", "$v", "EOF"], "$v");
-    rlines(["cat <<EOF | wc", "hi", "EOF"], "1 1 3");
-    t.is("f() { echo b; }; f | wc", "1 1 2");
+    rlines(["cat <<EOF | wc", "hi", "EOF"], counts(1, 1, 3));
+    t.is("f() { echo b; }; f | wc", counts(1, 1, 2));
     // Two steps, because a line longer than the grid wraps and output() would
     // pick the wrapped tail up as a row of its own.
     const rfile = (line, path, want) => {
@@ -45,7 +45,7 @@ export function check() {
     rfile("f() { echo r; }; f > /home/rd/a", "/home/rd/a", "r");
 
     // `2>&1` merges, and a real descriptor needs Sys::Dup to be in two slots.
-    t.is("ls /nope 2>&1 | wc", "1 4 21");
+    t.is("ls /nope 2>&1 | wc", counts(1, 4, 21));
     rfile("ls /nope > /home/rd/b 2>&1", "/home/rd/b", "ls: /nope: not found");
 
     // A compound may be redirected now, though not yet piped.

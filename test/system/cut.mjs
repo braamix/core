@@ -3,7 +3,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { shows } from "./harness.mjs";
+import { counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(14050);
 
@@ -48,7 +48,7 @@ export function check() {
     is("cut -d : -f 2- f", "q:r|t:u|nosep");
     is("cut -d : -f 9 f", "||nosep"); // no such field, but the line is there
     is("cut -sd : -f 2 f", "q|t");    // -s drops the one with no separator
-    is("cut -d : -f 1 f | wc", "3 3 10");
+    is("cut -d : -f 1 f | wc", counts(3, 3, 10));
 
     // The default separator is a tab, and a line without one passes whole. A
     // tab cannot be typed at this prompt, so /bin/tr writes one.
@@ -66,7 +66,7 @@ export function check() {
     line("echo -n 0123456789abcdef > w0");
     line("cat w0 w0 w0 w0 > w1; cat w1 w1 w1 w1 > w2");
     line("cat w2 w2 w2 w2 > w3; cat w3 w3 w3 w3 > w4; echo >> w4");
-    is("wc w4", "1 1 4097");
+    is("wc w4", counts(1, 1, 4097, "w4"));
     is("cut -b 4094- w4", "def");
     is("cut -b 1-3 w4", "012");
 

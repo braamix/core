@@ -2,7 +2,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, prompt, row, rows, screen, shows, store, submit } from "./harness.mjs";
+import { counts, fail, prompt, row, rows, screen, shows, store, submit } from "./harness.mjs";
 
 export function check() {
     let s = screen();
@@ -67,7 +67,7 @@ export function check() {
     t.is("./tr.sh", "+ echo traced|traced");        // the interpreter's argument arrived
     t.is("./who.sh", "/home/s9/who.sh");            // $0 is the resolved script
     t.is("./cat.sh", "#!/bin/cat|the file itself"); // any interpreter, not just sh
-    t.is("./hi.sh a b | wc", "1 3 7");              // a stage like any other
+    t.is("./hi.sh a b | wc", counts(1, 3, 7));      // a stage like any other
     t.is("sh ./hi.sh a b", "hi a 2");               // and the older way still works
     // A bare word finds /bin, and what the interpreter is handed is the
     // resolved path — a relative one would send it looking in its own cwd.

@@ -21,6 +21,7 @@ import * as find from "./system/find.mjs";
 import * as flow from "./system/flow.mjs";
 import * as fullscreen from "./system/fullscreen.mjs";
 import * as glob from "./system/glob.mjs";
+import * as head from "./system/head.mjs";
 import * as help from "./system/help.mjs";
 import * as interrupt from "./system/interrupt.mjs";
 import * as jobs from "./system/jobs.mjs";
@@ -68,6 +69,7 @@ import * as uniq from "./system/uniq.mjs";
 import * as unzip from "./system/unzip.mjs";
 import * as vars from "./system/vars.mjs";
 import * as worker from "./system/worker.mjs";
+import * as wc from "./system/wc.mjs";
 import * as wrap from "./system/wrap.mjs";
 import * as xargs from "./system/xargs.mjs";
 
@@ -131,6 +133,8 @@ const CASES = [
     ["cut",        cut.check],
     ["tr",         tr.check],
     ["seq",        seq.check],
+    ["wc",         wc.check],
+    ["head",       head.check],       // after wc: it counts what head printed
     ["xargs",      xargs.check],      // after the four: it runs them in batches
     ["unzip",      unzip.check],
     ["entry",      entry.check],

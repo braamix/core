@@ -2,7 +2,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, shows, store } from "./harness.mjs";
+import { counts, fail, shows, store } from "./harness.mjs";
 
 const { is, line } = shows(13950);
 
@@ -24,64 +24,64 @@ const USAGE = "Usage:|    truncate [-co] [-r <rfile>] [-s <size>] <file>...|Opti
               "    -c    do not create a file that is not there";
 
 // What `wc` says of a file with no whitespace in it: one word unless empty.
-const wc = (n) => (n ? `0 1 ${n}` : "0 0 0");
+const wc = (n, name) => (n ? counts(0, 1, n, name) : counts(0, 0, 0, name));
 
 export function check() {
     line(`mkdir ${DIR}`);
     line(`cd ${DIR}`);
 
     // A missing file is made and grown, and what a grow adds is zeros.
-    is("truncate -s 4 a; wc a", wc(4));
+    is("truncate -s 4 a; wc a", wc(4, "a"));
     if (bytes("a") !== "0,0,0,0")
         fail(`a grow wrote ${bytes("a")}`);
 
     // Shrink, then grow again: what survives is the front of the file.
     put("b", "abcdef");
     is("truncate -s 3 b; cat b", "abc");
-    is("truncate -s 6 b; wc b", wc(6));
+    is("truncate -s 6 b; wc b", wc(6, "b"));
     if (bytes("b") !== "97,98,99,0,0,0")
         fail(`a regrow wrote ${bytes("b")}`);
-    is("truncate -s 0 b; wc b", wc(0));
+    is("truncate -s 0 b; wc b", wc(0, "b"));
 
     // + and - work off the size the file has now, and a shrink past the start
     // is empty rather than an error.
     put("c", "0123456789");
-    is("truncate -s +5 c; wc c", wc(15));
-    is("truncate -s -5 c; wc c", wc(10));
-    is("truncate -s -99 c; wc c", wc(0));
+    is("truncate -s +5 c; wc c", wc(15, "c"));
+    is("truncate -s -5 c; wc c", wc(10, "c"));
+    is("truncate -s -99 c; wc c", wc(0, "c"));
 
     // < is at most and > at least, so each leaves the other way alone.
     put("d", "0123456789");
-    is("truncate -s '<4' d; wc d", wc(4));
-    is("truncate -s '<9' d; wc d", wc(4));
-    is("truncate -s '>9' d; wc d", wc(9));
-    is("truncate -s '>2' d; wc d", wc(9));
+    is("truncate -s '<4' d; wc d", wc(4, "d"));
+    is("truncate -s '<9' d; wc d", wc(4, "d"));
+    is("truncate -s '>9' d; wc d", wc(9, "d"));
+    is("truncate -s '>2' d; wc d", wc(9, "d"));
 
     // / rounds down to a multiple and % up.
-    is("truncate -s /4 d; wc d", wc(8));
-    is("truncate -s %6 d; wc d", wc(12));
+    is("truncate -s /4 d; wc d", wc(8, "d"));
+    is("truncate -s %6 d; wc d", wc(12, "d"));
 
     // A unit, and -o counting in 512-byte blocks.
-    is("truncate -s 1K d; wc d", wc(1024));
-    is("truncate -o -s 1 d; wc d", wc(512));
-    is("truncate -s 2KB d; wc d", wc(2000));
+    is("truncate -s 1K d; wc d", wc(1024, "d"));
+    is("truncate -o -s 1 d; wc d", wc(512, "d"));
+    is("truncate -s 2KB d; wc d", wc(2000, "d"));
 
     // -r takes the size from another file, and a modifier then works off that
     // rather than off the file being changed.
     put("r", "seven!!");
-    is("truncate -r r d; wc d", wc(7));
-    is("truncate -r r -s +3 a; wc a", wc(10));
+    is("truncate -r r d; wc d", wc(7, "d"));
+    is("truncate -r r -s +3 a; wc a", wc(10, "a"));
 
     // -c makes nothing, and a file that is not there is not a failure.
     is("truncate -c -s 8 g; echo $?", "0");
     if (store.files.has(`${DIR}/g`))
         fail("-c made the file anyway");
-    is("truncate -s 8 g; wc g", wc(8));
+    is("truncate -s 8 g; wc g", wc(8, "g"));
 
     // Several operands in one run, and one that fails does not stop the rest.
-    is("truncate -s 2 a b; wc a", wc(2));
+    is("truncate -s 2 a b; wc a", wc(2, "a"));
     is("truncate -s 1 n/x a; echo $?", "truncate: n/x: not found|1");
-    is("wc a", wc(1));
+    is("wc a", wc(1, "a"));
 
     // Bare is asking: stdout and 0. An operand with neither -s nor -r is a
     // usage error, and so is a size that is not one.

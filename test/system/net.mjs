@@ -5,7 +5,7 @@
 import { E } from "../../web/abi.js";
 import { pasted } from "../../web/keys.js";
 import {
-    CTRL, KEY, fail, net, press, prompt, row, rows, run, screen, submit, type,
+    CTRL, KEY, counts, fail, net, press, prompt, row, rows, run, screen, submit, type,
 } from "./harness.mjs";
 
 export function check() {
@@ -32,7 +32,7 @@ export function check() {
     // A fetched body reaches a pipe like any other output.
     s = submit("clear", 3026);
     s = submit("curl /hello.txt | wc", 3027);
-    if (!rows(s).some((line) => line.startsWith("1 2 9")))
+    if (!rows(s).some((line) => line === counts(1, 2, 9)))
         fail(`curl into a pipe printed ${JSON.stringify(rows(s))}, expected 1 2 9`);
 
     // The two ways a fetch fails in a browser, which look identical to fetch

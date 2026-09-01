@@ -3,7 +3,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, net, output, shows, store, submit } from "./harness.mjs";
+import { counts, fail, net, output, shows, store, submit } from "./harness.mjs";
 
 const { at, is, line } = shows(13850);
 
@@ -50,6 +50,6 @@ export function check() {
     // agree with the file one.
     const lines = text.split("\n").length - 1;
     const words = text.split(/\s+/).filter((w) => w).length;
-    is("wc /home/ck/big", `${lines} ${words} ${size}`);
-    is("cat /home/ck/big | wc", `${lines} ${words} ${size}`);
+    is("wc /home/ck/big", counts(lines, words, size, "/home/ck/big"));
+    is("cat /home/ck/big | wc", counts(lines, words, size));
 }

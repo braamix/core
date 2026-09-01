@@ -3,7 +3,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { chdir, shows } from "./harness.mjs";
+import { chdir, counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(13925);
 
@@ -82,7 +82,7 @@ export function check() {
     chdir("/home");
 
     // A pipeline's input, so the output is not the terminal's.
-    is("du /home/du | wc", "4 8 80");
+    is("du /home/du | wc", counts(4, 8, 80));
 
     // A filesystem the kernel generates rather than the store: the sizes are
     // whatever ProcFs says, so only that the walk gets through it is assertable.

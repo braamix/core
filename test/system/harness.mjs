@@ -286,6 +286,14 @@ export function words(s) {
     return rows(s).flatMap((line) => line.split(/ +/).filter(Boolean));
 }
 
+// One /bin/wc row: a blank and a seven-wide field per count, then the name.
+// Written once here rather than padded by hand in the dozen cases that use wc
+// as an instrument.
+export function counts(...n) {
+    const name = typeof n[n.length - 1] === "string" ? n.pop() : "";
+    return n.map((v) => ` ${String(v).padStart(7)}`).join("") + (name ? ` ${name}` : "");
+}
+
 // What one command printed: the rows between the line it was typed on and the
 // prompt that followed, blank lines kept — which is what `ls -R` separates its
 // blocks with. Meant for a screen that was cleared first.

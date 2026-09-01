@@ -2,7 +2,9 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, hasRootfs, output, prompt, rows, screen, shows, store } from "./harness.mjs";
+import {
+    counts, fail, hasRootfs, output, prompt, rows, screen, shows, store,
+} from "./harness.mjs";
 
 export function check() {
     let s = screen();
@@ -220,7 +222,7 @@ export function check() {
         // builtin and would shadow the pair of them.
         vrun("ln -s /pkg/store/hello-1.0-r0/bin/hi /pkg/gen/1/bin/wc");
         vshows("command -v wc", "/bin/wc");
-        vshows("echo one two | wc", "1 2 8"); // the real one; the copy would echo
+        vshows("echo one two | wc", counts(1, 2, 8)); // the real one; the copy would echo
 
         // PATH is a default and not a floor: a spawn that names one searches
         // that alone, installed programs included.

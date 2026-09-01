@@ -3,7 +3,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { shows } from "./harness.mjs";
+import { counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(13930);
 
@@ -92,10 +92,10 @@ export function check() {
     line("cat d4 d4 d4 d4 d4 d4 d4 d4 > d5");
     is("sort d5 | uniq -c", "32768 a|32768 b");
     is("sort -u d5", "a|b");
-    is("sort d5 | wc", "65536 65536 131072");
+    is("sort d5 | wc", counts(65536, 65536, 131072));
 
     // Several files are one stream, and so is a pipe.
-    is("sort -u c c | wc", "3 3 12");
+    is("sort -u c c | wc", counts(3, 3, 12));
     is("cat w | sort -u | head -n 2", "Apple|apple");
 
     // What is asked for, and what is got wrong.

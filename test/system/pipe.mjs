@@ -3,7 +3,7 @@
 // doc/Testing.md has the rules they run by.
 
 import {
-    CTRL, fail, press, prompt, regrid, resize, row, rows, screen, submit,
+    CTRL, counts, fail, press, prompt, regrid, resize, row, rows, screen, submit,
 } from "./harness.mjs";
 
 export function check() {
@@ -28,7 +28,7 @@ export function check() {
     if (!rows(s).includes(prompt(1)))
         fail(`an empty pipeline left ${row(s, s.cursor_y)}, expected ${prompt(1)}`);
     s = submit("echo 'a b' | wc", 1160);
-    if (!rows(s).includes("1 2 4"))
+    if (!rows(s).includes(counts(1, 2, 4)))
         fail(`echo 'a b' | wc printed ${JSON.stringify(rows(s))}, expected 1 2 4`);
 
     // Two spaces: one would survive the word becoming two arguments, since

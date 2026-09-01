@@ -3,7 +3,7 @@
 // the coverage. Part of the system suite; test/run.mjs runs the cases in order
 // and doc/Testing.md has the rules they run by.
 
-import { shows } from "./harness.mjs";
+import { counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(14110);
 
@@ -80,8 +80,8 @@ export function check() {
     is("seq -f '%1000f' 1 1 2>&1 | head -n 1", "seq: not a format: %1000f");
 
     // Through a real pipe, and out the far end of one that hangs up.
-    is("seq 1 5 | wc", "5 5 10");
-    is("seq 100000 | wc", "100000 100000 588895");
+    is("seq 1 5 | wc", counts(5, 5, 10));
+    is("seq 100000 | wc", counts(100000, 100000, 588895));
     is("seq 1000000 | head -n 2", "1|2");
 
     // What is asked for, and what is got wrong.

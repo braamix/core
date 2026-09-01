@@ -2,7 +2,9 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { fail, net, output, prompt, row, rows, screen, shows, store, submit } from "./harness.mjs";
+import {
+    counts, fail, net, output, prompt, row, rows, screen, shows, store, submit,
+} from "./harness.mjs";
 
 export function check() {
     let s = screen();
@@ -47,7 +49,7 @@ export function check() {
           "exit 3\n");
 
     t.is("sh /home/s10/report.sh",
-           "/home/s10/a.t: 2 2 8|/home/s10/b.t: 1 1 6|end|bye");
+           `/home/s10/a.t: ${counts(2, 2, 8)}|/home/s10/b.t: ${counts(1, 1, 6)}|end|bye`);
 
     // …and its status reaches the prompt through the whole of that.
     s = submit("clear", t.at(0.01));

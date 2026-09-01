@@ -3,7 +3,8 @@
 // doc/Testing.md has the rules they run by.
 
 import {
-    CTRL, KEY, chdir, fail, net, others, press, prompt, row, rows, run, screen, submit, type,
+    CTRL, KEY, chdir, counts, fail, net, others, press, prompt, row, rows, run, screen,
+    submit, type,
 } from "./harness.mjs";
 
 export function check() {
@@ -44,7 +45,7 @@ export function check() {
     // stage and every syscall server still parked on it.
     s = submit("clear", 9115);
     s = submit("timeout -m 10000 echo one two | wc", 9116);
-    if (!rows(s).some((line) => line.trim() === "1 2 8"))
+    if (!rows(s).some((line) => line === counts(1, 2, 8)))
         fail(`a supervised child in a pipeline printed ${JSON.stringify(rows(s))}`);
     if (others() !== 0)
         fail(`${others()} instances outlived a supervised pipeline`);

@@ -3,7 +3,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { shows } from "./harness.mjs";
+import { counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(14020);
 
@@ -29,7 +29,7 @@ export function check() {
     is("cat b c", "both|both");
 
     // In the middle of a pipeline, which is what it is for.
-    is("echo mid | tee d | wc", "1 1 4");
+    is("echo mid | tee d | wc", counts(1, 1, 4));
     is("cat d", "mid");
 
     // Nothing named is a cat, and nothing at all is nothing at all.
@@ -43,16 +43,16 @@ export function check() {
     is("echo x | tee /nosuch/f > /dev/null 2>&1; echo $?", "1");
 
     // Bytes, not lines: what goes in comes out, newline or none.
-    is("echo -n no-nl | tee h | wc", "0 1 5");
-    is("cat h | wc", "0 1 5");
+    is("echo -n no-nl | tee h | wc", counts(0, 1, 5));
+    is("cat h | wc", counts(0, 1, 5));
 
     // Past a single read, and both ways out of it agree. Sixteen bytes
     // doubled six times, so nothing here tracks the size of another file.
     line("echo 0123456789abcde > w0");
     line("cat w0 w0 w0 w0 > w1; cat w1 w1 w1 w1 > w2");
     line("cat w2 w2 w2 w2 > w3; cat w3 w3 w3 w3 > big");
-    is("cat big | tee big2 | wc", "256 256 4096");
-    is("wc big2", "256 256 4096");
+    is("cat big | tee big2 | wc", counts(256, 256, 4096));
+    is("wc big2", counts(256, 256, 4096, "big2"));
 
     // A reader that hangs up ends the run rather than spinning through the
     // rest of the input, which is what stops the producer upstream.

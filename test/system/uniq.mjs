@@ -3,7 +3,7 @@
 // the coverage. Part of the system suite; test/run.mjs runs the cases in order
 // and doc/Testing.md has the rules they run by.
 
-import { shows } from "./harness.mjs";
+import { counts, shows } from "./harness.mjs";
 
 const { at, is, line } = shows(13940);
 
@@ -53,12 +53,12 @@ export function check() {
     line("cat d2 d2 d2 d2 d2 d2 d2 d2 > d3");
     line("cat d3 d3 d3 d3 d3 d3 d3 d3 > d4");
     line("cat d4 d4 d4 d4 d4 d4 d4 d4 > d5");
-    is("uniq d5 | wc", "65536 65536 131072");
+    is("uniq d5 | wc", counts(65536, 65536, 131072));
     is("uniq -c d5 | tail -n 1", "   1 a");
 
     // What it is for: the sort in front of it, through a real pipe.
     is("sort u | uniq -c", "   3 a|   1 b|   3 c");
-    is("cat u | uniq -d | wc", "2 2 4");
+    is("cat u | uniq -d | wc", counts(2, 2, 4));
 
     // What is asked for, and what is got wrong.
     is("uniq --help", USAGE);

@@ -44,7 +44,7 @@ export function check() {
     net.peak = 0;
     s = submit("clear", 9014);
     s = submit("tail -n 1 /etc/motd | wc", 9015);
-    if (!rows(s).some((line) => /^1 \d+ \d+$/.test(line)))
+    if (!rows(s).some((line) => /^ +1 +\d+ +\d+$/.test(line)))
         fail(`a two-stage pipeline printed ${JSON.stringify(rows(s))}`);
     if (net.peak < 2)
         fail(`the pipeline peaked at ${net.peak} instances, expected 2`);
