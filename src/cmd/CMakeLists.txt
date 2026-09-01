@@ -7,7 +7,7 @@
 add_subdirectory(pkg)
 add_subdirectory(sh)
 
-set(BRAAM_BIN_LIST basename cat chat clear cp curl date df dirname echo edit env false fexport
+set(BRAAM_BIN_LIST basename cat chat clear cp curl date df dirname du echo edit env false fexport
                    fimport find grep head hog less ln ls mkdir mount mv pbcopy pbpaste pkg ps pwd
                    rm sh sleep sort spin tail test timeout touch truncate true uname uniq unzip
                    vmstat watch wc)

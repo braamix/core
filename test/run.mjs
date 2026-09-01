@@ -14,6 +14,7 @@ import * as abi from "./system/abi.mjs";
 import * as boot from "./system/boot.mjs";
 import * as cwd from "./system/cwd.mjs";
 import * as dual from "./system/dual.mjs";
+import * as du from "./system/du.mjs";
 import * as entry from "./system/entry.mjs";
 import * as find from "./system/find.mjs";
 import * as flow from "./system/flow.mjs";
@@ -115,6 +116,7 @@ const CASES = [
     ["chunk",      chunk.check],
     ["cp",         cp.check],
     ["find",       find.check],   // after cp: the walk proc/io.h now shares with it
+    ["du",         du.check],         // after find: the same walk, summed
     ["sort",       sort.check],
     ["uniq",       uniq.check],       // after sort: the pipeline it is written for
     ["truncate",   truncate.check],

@@ -10,7 +10,7 @@ export function check() {
     // the hook against a canned callback; what it cannot reach is a real
     // command writing down a real pipe.
     submit("mkdir /home/c", t.at(0.01));
-    // Three copies of a 7,292-byte file: more than the eight writes a pipe
+    // Three copies of a 7,439-byte file: more than the eight writes a pipe
     // holds, so the drain has to be running before the wait or this hangs.
     submit("cat /etc/help /etc/help /etc/help > /home/c/big", t.at(0.01));
 
@@ -36,7 +36,7 @@ export function check() {
     // so without drain-before-wait this one hangs rather than fails. The
     // counts are three copies of /etc/help, so a line added or reworded there
     // moves them.
-    t.is("x=$(cat /home/c/big); echo \"$x\" | wc", "408 3294 21876");
+    t.is("x=$(cat /home/c/big); echo \"$x\" | wc", "414 3369 22317");
     submit("rm -r /home/c", t.at(0.01));
 
     // Functions, `.`, `eval` and `return`. The unit suite has the grammar;

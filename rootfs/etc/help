@@ -47,6 +47,8 @@ Programs in /bin
   date      [-u] — print the date and time
   df        [-h] — show filesystem space, scaled with -h
   dirname   <path>... — all but the last part of a path
+  du        [-a | -s] [-hk] [<path>...] — how much a tree takes, in kibibytes;
+            -a counts every file, -s only the total, -h scales it
   echo      [-n] [<word>...] — print the arguments
   edit      [-S <screen>] <file> — full-screen editor; ^S saves, ^Q quits
             -S puts it on another terminal (cat /proc/terms)

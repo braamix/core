@@ -65,8 +65,6 @@ Adding a program also moves two counts that are written down: `compared` in
 `test/unit/test_zip.cpp` (the archive's file count) and the byte count in
 `test/system/subst.mjs` (which concatenates `/etc/help` three times).
 
-- [ ] **A5. `du`** — over `proc/io.h`'s `TreeWalk`, which `copy_tree` and
-      `/bin/find` are already written on.
 - [ ] **A6. `tee`, `cut`, `tr`, `seq`** — one read/write loop each.
 - [ ] **A7. `xargs`** — `Spawn`/`Wait`; watch `SYS_CHILD_MAX` (16). It is also
       what answers for `find -exec`, which A3 left out for it.

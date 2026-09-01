@@ -373,3 +373,78 @@ cheaper to write it down than to raise it.
 the 2 MB budget. The system cases sort 65,536 lines and 128 KB — past one block,
 which is the only thing that tells a chain of blocks from a single buffer, and
 far past the depth the first version died at.
+
+---
+
+## `du`, and a post-order over a pre-order walk
+
+`/bin/du` is [TODO.md](TODO.md)'s A5 and `TreeWalk`'s third caller, which is
+what its own entry said it would be. The port it was read against is v7's, by
+way of `v7besm/cmd/du/`, and most of that file is machinery this system does not
+have: a `chdir(2)` per level and a `chdir("..")` back out, a `PATHSIZ` buffer
+appended to once per level, a `DIRFDMAX` descriptor ration with a `telldir`
+cookie so a deep tree does not hold one open per level, and the `NDENT` batch
+that ration needed. `TreeWalk` answers all four at once — it holds a level's
+entries rather than a descriptor, its path is built by `path_join` per entry,
+and there is no cwd to move.
+
+**The `ml[]` table has nothing to do.** v7's linked-file list is why its own
+manual documents "if there are too many distinct linked files, *du* counts the
+excess files multiply": a fixed `ML` of them, and the excess counted twice.
+There are no hard links here (CLAUDE.md's known gaps), so there is no
+double-counting to guard and no cap to get wrong. Nothing replaced it.
+
+**Counted in `FS_BLOCK` = 512, printed in kibibytes, and rounded once.** The
+unit is `df`'s `1K-blocks` column rather than v7's 512, since the two now agree
+about what a number means; the *counting* is in blocks, because a file's cost is
+`(size + 511) / 512` — the same figure `ls -l`'s `total` shows — and a parent
+must be the sum of its children's blocks and not of their roundings. Three
+two-byte files are three blocks and print as 2K; rounding each to a kibibyte
+first would say 3. `-k` is that default named, and is what undoes an earlier
+`-h`; `-h` is the same scaling `df` and `ls` spell, a third copy of a nine-line
+`human()` that D2 already recorded the argument for.
+
+**A directory contributes nothing of its own.** OPFS reports no size for one, so
+what `du` sums is the files, and an empty directory prints 0 rather than the
+block a real filesystem would charge for it. That is the same fact `ls -l`'s
+`total` carries, and it is why `du` here reads as "what is in this tree" rather
+than "what this tree costs the store" — `df` is the one that answers the second
+question.
+
+**`TreeWalk` is pre-order and a total is post-order**, so the program keeps a
+stack of levels and emits one as the walk *leaves* it. Depth is the count of
+`'/'` in `path.substr(walk.root_len())` — a name carries no slash, so it is
+exact, and it is cheaper than the prefix test the same rule could have been
+written as. An entry at depth *d* pops every level past *d*, each pop adding its
+total into the one above; a directory pushes a level, a file adds to the top and
+prints under `-a`. Recursion would have been shorter and is what §8.2 forbids: a
+frame per level is the shape `TreeWalk` exists to avoid, and v7's `descend()`
+recursing per directory is what forced that port to measure a `MAXDEPTH`.
+
+The dropped-level case falls out of the same rule. A directory that will not
+list is an `Err` naming itself in `at()`, and `find`'s handling — report it, set
+the status, call `next()` again — leaves a level on `du`'s stack that no entry
+will ever be reported under. The next entry's depth pops it, with its total
+intact, so nothing had to be told that a level went away.
+
+**No tab.** Every `du` writes `%d\t%s`, and there is no tab stop here: the
+terminal is a cell grid (§2.3), `screen_write` handles `'\n'` and passes
+everything else to `screen_put`, and `rune_safe` lets U+0009 through — so a tab
+would land as one blank cell and the columns would not line up. The count is
+right-aligned in seven with two spaces after it, which is what `df`'s columns
+are, and what a tab was drawing anyway.
+
+Three deviations from v7, each deliberate. **A file operand prints its own
+line**, where v7 printed nothing without `-a` and said so under BUGS. **`-a` and
+`-s` together are a usage error** rather than a silent precedence, which is what
+POSIX asks for and what the two flags mean. And **`-h` and `-k` are ours**: v7
+had one unit and no way to say which.
+
+What did not come across: `-x` would need a mount to stop at, and while `/proc`
+and `/dev` are mounts, naming one is how you walk it — there is no tree here
+where a filesystem boundary is a surprise. `-H` and `-L` have nothing to switch
+between, since a link is never followed and `SYS_KIND_DIR`-only descent is why
+no cycle guard is needed. `-d` is GNU's, and `-s` plus a path is the whole of
+what it buys at this size.
+
+`/bin/du` is 34,284 bytes and `rootfs/` is 1,497,212 of the 2 MB budget.
