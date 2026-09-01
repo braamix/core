@@ -31,6 +31,97 @@ first:
 
 ---
 
+## The accumulator a `File` could only make longer
+
+[TODO.md](TODO.md)'s D2a. Three places build every output row into one heap
+`String` and write it once — `pkg/query.cpp`'s `emit`, `unzip`'s listing, and
+the sh builtins — and the entry asked whether a `File` should do that without
+the allocation. One was built and measured, the other two are decided on
+arguments that are not about size, and none of them moves. D2a joins D2 and D4:
+recorded so it is not re-derived.
+
+**The measurement.** `/bin/unzip`'s `list_them` was converted whole — output
+byte-identical, the alignment checked — and `unzip.wasm` went 38,513 →
+**48,062 bytes, 25%**. Its `co_await` sites went from 1 to 4, so most of that is
+not the suspension points at all: it is the ~8.4 KB of `proc/file.cpp` and
+`filebuf.cpp` that `--gc-sections` drops today, because nothing else in
+`/bin/unzip` names a `File`. The staging tree went 1,748,289 → 1,757,838 against
+the 2,097,152 in `tools/size_budget.txt`, 83% to 84%. What it buys is one heap
+`String`, and what it costs on the listing path is one write syscall becoming
+one per 512 bytes.
+
+**The row is not a `Buf`, and that is the general result.** `df` and `ls` are
+cheap on a `File` because a stack `Buf<N>` holds a whole row and the row reaches
+the stream in one write — D2's finding, from the other direction. A zip entry
+name is a path and a package description is a sentence, so neither fits a
+`Buf<N>`: the row either splits into a write for the fixed part and a write for
+the variable one, or it becomes a heap `String` *per row*, which is an
+allocation per row in place of one that grows. That is why D2a's three cases
+cannot have the shape that made the ten conversions pay, and it holds for all
+three without building the other two.
+
+**A finished accumulator handed to a `File` is the same syscall.**
+`File::write_` reaches `write_slow_`, and `s.size() >= want_` there flushes and
+calls `write_all(fd_, s)` directly. So keeping the `String` and writing it
+through a stream is, for anything past the 512-byte buffer, byte-for-byte what
+happens now with ~8 KB added. Only the per-row conversion changes the syscall
+count, and it changes it upwards. The naive one is worse still: `File::stdout()`
+is `Buffering::Auto`, `probe_` makes that `Line` on a console, and line mode
+flushes on any write holding a `'\n'` — a syscall a row at a prompt, plus a
+`Sys::Tty` probe to decide it. `ls` sets its buffering explicitly to dodge
+exactly this.
+
+**`/bin/pkg`'s writes are progress, not rows.** `emit` is not per-row to begin
+with: all three of its call sites already accumulate the whole output and write
+once, so there is no syscall there to save. The interesting question was whether
+some *run* of `/bin/pkg` writes several times, which is what D's criterion asks
+for — and none does. `pkg install` prints the plan, then downloads, hashes,
+inflates and runs scripts, then prints `generation N, M packages`; `pkg update`
+names the repository before fetching from it and reports after. Both are two
+writes with the whole job between them, and coalescing them means the user
+learns nothing until it is over. The flush points are the feature. Separately,
+`pkg_info`'s `describe` is a pure non-coroutine chain of fifteen appends, and
+converting it makes fifteen suspension points out of none — D2's `df`
+measurement replayed on a worse shape.
+
+**The shell's builtins are excluded on correctness, not size.** `PIPE_SLOTS` is
+8 and counts writes rather than bytes (`user/io.h`): `pipe_write` makes one
+chunk per call and `Sys::Write` is one `Stream::write` per syscall whatever the
+payload, so one accumulator is **one slot at any size** while a `File` at
+`FILE_BUF` is one slot per 512 bytes. `builtin.h`'s rule therefore stands, but
+its stated reason — "nobody left to drain it" — is broader than the mechanism.
+`job.cpp` spawns every program stage before it runs any builtin, so a *spawned*
+reader does drain and `jobs | wc -l` would merely cost N syscalls for one. The
+two shapes that actually hang are a builtin reader, where stage *i+1* runs only
+after stage *i* returns, and command substitution, whose capture pipe is drained
+after the entire builtin loop — so `x=$(set)` parks the shell inside its own
+builtin past 4 KB, recoverable only by `^C`. Two smaller reasons point the same
+way: `io.out` is a descriptor the builtin borrows and `job.cpp` closes as soon
+as it returns, so CLAUDE.md's rule makes it `Buffering::None` — a syscall a
+write; and `~File` does not flush, so every early `co_return` in `set`, `export`
+or `jobs` would drop its output silently. This is the builtin half of D4's
+verdict and belongs beside it.
+
+**The bound the entry did not raise, recorded rather than acted on.** The
+accumulator is unbounded, and it does have a ceiling: a payload over
+`SYS_STAGE_MAX`, 1 MB, is refused by `proc_stage` and the write comes back
+`Err(NoMemory)`. It does not change the verdict. In both unbounded cases the
+listing is a projection of something the program already holds resident — the
+whole `CheckedIndex`, the whole central directory — against a 16 MB cap, and
+1 MB of `unzip -l` is some 25,000 entries. The failure is clean and reported.
+If it ever did matter the answer is to write the accumulator in slices, five
+lines inside `emit`, not to link a `File` for 8 KB.
+
+**One thing came out of it, as it did from D2.** Checking that the conversion
+printed the same bytes meant looking at what pins `unzip -l`, and every size in
+the fixture is one digit — so `list_them`'s measured width had only ever been 1
+and its padding loop had never run its body in the suite. That is the `ls -l`
+gap `test/system/columns.mjs` was written for, in a second place.
+`test/system/unzip.mjs` now lists an archive holding one byte and 1,234, and
+pins the leading blanks; `row()` strips trailing space only, so they are
+visible. A listing that ignored the width passes every other assertion in that
+case and fails this one.
+
 ## The empty directory a rename would not step into
 
 [TODO.md](TODO.md)'s B4, and the divergence the section below it deferred.

@@ -20,6 +20,13 @@ export function check() {
     // order — the central directory's, which zip.cpp keeps.
     is("unzip -l /home/a.zip", ["6  one", "7  sub/two", "6  sub/d/three"].join("|"));
 
+    // The width comes off the sizes listed, and every size above is one digit,
+    // so the pad has never run. Four digits against one is what exercises it,
+    // and the leading blanks are the assertion: harness.row() strips trailing
+    // space only. doc/TODO.md D2a is why that is worth pinning.
+    store.files.set("/home/w.zip", zipOf([["small", "x"], ["large", "x".repeat(1234)]]));
+    is("unzip -l /home/w.zip", ["   1  small", "1234  large"].join("|"));
+
     // -p writes an entry out and makes nothing.
     is("unzip -p /home/a.zip sub/two", "second");
     if (store.dirs.has("/home/sub"))
@@ -94,7 +101,7 @@ export function check() {
         fail(`unzip -d printed ${JSON.stringify(rows(s))}`);
 
     line("cd /home; rm -r /home/z /home/w");
-    line("rm /home/a.zip /home/junk.zip /home/d.zip");
+    line("rm /home/a.zip /home/junk.zip /home/d.zip /home/w.zip");
     // The cases after this one start where the ones before it left the shell.
     is("pwd", "/home");
 }

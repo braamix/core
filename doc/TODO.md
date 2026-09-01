@@ -77,14 +77,30 @@ where several writes coalesce into one syscall. None of the below moves
       optimiser specialises per call site, so the four "duplicated" loops in
       `fmt.h` are duplication the optimiser was exploiting.
       `test/system/columns.mjs` now pins what the conversion would have broken.
-- [ ] **D2a. The `String` accumulators.** `pkg/query.cpp`'s `emit`, `unzip`'s
-      listing and the sh builtins build every row into one heap `String` and
-      write it once, because a write per row is a syscall per row. A `File`
-      does that without the allocation — but only pays for itself where the
-      program has other rows to write, which is the same test D applies
-      everywhere. D2's measurement applies here too: what a `File` would save
-      is the accumulator's allocation, not a syscall, and it must not cost a
-      suspension point per field to get it.
+- [ ] **D2a. Nothing, for the `String` accumulators.** Recorded so it is not
+      re-derived: `pkg/query.cpp`'s `emit`, `unzip`'s listing and the sh
+      builtins keep theirs. `unzip -l` was converted whole — output
+      byte-identical — and cost **9,549 bytes, 25%**, nearly all of it the
+      `proc/file.cpp` that `--gc-sections` drops from a binary naming no
+      `File`. The general result is that these rows are unbounded text: a zip
+      name and a package description do not fit a `Buf<N>`, so the row splits
+      into several writes or becomes a `String` per row, and neither can have
+      the shape that made `df` and `ls` pay. Handing a finished accumulator to
+      a `File` changes nothing — `write_slow_`'s `s.size() >= want_` is the
+      same `write_all` — and the naive conversion is worse, since
+      `File::stdout()` probes the tty and line mode then flushes a row at a
+      time. `emit` is not per-row anyway; `/bin/pkg` has no run in which two
+      writes could coalesce, because its multi-write runs are progress
+      (`install`'s plan then generation, `update`'s repository then result) and
+      the flush points are the feature. The sh builtins are excluded on
+      **correctness**: `PIPE_SLOTS` counts writes, not bytes, so an
+      accumulator is one slot at any size and a `File` is one per 512 — see D4
+      and Release_Notes.md for which shapes hang and which merely cost
+      syscalls. The accumulator's one real ceiling is `SYS_STAGE_MAX`, 1 MB,
+      above which the write is a clean `Err(NoMemory)`; nothing approaches it,
+      and slicing `emit` would answer it before a `File` would.
+      `test/system/unzip.mjs` now pins the listing width the conversion would
+      have broken.
 - [ ] **D3. `Input` and `LineReader` onto `File`.** `File::getline` replaced
       the `LineReader` in `grep` and `tail`; `cp`, `mv`, `less`, `chat` and
       `sh -s` still hold one, so two line readers exist and one of them cannot
