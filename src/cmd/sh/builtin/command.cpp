@@ -7,14 +7,6 @@
 
 namespace {
 
-// Where the shell looks, which is where the kernel will look: its own PATH if
-// it has one, and the kernel's default if it has none.
-Str search_path()
-{
-    Str v;
-    return var_get("PATH", v) ? v : SYS_PATH_DEFAULT;
-}
-
 // The path `word` would run, or an empty Str. A word with a slash is a path and
 // is never searched — the same rule exec_resolve applies.
 Task<Result<String>> where(Str word)
@@ -29,7 +21,7 @@ Task<Result<String>> where(Str word)
         co_return String();
     }
 
-    Str rest = search_path(), dir;
+    Str rest = sh_path(), dir;
     while (env_path_next(rest, dir)) {
         CO_TRY_VOID(path_join(dir, word, path));
         Task<bool> t = file_runnable(path.str());

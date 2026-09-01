@@ -514,6 +514,12 @@ mutable state saved and put back, losing only memory isolation. A compound
 command cannot be backgrounded, because nothing inside a process can wait for a
 sibling task. And `exec cmd` spawns and waits instead of replacing the image.
 
+**Tab completion is the shell's, and needs no operation.** The line editor is a
+userland coroutine under §3.5, so it may `co_await` a directory listing between
+two keystrokes; the candidates come from the shell's own tables and from `PATH`
+through `Sys::List`, which globbing already calls. Nothing about the keyboard
+changes: `Tab` is a named key like any other, and what it means is the reader's.
+
 The grammar, the expansions, the builtins and the job control are
 [Shell.md](Shell.md).
 

@@ -3,10 +3,11 @@
 # editor, a job runtime and twenty-six builtins, so it is a directory of its
 # own beside them and main.cpp is its entry point.
 #
-# cond.cpp, expand.cpp, match.cpp, parse.cpp and tokenize.cpp are pure, and
-# test/ compiles them into tests.wasm directly rather than linking this.
-# condrun.cpp is not pure but reaches nothing above proc/io.h, which is what
-# lets src/cmd/test.cpp build /bin/test out of the same two files.
+# complete.cpp, cond.cpp, expand.cpp, match.cpp, parse.cpp and tokenize.cpp are
+# pure, and test/ compiles them into tests.wasm directly rather than linking
+# this. condrun.cpp is not pure but reaches nothing above proc/io.h, which is
+# what lets src/cmd/test.cpp build /bin/test out of the same two files;
+# completerun.cpp walks the store and the shell's tables, as glob.cpp does.
 add_library(braam_sh STATIC
     builtin/break.cpp
     builtin/cd.cpp
@@ -29,6 +30,8 @@ add_library(braam_sh STATIC
     builtin/trap.cpp
     builtin/unset.cpp
     builtin/wait.cpp
+    complete.cpp
+    completerun.cpp
     cond.cpp
     condrun.cpp
     edit.cpp

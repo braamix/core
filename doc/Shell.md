@@ -105,11 +105,11 @@ sequence anywhere in it. Every binding:
 | `^K` / `^U` | delete to the end / to the start |
 | `^W` | delete the word before the cursor |
 | `^L` | clear the screen and repaint |
+| `Tab` | complete the word before the cursor |
 | `Up` / `Down` | walk the history |
 
 Anything else changes nothing. **`^D` does not end the shell** — it deletes
 forward, and at the end of a line it does nothing; `exit` is how a session ends.
-**There is no Tab completion**: Tab is unbound.
 
 A word ends at a space or a tab and nowhere else, which is what `^W` and
 `Alt+Backspace` walk back over. History holds **thirty-two** lines, oldest
@@ -121,6 +121,51 @@ past the newest entry brings it back.
 Scrollback is the page's, not the shell's: `Shift+PageUp`/`Shift+PageDown` page,
 `Shift+Up`/ `Shift+Down` and the mouse wheel move a row, and any other key
 returns to the live screen.
+
+### Completion
+
+`Tab` finishes the word the cursor is in, and what it is finishing it against
+depends on where that word sits — the same three positions the parser already
+tells apart:
+
+- **A command word** — the start of a line, or after `;`, `|`, `&`, `&&`, `||`,
+  `(`, or one of `if`, `then`, `else`, `elif`, `while`, `until`, `do`, `{`, `!`
+  — is completed against shell functions, then the builtins, then every name in
+  each `PATH` directory: the order a command word resolves in (§4). A word with
+  a `/` in it is a path instead, as `exec_resolve`'s is.
+- **A name after `$` or `${`** is completed against the variables.
+- **Everything else** is a path, against the store. `NAME=` is the value's, so
+  `PATH=/b` completes a directory and does not offer builtins.
+
+Only the bytes *before* the cursor are the word; what follows is untouched.
+
+**One match** is inserted whole, and then a `/` if it is a directory and a space
+if it is not — inside the closing quote, when the word opened one. A completed
+variable takes neither: a name is usually the head of a longer word, so `${x`
+gains only its `}`.
+
+**Several matches** insert the longest prefix they share, and nothing else
+happens. When that prefix adds nothing — because it is already typed — a
+**second `Tab` in a row** prints the candidates in columns and draws the prompt
+again below them. Nothing is printed otherwise, and **nothing at all happens
+when nothing matches**: there is no bell, since there is no bell.
+
+Quoting is read and written back. `ls 'my fi` and `ls my\ fi` both match the
+file `my file`, and what is inserted is escaped the way the word was opened.
+
+What completion does **not** do:
+
+- **No `~`** — the shell has no tilde expansion to complete against (§15).
+- **No `$` expanded inside a path**: `ls $HOME/b` completes nothing, because
+  expanding one would mean running the expander from the key loop.
+- **Nothing inside `$( … )` or backticks**, for the same reason.
+- **No aliases and no `complete` builtin** — the shell has neither, and the
+  three sources above are not configurable.
+- **No menu cycling.** A second `Tab` lists; it does not step through.
+- **A leading dot has to be asked for**, exactly as a glob's does (§7).
+- **A word begun on an earlier line cannot be completed.** The editor sees one
+  physical line, so a `Tab` on a `PS2` continuation completes against that line
+  alone.
 
 ---
 
@@ -1001,7 +1046,9 @@ change to argue in Concept.md first.
   `SIG_CONT` have numbers and no sender, because stopping is the kernel holding
   off the next *step* rather than suspending a coroutine — which is why the
   mechanism can carry it, and why it is still a milestone and not a command.
-- **No Tab completion**, and history does not persist.
+- **History does not persist.**
+- **Completion has no menu, no `complete` builtin and no `~`**, and it cannot
+  reach a word begun on an earlier line. §2 has the whole of what it does.
 - **`kill <pid>` is gone; `kill %n` is not.** `Sys::Kill` refuses anything that
   is not a child of the caller.
 - **A loop whose body is entirely builtins cannot be interrupted.** The shell
@@ -1010,7 +1057,8 @@ change to argue in Concept.md first.
   those, and `while true; do sleep 100; done` is not. The escape is killing the
   shell, which init then replaces.
 - **A multi-line paste loses everything after the first command.** Pasting one
-  line is exact.
+  line is exact. **A pasted tab is a space**, so a paste never runs a
+  completion — and a tab is a blank here anyway (§3).
 - **No `printf`, `source`, `type`, `command`, `getopts`, `alias`, `hash`,
   `umask`, `times` or `ulimit`.**
 

@@ -1945,6 +1945,17 @@ bool func_exists(Str name)
     return func_find(name) != nullptr;
 }
 
+usize func_count()
+{
+    return funcs().size();
+}
+
+Str func_at(usize i)
+{
+    Vec<FuncEntry *> &t = funcs();
+    return i < t.size() ? t[i]->name.str() : Str();
+}
+
 bool func_unset(Str name)
 {
     Vec<FuncEntry *> &t = funcs();

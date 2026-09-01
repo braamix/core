@@ -60,9 +60,10 @@ export function normalise(event) {
 
 // Pasted text as the keystrokes that would have typed it: the terminal has no
 // byte stream to write into (§2.3), so a paste is a run of keys and nothing
-// downstream can tell it from fast typing. A newline is Enter and a tab is Tab,
-// however the platform spells them; every other control character is dropped,
-// since there is no key that produces one.
+// downstream can tell it from fast typing. A newline is Enter, however the
+// platform spells it; every other control character is dropped, since there is
+// no key that produces one. A tab is a space, not Tab: the shell binds Tab to
+// completion, and /bin/edit writes a space for one anyway.
 export function pasted(text) {
     const codes = [];
     for (const ch of text.replace(/\r\n?/g, "\n")) {
@@ -70,7 +71,7 @@ export function pasted(text) {
         if (ch === "\n")
             codes.push(CODES.get("Enter"));
         else if (ch === "\t")
-            codes.push(CODES.get("Tab"));
+            codes.push(0x20);
         else if (code >= 0x20 && code !== 0x7f)
             codes.push(code);
     }

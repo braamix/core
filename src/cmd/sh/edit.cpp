@@ -1,5 +1,6 @@
 #include "edit.h"
 
+#include "completerun.h"
 #include "kernel/key.h"
 #include "kernel/screen.h"
 #include "kernel/text.h"
@@ -109,14 +110,19 @@ bool LineEditor::set_text(const Vec<char32_t> &from)
     return true;
 }
 
-bool LineEditor::text_of(const Vec<char32_t> &from, String &out) const
+bool LineEditor::text_of(const Vec<char32_t> &from, usize n, String &out) const
 {
     out.clear();
     char b[4];
-    for (usize i = 0; i < from.size(); i++)
+    for (usize i = 0; i < n && i < from.size(); i++)
         if (!out.append(Str(b, utf8_encode(from[i], b))))
             return false;
     return true;
+}
+
+bool LineEditor::text_of(const Vec<char32_t> &from, String &out) const
+{
+    return text_of(from, from.size(), out);
 }
 
 bool LineEditor::remember(Str s)
@@ -143,6 +149,56 @@ usize LineEditor::word_start() const
     return i;
 }
 
+// A Tab, on its own frame: the strings it needs would otherwise sit in
+// read_line's, which lives for the whole line. Nothing here fails the line —
+// a completion that cannot be made simply does not happen.
+Task<Result<void>> LineEditor::complete(Prompt prompt, bool show, bool &again)
+{
+    again = false;
+
+    String upto;
+    if (!text_of(buf_, cur_, upto))
+        co_return {};
+
+    Result<CompReply> r = Err(Error::NoMemory);
+    if (Task<Result<CompReply>> t = complete_line(upto.str(), cols_, show))
+        r = co_await t;
+    if (r.is_err())
+        co_return {};
+
+    CompReply reply = move(r.value());
+    again           = reply.insert.empty() && reply.count > 1;
+
+    usize i = 0;
+    char32_t ch;
+    while (usize n = utf8_decode(reply.insert.str(), i, ch)) {
+        if (!buf_.insert(cur_, ch))
+            break;
+        cur_++;
+        i += n;
+    }
+
+    if (reply.list.empty())
+        co_return {};
+
+    // The list goes below the line, and the prompt is drawn again under it —
+    // the ^L path, and painted_ has to go with it or the old tail is blanked
+    // at the wrong place.
+    usize was = cur_;
+    cur_      = buf_.size();
+    if (Task<Result<void>> t = redraw())
+        co_await t;
+    if (Task<Result<void>> t = write_all(SYS_STDOUT, "\n"))
+        co_await t;
+    if (Task<Result<void>> t = write_all(SYS_STDOUT, reply.list.str()))
+        co_await t;
+    painted_ = 0;
+    if (Task<Result<void>> t = anchor(prompt))
+        co_await t;
+    cur_ = was;
+    co_return {};
+}
+
 Task<Result<Line>> LineEditor::read_line(Prompt prompt)
 {
     buf_.clear();
@@ -157,6 +213,8 @@ Task<Result<Line>> LineEditor::read_line(Prompt prompt)
     } else
         co_return Err(Error::NoMemory);
 
+    bool tabbed = false; // the key before this one was a Tab that inserted nothing
+
     for (;;) {
         Task<Result<KeyPress>> kt = key_read();
         if (!kt)
@@ -166,10 +224,12 @@ Task<Result<Line>> LineEditor::read_line(Prompt prompt)
             co_return Err(r.error());
 
         Key k{ r.value().code, r.value().mods };
-        cols_     = r.value().at.cols;
-        rows_     = r.value().at.rows;
-        bool ctrl = (k.mods & MOD_CTRL) != 0;
-        bool alt  = (k.mods & MOD_ALT) != 0;
+        cols_        = r.value().at.cols;
+        rows_        = r.value().at.rows;
+        bool ctrl    = (k.mods & MOD_CTRL) != 0;
+        bool alt     = (k.mods & MOD_ALT) != 0;
+        bool was_tab = tabbed;
+        tabbed       = false;
 
         if (k.printable()) {
             if (!buf_.insert(cur_, k.code))
@@ -253,6 +313,9 @@ Task<Result<Line>> LineEditor::read_line(Prompt prompt)
                 hist_ == history_.size() ? set_text(pending_) : set_text(history_[hist_].str());
             if (!ok)
                 co_return Err(Error::NoMemory);
+        } else if (k.code == KEY_TAB) {
+            if (Task<Result<void>> t = complete(prompt, was_tab, tabbed))
+                co_await t;
         } else {
             continue; // an unbound key changed nothing
         }

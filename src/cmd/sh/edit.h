@@ -49,9 +49,15 @@ struct LineEditor {
 private:
     Task<Result<void>> redraw();
     Task<Result<void>> anchor(Prompt prompt);
+
+    // One Tab. `show` is the second in a row, which is what asks for the list;
+    // `again` comes back true when there was nothing to insert.
+    Task<Result<void>> complete(Prompt prompt, bool show, bool &again);
+
     bool set_text(Str utf8);
     bool set_text(const Vec<char32_t> &from);
     bool set_pending();
+    bool text_of(const Vec<char32_t> &from, usize n, String &out) const;
     bool text_of(const Vec<char32_t> &from, String &out) const;
     bool remember(Str s);
     usize word_start() const;

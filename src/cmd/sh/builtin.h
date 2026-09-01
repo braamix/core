@@ -42,3 +42,7 @@ struct Builtin {
 // The only way in: what a builtin is *for* is a line in /etc/help, which
 // /bin/help pages, so the table carries no usage string to go stale.
 const Builtin *builtin_find(Str name);
+
+// The table in order, for completion. Nothing else walks it.
+usize builtin_count();
+const Builtin *builtin_at(usize i);

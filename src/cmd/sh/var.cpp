@@ -201,6 +201,12 @@ const VarEntry *var_at(usize i)
     return i < vars().size() ? vars()[i] : nullptr;
 }
 
+Str sh_path()
+{
+    Str v;
+    return var_get("PATH", v) ? v : SYS_PATH_DEFAULT;
+}
+
 bool args_set(Args a)
 {
     Vec<String> &v = argv();

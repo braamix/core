@@ -38,10 +38,11 @@ sources are **compiled straight into `tests.wasm`** instead of being linked from
 their libraries, so a syscall in one of them is a link error.
 
 Compiled in, and therefore testable there: `sh/parse.cpp`, `sh/tokenize.cpp`,
-`sh/expand.cpp`, `sh/match.cpp`, `sh/cond.cpp` (the grammar, the expander, the
-matcher, `test`'s expression), `diff/diffreg.cpp` and `diff/emit.cpp` (the
-comparison and its three formats), `proc/opt.cpp` and `proc/time.cpp` (the
-option parser and the calendar), and the syscall-free half of `src/cmd/pkg/`.
+`sh/expand.cpp`, `sh/match.cpp`, `sh/cond.cpp`, `sh/complete.cpp` (the grammar,
+the expander, the matcher, `test`'s expression, and the arithmetic behind Tab),
+`diff/diffreg.cpp` and `diff/emit.cpp` (the comparison and its three formats),
+`proc/opt.cpp` and `proc/time.cpp` (the option parser and the calendar), and the
+syscall-free half of `src/cmd/pkg/`.
 `diff/main.cpp` is the half that reads and writes, and stays out.
 `pkg/trust.cpp` and `pkg/index.cpp` qualify by taking a `PkgHost`: the suite
 hands them the kernel's own services where `/bin/pkg` hands them syscalls.
@@ -49,8 +50,8 @@ hands them the kernel's own services where `/bin/pkg` hands them syscalls.
 bytes arrive through an interface, so `/bin/unzip` can seek a descriptor while
 the suite reads a buffer.
 `pkg/unzip.cpp`, `store.cpp`, `host.cpp` and `install.cpp` stay out.
-`sh/glob.cpp` and `sh/condrun.cpp` stay out for the same reason — they walk the
-store. Each group carries its reason in
+`sh/glob.cpp`, `sh/condrun.cpp` and `sh/completerun.cpp` stay out for the same
+reason — they walk the store. Each group carries its reason in
 [test/CMakeLists.txt](../test/CMakeLists.txt); keep it there.
 
 `braam_math` is the one exception, and it is *linked* rather than compiled in.

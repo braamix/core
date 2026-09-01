@@ -77,6 +77,11 @@ bool func_unset(Str name);
 // at before anything else, in the order a command word resolves.
 bool func_exists(Str name);
 
+// The table in definition order, for completion. A name is a view into the
+// table, so it dies with the next definition.
+usize func_count();
+Str func_at(usize i);
+
 // `exec`: with no command its redirections become the shell's own and outlive
 // the line; with one it spawns, waits, and ends the shell with that status.
 Task<i32> sh_exec(Args args, ShIo io);

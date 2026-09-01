@@ -31,6 +31,10 @@ bool var_mark(Str name, bool exported, bool readonly);
 usize var_count();
 const VarEntry *var_at(usize i);
 
+// Where the shell looks, which is where the kernel will look: PATH if it is
+// set, the kernel's default if it is not.
+Str sh_path();
+
 // Positional parameters. $0 is the shell's own name and $# does not count it.
 bool args_set(Args a);
 bool args_shift(usize n);

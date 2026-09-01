@@ -22,6 +22,7 @@ import * as entry from "./system/entry.mjs";
 import * as find from "./system/find.mjs";
 import * as flow from "./system/flow.mjs";
 import * as fullscreen from "./system/fullscreen.mjs";
+import * as complete from "./system/complete.mjs";
 import * as glob from "./system/glob.mjs";
 import * as head from "./system/head.mjs";
 import * as help from "./system/help.mjs";
@@ -118,6 +119,7 @@ const CASES = [
     ["respawn",    respawn.check],    // takes workers away; its blocks are 1 s apart
     ["glob",       glob.check],
     ["rename",     rename.check],
+    ["complete",   complete.check],  // after rename: its fixture moves the store clock the stamps above pin
     ["subst",      subst.check],
     ["redirect",   redirect.check],
     ["script",     script.check],

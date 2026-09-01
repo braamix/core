@@ -5,6 +5,7 @@ add_executable(tests
     unit/test_alloc.cpp
     unit/test_chacha.cpp
     unit/test_channel.cpp
+    unit/test_complete.cpp
     unit/test_cond.cpp
     unit/test_console.cpp
     unit/test_compat.cpp
@@ -61,13 +62,15 @@ add_executable(tests
     # String and Vec, so they are compiled in here rather than linked from
     # braam_sh, which would drag the process runtime's imports in with them.
     # glob.cpp is the walk over the store and does not belong here, and neither
-    # does condrun.cpp, which is what answers cond.cpp's probes.
+    # does condrun.cpp, which is what answers cond.cpp's probes, nor
+    # completerun.cpp, which gathers what complete.cpp's arithmetic runs over.
     # /bin/diff's comparison and its three formats: Str, String and Vec and
     # nothing else, so they are compiled in here as the shell's pure half is.
     # diff/main.cpp is the half that reads and writes, and stays out.
     ../src/cmd/diff/diffreg.cpp
     ../src/cmd/diff/emit.cpp
 
+    ../src/cmd/sh/complete.cpp
     ../src/cmd/sh/cond.cpp
     ../src/cmd/sh/expand.cpp
     ../src/cmd/sh/match.cpp

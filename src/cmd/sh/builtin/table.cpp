@@ -43,3 +43,13 @@ const Builtin *builtin_find(Str name)
             return &b;
     return nullptr;
 }
+
+usize builtin_count()
+{
+    return sizeof(TABLE) / sizeof(TABLE[0]);
+}
+
+const Builtin *builtin_at(usize i)
+{
+    return i < builtin_count() ? &TABLE[i] : nullptr;
+}

@@ -124,9 +124,10 @@ export function check() {
 
     // The other half of the page's clipboard: a paste is a run of keystrokes
     // and nothing else (Concept.md §3.5). web/keys.js turns the text into them
-    // — one Enter for a newline however it is spelled, and no key at all for a
-    // control character that no key produces.
-    if (pasted("a\r\nb\tc").join() !== [97, KEY.ENTER, 98, KEY.TAB, 99].join())
+    // — one Enter for a newline however it is spelled, a space for a tab so a
+    // paste never runs a completion, and no key at all for a control character
+    // that no key produces.
+    if (pasted("a\r\nb\tc").join() !== [97, KEY.ENTER, 98, 32, 99].join())
         fail(`pasted() gave [${pasted("a\r\nb\tc")}]`);
 
     // The document is 148 lines, so the grid has to hold all of it or the

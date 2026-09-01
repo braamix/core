@@ -31,6 +31,145 @@ first:
 
 ---
 
+## Tab, and the word the lexer already knew where to find
+
+`Tab` was unbound. Shell.md said so twice — "Tab is unbound" in §2, and "No Tab
+completion" in §15's list of deliberate absences — but unlike every other entry
+in that list it had no argument anywhere: no release note, no TODO entry, no
+sentence in Concept.md. It was an omission wearing a gap's clothes, and this
+entry is the first thing written about it.
+
+Nothing had to move to fix it. The line editor has been in the shell *process*
+since the discipline came out of the kernel, and `read_line` is a
+`Task<Result<Line>>` — so a `co_await list_dir(…)` between two keystrokes is
+ordinary code rather than a new mechanism. No operation was added and
+`PROC_ABI` does not move: `Sys::List` and `Sys::Stat` were already in
+`/bin/sh`'s import surface, put there by `glob.cpp`.
+
+### The word under the cursor is the lexer's
+
+The obvious way to find the word being completed is to scan backwards from the
+cursor for a blank. That scanner would be a second, worse copy of `tokenize.cpp`
+— it has to know that a blank inside `'…'` does not end a word, that `${x y}` is
+one word, that `$(…)` is not searched at all — and the two would drift.
+
+So `comp_site` runs the real `Lexer` and takes the token whose `pos()` reaches
+the cursor. What makes that possible is one line in `tokenize.cpp`: `begin_` is
+set *before* the token is scanned. A half-typed line is usually an unclosed
+quote, so the lexer usually answers `Err(Invalid)` — and `begin()` is still the
+start of the word it choked on. **The error is the ordinary path here, not a
+failure**, and there is no repair pass and no fallback scanner.
+
+Command position falls out of the same walk: the token before the word decides
+it. Reserved words are the one thing the lexer will not say, since `if` and `do`
+are ordinary `Tok::Word`s, so `complete.cpp` carries a nine-name table —
+`if then else elif while until do { !`. `for`, `case` and `in` are deliberately
+not in it: a name follows one and a word list the others, and file completion
+serves both better than a wrong list of commands. Those nine names are a
+*position* rule and not a candidate source; completion never offers a keyword.
+
+The assignment prefix is six more lines and deletes two bugs at once. A
+command-position word that reads `name=` does not spend command position, so a
+`Tab` after `FOO=x ls` still completes a command; and when it *is* the word
+being completed the site narrows past the `=`, so `PATH=/b` completes a
+directory instead of offering builtins.
+
+### Pure and impure, as `cond.cpp` and `condrun.cpp` are
+
+Everything that can be wrong here is arithmetic over text — locating the word,
+classifying it, removing quotes, putting them back, the longest common prefix,
+the column layout. Everything that needs the store is a listing. That is exactly
+the split the tree already has twice, so it is `complete.cpp` (pure, compiled
+straight into `tests.wasm`, where a syscall would be a link error) and
+`completerun.cpp` (in `braam_sh` only, beside `glob.cpp`).
+
+The split paid immediately. `comp_common` computes the longest common prefix in
+bytes, and bytes stop wherever they stop: `naïve` and `naïf` share `na` plus a
+lead byte, and inserting that half-codepoint would put a `U+FFFD` on the screen
+under §2.3's invariant. The unit case that pins it is two lines, and the system
+suite — which reads the finished grid — could not have told the difference
+between a trimmed prefix and an untrimmed one without a fixture built to trip
+it.
+
+### One function, not a `Vars`
+
+`expand.h` reaches the shell's state through five function pointers, and the
+temptation was to do completion the same way. But that struct exists for one
+reason: `expand.cpp` is compiled into `tests.wasm`, so a syscall in it does not
+compile, and the callbacks are how the state gets in regardless.
+`complete.cpp` does not need shell state at all — it is handed a `Vec<String>`
+someone else gathered — and `completerun.cpp` is allowed to await. A
+five-pointer struct with exactly one implementation would have bought an
+indirect call per candidate and no testability.
+
+What crosses instead is one declaration: `edit.cpp` includes `completerun.h`,
+and never `builtin.h`, `job.h` or `var.h`. Three accessors were added to make
+that possible — `builtin_count`/`builtin_at` over the table that must stay an
+explicit array, `func_count`/`func_at` over `job.cpp`'s function vector, and
+`sh_path()`, which `builtin/command.cpp` now calls instead of its own private
+copy. Variables were already enumerable. Both tables are copied into a
+`Vec<String>` **before the first await**, so nothing can move one under a `Str`.
+
+### A `PATH` candidate is not tested for being a program
+
+`command -v` calls `file_runnable` on each candidate, which is an open, a read
+and a close. `/bin` holds fifty-odd names and a syscall is two `postMessage`
+hops at 34–45 µs (§4.4), so testing every candidate would put a visible pause on
+one keystroke. It would also be answering a question this system does not have —
+there are no file permissions — about a case that would be a bug in the tree.
+Non-directories in each `PATH` element are offered, and with `SYS_PATH_DEFAULT`
+being `/bin:/pkg/bin` a command completion costs two `Sys::List` calls.
+
+A link is stat'ed only when it wins. `glob.cpp` stats every link in a listing it
+means to descend into, because a wrong answer changes what matches; here the
+answer only decides between a `/` and a space on a name that is already the
+unique match, so the stat is paid once, at the end, and never for a listing.
+
+### Two Tabs, bash's way and not zsh's
+
+The first `Tab` inserts the longest prefix the candidates share and says nothing
+else. Only when that inserts *nothing* — because it is already typed — does a
+second consecutive `Tab` print the list, and the prompt is drawn again below it
+through the `^L` path: `painted_ = 0`, then `anchor`. There is no menu, no
+cycling, and no "display all 214 possibilities?" — a prompt inside a prompt
+needs a second reader for the keyboard, and `CancelState::waiting` is one slot.
+The flag is a local in `read_line` rather than a `LineEditor` member: it has no
+second reader and it must not survive the line.
+
+Quoting is read and written back, which is what makes a name with a space
+usable. `comp_unquote` gives the literal the typed bytes stand for and
+`comp_quote` puts the escaping back in whatever the word opened — a backslash
+outside quotes, four bytes inside `"…"`, and `'\''` for the one byte `'…'`
+cannot hold. Insertion is **append-only**: what goes in is always the tail past
+what was typed, never a replacement for it, which is why splicing UTF-8 back
+into a `Vec<char32_t>` needs no offset table.
+
+### What is deliberately not completed
+
+No `~`, because the shell has no tilde expansion to complete against. No `$`
+expanded inside a path, nothing inside `$( … )` or backticks: expanding one
+means running the expander from the key loop, and a word carrying one is left
+alone rather than matched against the wrong text. And a word begun on an earlier
+line of an unfinished construct is out of reach — the editor sees one physical
+line, and `shell.cpp`'s `acc` holds the rest. `complete_line` takes the line as
+a `Str` so that a `before` can be prepended later without the editor changing.
+
+### A pasted tab is a space
+
+`web/keys.js` turned a pasted `\t` into `KEY_TAB`, which was harmless while
+nothing read one. Binding `Tab` would have made a paste run completions in the
+middle of itself. It now pushes a space instead, and that is not a loss:
+`/bin/edit` has always written a space for a `Tab`, so a pasted table keeps its
+columns exactly as before, and a tab is already a blank to the shell (Shell.md
+§3). Dropping the byte was the alternative and would have lost those columns.
+`Tab` now reaches the kernel only when a key was pressed.
+
+### The measurements
+
+`/bin/sh` is 240,041 bytes, up from 225,242 — 14,799 for the two translation
+units, the three accessors and the editor's new branch, most of it the three
+coroutine frames a completion costs. `rootfs/` is 1,742,462 of the 2 MB budget.
+
 ## The dot `ls` was the only thing still showing
 
 `ls` listed every name a directory held. The shell's globber has never done

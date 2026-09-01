@@ -47,6 +47,7 @@ void test_pane();
 void test_textbuf();
 void test_time();
 void test_tokenize();
+void test_complete();
 void test_parse();
 void test_expand();
 void test_match();
@@ -123,6 +124,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_expand();
     test_match();
     test_cond();
+    test_complete(); // after tokenize: the site scan is the lexer
     test_opt();
     test_help();
     test_size();
