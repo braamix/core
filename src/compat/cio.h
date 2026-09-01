@@ -109,9 +109,13 @@ Task<int> b_puts(const char *s);
 Task<size_t> b_fread(void *p, size_t size, size_t n, FILE *f);
 Task<size_t> b_fwrite(const void *p, size_t size, size_t n, FILE *f);
 
-// Clears the end-of-input indicator and the pushback, as C requires.
+// Clears the end-of-input indicator and the pushback, as C requires. long is
+// 32 bits here, so a file past 2 GiB needs the off_t pair; b_ftell answers -1
+// with EOVERFLOW for a position that will not fit.
 Task<int> b_fseek(FILE *f, long off, int whence);
 Task<long> b_ftell(FILE *f);
+Task<int> b_fseeko(FILE *f, off_t off, int whence);
+Task<off_t> b_ftello(FILE *f);
 Task<void> b_rewind(FILE *f);
 
 Task<int> b_printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));

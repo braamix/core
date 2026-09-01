@@ -385,7 +385,7 @@ Task<size_t> b_fwrite(const void *p, size_t size, size_t n, FILE *f)
     co_return n;
 }
 
-Task<int> b_fseek(FILE *f, long off, int whence)
+Task<int> b_fseeko(FILE *f, off_t off, int whence)
 {
     if (!f) {
         errno = EBADF;
@@ -403,7 +403,7 @@ Task<int> b_fseek(FILE *f, long off, int whence)
     co_return 0;
 }
 
-Task<long> b_ftell(FILE *f)
+Task<off_t> b_ftello(FILE *f)
 {
     if (!f) {
         errno = EBADF;
@@ -416,7 +416,31 @@ Task<long> b_ftell(FILE *f)
         r = co_await t;
     if (r.is_err())
         co_return fail_with(r.error());
-    co_return long(r.value()) - (f->back != EOF ? 1 : 0);
+    co_return off_t(r.value()) - (f->back != EOF ? 1 : 0);
+}
+
+Task<int> b_fseek(FILE *f, long off, int whence)
+{
+    if (Task<int> t = b_fseeko(f, off, whence))
+        co_return co_await t;
+    errno = ENOMEM;
+    co_return -1;
+}
+
+Task<long> b_ftell(FILE *f)
+{
+    off_t at = -1;
+    if (Task<off_t> t = b_ftello(f))
+        at = co_await t;
+    else
+        errno = ENOMEM;
+    if (at < 0)
+        co_return -1;
+    if (at > 0x7fffffff) {
+        errno = EOVERFLOW;
+        co_return -1;
+    }
+    co_return long(at);
 }
 
 Task<void> b_rewind(FILE *f)

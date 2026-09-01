@@ -31,6 +31,160 @@ first:
 
 ---
 
+## Every port stops keeping a C library, and the `long` that could not reach a file
+
+[TODO.md](TODO.md)'s P4, and with it the port kit's whole reason for existing is
+discharged: `zip`, `uemacs`, `le` and `iconv` are migrated, no package in
+`braam-apps` keeps a stream layer or a header set of its own any more, and
+section P has only P5 left. In this tree the change is `b_fseeko`/`b_ftello`,
+one line of `<stdio.h>`, `examples/portio` and three documents. `kernel.wasm`,
+every `src/cmd/` binary and `rootfs.zip` are byte-identical.
+
+### The kit was truncating every file past 2 GiB, and `zip` is who noticed
+
+`<stdio.h>` declared `fseeko` and `ftello` and pointed both diagnostics at
+`b_fseek` and `b_ftell`. `long` is **32 bits** on this target and `off_t` is 64,
+so a port that took the advice got its offsets truncated silently — and zip64 is
+precisely the feature that exists because a `long` cannot address the file.
+
+So `b_fseeko(FILE *, off_t, int)` and `b_ftello(FILE *) -> off_t` are the bodies
+now, `b_fseek` and `b_ftell` are wrappers over them, and `b_ftell` answers -1
+with `EOVERFLOW` where the position will not fit — which is what C says it must
+do and what the kit could not previously say at all. `File::seek` already took
+an `i64` and answered a `u64`; nothing under the kit had to change.
+
+This is the fourth rule of §4.3 read from the other end: the operation existed,
+the caller turned up, and the caller found the signature wrong.
+
+### `zip`: 800 call sites and one thing the kit will not answer
+
+`braam.h` was 217 lines and `braam.cpp` 465. What is left is 76 and 133: the two
+date formats `sscanf` would have read, the DOS stamp, the argv copy, and a read
+a `^C` has to reach. Everything else went to the kit at about eight hundred call
+sites — `zfprintf` → `b_fprintf` at 282 of them, `zsprintf` → the kit's
+`sprintf` at 81, `zfflush` at 97, `zfseeko`/`zftello` at 84, and the rest by
+name. `zvformat`, sixty lines of format engine that ignored precision, is gone;
+so is `ZFMT_MAX`, the 5,120-byte file-scope format buffer two of `PROC_TASKS`'
+eight tasks could have collided over.
+
+Three things the migration taught, none of them mechanical:
+
+- **`b_fprintf` carries `__attribute__((format(printf, 2, 3)))`, and `zvformat`
+  did not.** Two call sites printed a table of help lines *as* format strings —
+  `b_fprintf(stdout, text[i])` — which a `%` in any future line would have made
+  a bug. They are `b_fputs` now, which is what they always meant.
+- **`stdout` is a macro**, so `File::stdout()` became `File::b_stdout()()`. Four
+  ports hit this; the answer is that a `PORT` binary uses the kit's three
+  streams and not `proc/file.h`'s.
+- **`time()` is `unavailable` in the kit and names `clock_now()`**, which
+  blocks. zip wants the cheap non-blocking approximation — the wall clock read
+  once at startup plus `proc_now()` — so its own is `ztime()`, and the rename is
+  the whole of that argument.
+
+`zip` also carried D3's breakage: `File::getline` is an awaiter now, and five
+open-coded `fgets` blocks in `fileio.cpp` and `zipfile.cpp` still assigned it to
+a `Task`. Each was thirteen lines that read a `String`, measured it and
+`memcpy`'d it into a `char *`; each is now one `co_await b_fgets(buf, N,
+stdin)`, which is what upstream wrote.
+
+### `uemacs`: the split that existed for a rule the kit already obeys
+
+`fileio.cpp` carried a descriptor, a 4 KB buffer, two counts, an end-of-file
+flag, an error flag, a direction flag, a drain and a refill — 299 lines for one
+global stream. It is 165 now, over one `FILE *`.
+
+The interesting half is what *unsplit*. Its reader was deliberately in two
+pieces: a plain `fgetbyte()` over the buffer and an awaited `frefill()`, because
+a `co_await` is a call and not a tail call here, so awaiting once per byte grew
+the native stack by the length of the file. That is the same discovery §3.3
+records — and it is exactly why `b_fgetc` is an **awaiter and not a `Task`**. So
+the split is gone and the loop awaits a byte at a time again, which is
+upstream's own shape. A port's hard-won workaround being deleted by the kit that learned
+from it is the best evidence the kit is the right shape.
+
+It costs 17,765 bytes, 273,036 to 290,801: `proc/file.h`'s buffered stream,
+which a hand-written 4 KB buffer and a `memcpy` was avoiding.
+
+### `le`: four files, and two places that were reading `errno` wrong
+
+`lewchar.h`, `lewchar.cpp`, the vendored `wcwidth.c`, `leio.h`, `leio.cpp`,
+`lefile.h`, `lefile.cpp` and `braam.cpp` — 1,079 lines and eight files — are
+gone for `<wchar.h>`, `<wctype.h>`, `<fnmatch.h>`, `<fcntl.h>`, `<sys/stat.h>`,
+`<unistd.h>` and `compat/cio.h`. `lesys.h` kept its POSIX typedefs, its own
+`struct stat`, the whole `S_IF*` set and an errno enum; it is 35 lines and one
+of them is `LE_PATHMAX`. 535,579 bytes against 531,887, so the whole of it cost
+3,692.
+
+Two seams are worth writing down, and both are now in Compat.md §7.
+
+**The config parsers reach the `File` inside the kit's `FILE`.** `le` reads its
+syntax files, keymaps, colour schemes and history with `kernel/text.h`'s
+scanners — `scan_i64`, `scan_lit`, `scan_token`, `scan_until` — because §3
+declines to supply `sscanf`. Those are `File`'s and have no stdio name, so the
+call is `f->at->scan_i64()`. That is not a wart: `b_fgetc` reads through the
+same `File`, and `File::unget` is pushback both halves see, where `b_ungetc`'s
+own slot would be visible to only one of them. A parser that ungets a byte and
+then scans a number — `highli.cpp` does exactly that — needs them to be the same
+buffer.
+
+**`le_errno` is gone, and it was doing two jobs.** One was holding a kernel
+`Error` to be read back through `error_name()`, which is now
+`error_name(error_of(errno))` over `compat/cerr.h`, as `vi`'s `syserror()` does.
+The other was `errno = 0; op(); if (errno)` meaning *did that fail* — safe while
+only `le`'s own six wrappers ever wrote it, and wrong the moment `errno` is C's,
+because C only promises `errno` is meaningful after a call that **failed**. A
+save that ends by stat-ing a file that is not there leaves `ENOENT` behind and
+succeeds. Two sites had to start reading the operation's own status instead: the
+autosave in `cmd()`, which now tests `SaveFile`'s return, and the keymap load in
+`keymapfn.cpp`, which now tests `b_ferror` on the stream it just read. `le`'s
+`lespawn` test caught the first — the shell escape stopped happening because the
+editor believed it could not save.
+
+### `iconv`: the copies that were shadowing the kit silently
+
+`braam.h` carried 145 lines of `sys/queue.h` and 24 of the wide half, and
+`braam.cpp` a `mbrtowc` and a `wcrtomb`. Deleting the *declarations* changed
+nothing measurable — 219,556 bytes before and after — because `braam.cpp` is
+compiled straight in and its definitions win over an archive member, so the
+kit's were never pulled. That is §7's rule demonstrating itself: which one a
+call reaches is silent, and here the silence was total. With the definitions
+gone too it is 219,793, and the 237 bytes are the difference §3 describes —
+`mbrtowc` re-encodes what `utf8_decode` handed back and compares bytes, so a
+malformed sequence is `EILSEQ` where this port's own let U+FFFD through as a
+successful conversion.
+
+`PATH_MAX` at 256 and `LINE_MAX` at 256 **stay**, against the kit's 512 and
+2048, and the settlement is written beside them. They are frame-budget numbers,
+not filesystem ones: citrus builds paths in coroutine locals — three in
+`_citrus_esdb_open`, four in `_citrus_csmapper_open` — and the longest path the
+library ever builds is 81 bytes. The kit's archive is compiled against 512, so
+the divergence is silent by construction, and what makes it safe is a rule
+rather than a coincidence: no kit function is ever handed one of these buffers
+with an implied size. Every call passes the length — `strlcpy`, `snprintf`,
+`_lookup_alias` — and there is no `getcwd` or `realpath` in this port.
+
+### What it cost
+
+| | before | after |
+| --- | --- | --- |
+| `zip` | 420,903 | 418,462 |
+| `zipnote` | 193,294 | 196,067 |
+| `zipsplit` | 199,055 | 201,770 |
+| `zipcloak` | 221,231 | 224,608 |
+| `em` | 273,036 | 290,801 |
+| `le` | 531,887 | 535,579 |
+| `iconv` | 219,556 | 219,793 |
+| `portio` | 73,594 | 75,101 |
+
+3,196 lines deleted against 1,365 written, and eight files gone. `zip` is the
+one that *shrank*: `zvformat` and the `z*` layer were larger than the archive
+members that replaced them, and the three tools grew because each now links the
+`FILE` family whole where it used to link only the part it reached. `portio`'s
+1,507 is the two new calls in the example itself, not the kit.
+
+All forty-five `braam-apps` tests pass, `convert.mjs` skipping as it always does
+for want of a reference corpus.
+
 ## The two smallest shims, and the 10,697 bytes `duremark` did not spend
 
 [TODO.md](TODO.md)'s P3, in `braam-apps`: `benchmarks/duremark` and

@@ -51,6 +51,11 @@ Task<int> read_words()
     long at = co_await b_ftell(f);
     co_await b_printf("%d lines, %ld bytes, eof %d\n", lines, at, b_feof(f));
 
+    // The off_t pair, for a file a long cannot address.
+    co_await b_fseeko(f, 0, SEEK_END);
+    off_t end = co_await b_ftello(f);
+    co_await b_printf("end %lld\n", (long long)end);
+
     co_await b_fseek(f, 0, SEEK_SET);
     char head[8];
     size_t got = co_await b_fread(head, 1, sizeof head - 1, f);

@@ -78,9 +78,9 @@ FILE *freopen(const char *path, const char *mode, FILE *f)
 int fclose(FILE *f) BRAAM_BLOCKS("b_fclose(f)");
 int fflush(FILE *f) BRAAM_BLOCKS("b_fflush(f)");
 int fseek(FILE *f, long off, int whence) BRAAM_BLOCKS("b_fseek(f, off, whence)");
-int fseeko(FILE *f, long long off, int whence) BRAAM_BLOCKS("b_fseek(f, off, whence)");
+int fseeko(FILE *f, long long off, int whence) BRAAM_BLOCKS("b_fseeko(f, off, whence)");
 long ftell(FILE *f) BRAAM_BLOCKS("b_ftell(f)");
-long long ftello(FILE *f) BRAAM_BLOCKS("b_ftell(f)");
+long long ftello(FILE *f) BRAAM_BLOCKS("b_ftello(f)");
 void rewind(FILE *f) BRAAM_BLOCKS("b_rewind(f)");
 int printf(const char *fmt, ...) BRAAM_BLOCKS("b_printf(fmt, ...)");
 int fprintf(FILE *f, const char *fmt, ...) BRAAM_BLOCKS("b_fprintf(f, fmt, ...)");

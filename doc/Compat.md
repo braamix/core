@@ -183,6 +183,7 @@ answering C's failure — `-1`, `0`, `EOF` or null — with `errno` set through
 ```
 FILE          b_fopen b_fdopen b_freopen b_fclose b_fflush b_fgetc b_fputc
               b_ungetc b_fgets b_fputs b_puts b_fread b_fwrite b_fseek b_ftell
+              b_fseeko b_ftello
               b_rewind b_printf b_fprintf b_vfprintf b_perror b_feof b_ferror
               b_clearerr b_fileno b_setvbuf, and b_stdin/b_stdout/b_stderr,
               which `stdin`, `stdout` and `stderr` are macros over
@@ -215,6 +216,11 @@ What a port has to know beyond the prefix:
 - **`b_fseek` clears the end-of-input indicator**, as C requires, and drops the
   pushback. `b_ftell` costs the read-ahead: it is `File::seek(0, SEEK_CUR)`,
   which answers the logical position and leaves the descriptor there.
+- **`b_fseeko` and `b_ftello` are the ones that reach past 2 GiB.** `long` is
+  32 bits on this target and `off_t` is 64, so C's own pair truncates: they are
+  the bodies, `b_fseek` and `b_ftell` are wrappers, and `b_ftell` answers -1
+  with `EOVERFLOW` where the position will not fit. `zip` is the caller —
+  zip64 is exactly a file a `long` cannot address.
 - **`b_ungetc` takes one byte**, which is all C promises. It is the kit's own
   slot and not `File::unget`, which puts back a *rune*.
 - **`struct stat` has no permissions, no owner and no links**, because the
@@ -282,7 +288,7 @@ with it:
 | `b_printf` | +20,199 |
 | the `FILE` family without `b_printf` | +30,817 |
 
-`examples/portio`, which names all of it, is **73,594**. `b_printf` is the
+`examples/portio`, which names all of it, is **75,101**. `b_printf` is the
 `snprintf` engine above with a stream under it, so a port that has both pays
 for the engine once — measured on `duremark`, which already had the engine,
 `b_printf` in place of a buffer it writes itself is +10,697 rather than
@@ -306,22 +312,27 @@ not the C library, and stays upstream.
 
 ## 7. A port links the kit or keeps its headers, never both
 
-`converters/iconv/include/` and `editors/le/cinc/` answer the same names. Which
-`-I` wins is silent. A migration deletes the package's own header set in the
-same commit as it adds `PORT`.
+`converters/iconv/include/` and `editors/le/cinc/` once answered the same names
+the kit does. Which `-I` wins is silent, so a migration deletes the package's
+own header set in the same commit as it adds `PORT`. Both directories are gone,
+and so is every private copy that outlived them: `le`'s `lewchar.h`,
+`lewchar.cpp`, `wcwidth.c` and its `fnmatch`, `iconv`'s wide half and its whole
+`sys/queue.h`, `zip`'s `time_t` and the `days_from_civil` that `timegm()`
+answers.
 
-Four of the names P1 added are answered privately today, so the rule now bites
-on more than the two directories: `iconv`'s `braam.h` carries the wide half and
-all of `sys/queue.h`, `le`'s `lewchar.h`/`wcwidth.c` the wide half and its
-`braam.h` an `fnmatch`, and `zip`'s `braam.h` a `time_t` and a
-`days_from_civil` that `civil_secs()` now answers. Each goes in the commit that
-adds `PORT` to it, which is `doc/TODO.md` P4. `iconv`'s is the one with
-a conflict to settle rather than a deletion: it `#undef`s `PATH_MAX` to 256 and
-`LINE_MAX` to 256, against the kit's 512 and 2048.
+The rule covers a stream layer as well as a header set — which one a call
+reaches is equally silent, and the errno each keeps is a different dialect.
+`vi`'s `ex_file.cpp` was the first to go, and `zip`'s `z*` family, `le`'s
+`leio.cpp`/`lefile.cpp` and `uemacs`'s `fileio.cpp` went with P4. **No package
+in `braam-apps` keeps one now.**
 
-Group B widens the rule again, and `vi` is where it was first applied: its
-`ex_file.cpp`, the `struct exstat` in `ex.h` and the `ex_errno` beside them are
-gone, and `zip`'s `z*` family, `le`'s `leio.cpp`/`lefile.cpp`/`lesys.h` and
-`uemacs`'s `fileio.cpp` are the three that remain. A stream layer and the kit
-are the same conflict a header set is: which one a call reaches is silent, and
-the errno each keeps is a different dialect.
+Two things survive the rule deliberately, and both are written down where they
+live. `iconv` `#undef`s `PATH_MAX` to 256 and `LINE_MAX` to 256 against the
+kit's 512 and 2048, because citrus builds paths in coroutine locals and the
+kit's numbers are filesystem answers where these are frame-budget ones; the
+kit's own archive is compiled against 512, so what makes the divergence safe is
+that no kit function is ever handed one of those buffers with an implied size.
+And `le`'s config parsers reach the `File` inside the kit's `FILE` —
+`f->at->scan_i64()` — because `kernel/text.h`'s scanners are what stands in for
+the `sscanf` §3 declines to supply, and because `File::unget` is the pushback
+`b_fgetc` shares.
