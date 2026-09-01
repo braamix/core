@@ -402,10 +402,52 @@ bool TreeNext::await_ready()
     return false;
 }
 
+namespace {
+
+// A directory where one may already stand. make_dir's Err(Exists) does not say
+// which of the two it is, so stat does.
+Task<Result<void>> dir_over(Str path)
+{
+    Result<void> r = Err(Error::NoMemory);
+    if (Task<Result<void>> t = make_dir(path))
+        r = co_await t;
+    if (r.is_ok() || r.error() != Error::Exists)
+        co_return r;
+
+    Result<FileInfo> s = Err(Error::NoMemory);
+    if (Task<Result<FileInfo>> t = stat_of(path, false))
+        s = co_await t;
+    if (s.is_err())
+        co_return Err(s.error());
+    if (s.value().kind != SYS_KIND_DIR)
+        co_return Err(Error::Exists);
+    co_return {};
+}
+
+// A link over a name that is taken: the old name goes, whatever it was.
+Task<Result<void>> link_over(Str target, Str path)
+{
+    Result<void> r = Err(Error::NoMemory);
+    if (Task<Result<void>> t = make_link(target, path))
+        r = co_await t;
+    if (r.is_ok() || r.error() != Error::Exists)
+        co_return r;
+
+    if (Task<Result<void>> t = remove_path(path, true))
+        r = co_await t;
+    if (r.is_err())
+        co_return r;
+    if (Task<Result<void>> t = make_link(target, path))
+        co_return co_await t;
+    co_return Err(Error::NoMemory);
+}
+
+} // namespace
+
 Task<Result<void>> copy_tree(Str from, Str to)
 {
     Result<void> made = Err(Error::NoMemory);
-    if (Task<Result<void>> t = make_dir(to))
+    if (Task<Result<void>> t = dir_over(to))
         made = co_await t;
     if (made.is_err())
         co_return made;
@@ -425,7 +467,7 @@ Task<Result<void>> copy_tree(Str from, Str to)
 
         Result<void> one = Err(Error::NoMemory);
         if (e.kind == SYS_KIND_DIR) {
-            if (Task<Result<void>> t = make_dir(dst.str()))
+            if (Task<Result<void>> t = dir_over(dst.str()))
                 one = co_await t;
         } else if (e.kind == SYS_KIND_LINK) {
             Result<String> target = Err(Error::NoMemory);
@@ -433,7 +475,7 @@ Task<Result<void>> copy_tree(Str from, Str to)
                 target = co_await t;
             if (target.is_err())
                 one = Err(target.error());
-            else if (Task<Result<void>> t = make_link(target.value().str(), dst.str()))
+            else if (Task<Result<void>> t = link_over(target.value().str(), dst.str()))
                 one = co_await t;
         } else if (Task<Result<void>> t = copy_file(src.str(), dst.str())) {
             one = co_await t;

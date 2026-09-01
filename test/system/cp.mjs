@@ -39,6 +39,31 @@ export function check() {
     line("cp -r d f");
     is("test -h f/l && cat f/l", "one");
 
+    // A destination that already holds the copy is merged into rather than
+    // removed and remade: a name only it has survives. The link is replaced
+    // rather than refused, so a second copy is not an error either.
+    line("mkdir m");
+    line("cp -r d m");
+    line("echo keep > m/d/keep");
+    is("cp -r d m; cat m/d/keep m/d/b", "keep|two");
+    is("test -h m/d/l && cat m/d/l", "one");
+
+    // A file where a directory must go is told apart from a directory that is
+    // already there: the stat make_dir's Err(Exists) does not give.
+    line("mkdir d/sub");
+    line("echo x > m/d/sub");
+    is("cp -r d m", "cp: d: already exists");
+
+    // And a directory where a file must go, which is the open's answer.
+    line("rm m/d/sub m/d/b");
+    line("mkdir m/d/b");
+    is("cp -r d m", "cp: d: is a directory");
+    line("rm -r m/d/b d/sub");
+
+    // -n and -i still decide at the named destination, not per file inside it.
+    is("cp -rn d m; cat m/d/keep", "keep");
+    is("echo n | cp -ri d m", "overwrite /home/cp/m/d?");
+
     // Bare is asking rather than getting it wrong: 0, and nothing removed.
     is("rm; echo $?", "Usage:|    rm [-r] <path>...|Options:|" +
                       "    -r    remove directories, and what is in them|0");

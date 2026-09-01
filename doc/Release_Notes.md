@@ -31,6 +31,72 @@ first:
 
 ---
 
+## The merge `cp -r` was deleting its way around
+
+[TODO.md](TODO.md)'s B2 said `copy_tree`'s destination must not exist, so
+`cp -r a b` with `b/a` already there "fails rather than merging". The mechanism
+it named was exactly right and the symptom was not. `cp` does not fail: it
+**removes `b/a` and everything under it** and copies `a` in its place
+(`cp.cpp`, `remove_path(to, true)`). That removal is gated on the two *kinds*
+rather than on a flag — `-n` returns before it and `-i` only asks — so the
+default `cp -r` over a directory it has copied before is a silent recursive
+delete of whatever that directory had and the source does not. An entry filed
+as a missing feature was a data-loss bug the whole time, and the reason it read
+as a refusal is that the refusal is real one layer up: `copy_tree` opens with
+`make_dir(to)`, and `cp` was written around it.
+
+**`mv` has the same shape and does not reach it.** `vfs_rename` refuses two
+directories with `Err(Exists)` — "no empty-directory case" — *before* it can
+answer `Unsupported`, and `Unsupported` is the only thing that sends `mv` down
+the copy path. So `mv a b` with `b/a` a directory is `mv: a: already exists`,
+the copy-and-remove fallback is unreachable for it, and mv destroys nothing.
+That
+refusal is also `rename(2)`'s answer wherever the destination is non-empty, so
+mv is left exactly as it was. What is left of B2's "same shape" is one
+divergence and it is small: `rename(2)` *replaces* an empty destination
+directory and this refuses it. That is a kernel policy change wanting its
+argument in System_Calls.md, so it left B2 as **B4** rather than riding along
+here.
+
+**The stat the entry asked for was already written.** `make_dir_all` has
+carried it since it landed — `Err(Exists)`, then `stat_of`, and only
+`SYS_KIND_DIR` passes — so `dir_over` is that tail lifted into a helper rather
+than new policy, and `make_dir_all` keeps its own copy: its loop's rule is "a
+file part-way along fails the component below it", which is not the leaf's, and
+folding the two would move where that error is reported.
+
+**Only the kinds have to agree, and no rule costs a syscall to enforce.** A
+file is written over because `copy_file` already opens `O_CREATE | O_TRUNC`; a
+file meeting a directory is that open's `Err(IsDir)`; a directory meeting a
+file or a link is `dir_over`'s `Err(Exists)`, which is one stat and only on the
+collision. Nothing stats an entry that does not collide, which is the whole
+tree in the ordinary case. A file meeting a *link* is written through, as GNU
+`cp -r` does — `cp`'s "a link is replaced rather than written through" is a
+rule about the name on the command line, not about names inside the tree.
+
+**`link_over` is 1,022 of the 1,696 bytes and it buys idempotence.** Without
+it, a source link landing on a name already taken is `make_link`'s
+`Err(Exists)`, and `cp -r d e` run twice would fail the second time on any tree
+containing a symbolic link — which is the one thing a merge exists to make
+work. `dir_over` is the other 674.
+
+**`-n` and `-i` needed no thought, which is worth saying because it looks like
+they should have.** Both decide about the destination `cp` was *given*, and a
+merge only happens when that destination exists — which is precisely when `-n`
+returns early and `-i` asks. So neither reaches inside the tree and neither
+had to learn how to.
+
+What it cost: `cp` 40,377 → 42,073 and `mv` 41,234 → 42,898. Nothing else
+moved — `--gc-sections` keeps `copy_tree` out of every binary that does not
+copy — and the staging tree went from 1,836 KB to 1,840 KB against 2,048 KB.
+
+The coverage is six assertions in `test/system/cp.mjs`, over a `/home/cp/m`
+that holds a copy of the fixture: the merge itself, a link replaced inside it,
+a file where a directory must go, a directory where a file must go, and `-n`
+and `-i` still deciding at the named destination. Reverting the two source
+files with the case left in place fails it at the first line, `cat: m/d/keep:
+not found` — the file the old `cp` deleted.
+
 ## A line that must not enter a coroutine, and the walk with the same shape
 
 B3 was written down when `sort` trapped on a 512-line file with the stack four

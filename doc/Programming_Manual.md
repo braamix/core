@@ -449,6 +449,15 @@ awaiter rather than a `Task`, for the reason `File`'s reads are: an entry the
 walk has already listed must not enter a coroutine. `copy_tree`, `/bin/find`
 and `/bin/du` are all written over it.
 
+`copy_tree(from, to)` merges: `to` may already be a directory, and so may any
+directory under it, which is what `cp -r a b` needs when `b/a` is there
+already. Only the *kinds* have to agree. A file is written over, a link is
+removed and recreated, and a directory meeting a file or a link is
+`Err(Exists)` — the distinction `make_dir`'s own `Err(Exists)` cannot make,
+which is why the helper stats after it. A file meeting a directory is the
+open's `Err(IsDir)`. `-n` and `-i` are `/bin/cp`'s decisions about the name it
+was given, not rules the walk carries.
+
 `rename_path(from, to)` follows neither end and replaces the destination — and
 its `Err(Unsupported)` is an instruction rather than a failure: the store cannot
 move *this* one, so copy and remove instead. That is the answer for a move

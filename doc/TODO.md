@@ -55,10 +55,16 @@ adding a program costs is [Testing.md](Testing.md) §6, not a section here.
 
 ## B — program-layer correctness
 
-- [ ] **B2. `copy_tree` will not merge.** Its destination must not exist, so
-      `cp -r a b` with `b/a` already there fails rather than merging. `mv` has
-      the same shape. Distinguishing "a directory is already there" from "a file
-      is in the way" needs a stat that `make_dir`'s `Err(Exists)` does not give.
+- [ ] **B4. A rename that will not replace an empty directory.** `rename(2)`
+      replaces a destination directory that is empty and answers `ENOTEMPTY`
+      for one that is not; `vfs_rename` refuses both with `Err(Exists)`
+      ([src/fs/vfs.cpp](../src/fs/vfs.cpp), "no empty-directory case"), so
+      `mv a b` with an empty `b/a` is a refusal where Unix moves. Telling the
+      two apart is a listing inside the rename, and the policy is stated in
+      System_Calls.md §8's `Sys::Rename` prose — "two directories are
+      `Err(Exists)` rather than a merge" — which is where the argument goes,
+      not here. `test/unit/test_vfs.cpp` pins it. Caller:
+      `/bin/mv`. Does not move `PROC_ABI`.
 
 ## D — the port layer
 

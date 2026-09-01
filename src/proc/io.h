@@ -186,7 +186,10 @@ private:
     bool began_ = false;
 };
 
-// A whole tree, over the walk above. `to` must not exist.
+// A whole tree, over the walk above. `to` may already be a directory and the
+// two merge; anything else in its place, or in a subdirectory's, is
+// Err(Exists). A file is written over, a link is replaced, and a directory
+// where a file must go is the open's Err(IsDir).
 Task<Result<void>> copy_tree(Str from, Str to);
 
 Task<Result<void>> remove_path(Str path, bool all);

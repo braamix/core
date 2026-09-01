@@ -75,9 +75,10 @@ Task<Result<void>> copy_one(Str from, Str to, Flags f, LineReader &answers)
             if (!yes.value())
                 co_return {};
         }
-        // copy_tree needs a name of its own, and a link is replaced rather
-        // than written through.
-        if (src.value().kind != SYS_KIND_FILE || dst.value().kind != SYS_KIND_FILE) {
+        // Two directories merge; every other pair needs the name cleared, and
+        // a link is replaced rather than written through.
+        bool merge = src.value().kind == SYS_KIND_DIR && dst.value().kind == SYS_KIND_DIR;
+        if (!merge && (src.value().kind != SYS_KIND_FILE || dst.value().kind != SYS_KIND_FILE)) {
             Result<void> d = Err(Error::NoMemory);
             if (Task<Result<void>> t = remove_path(to, true))
                 d = co_await t;
