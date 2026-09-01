@@ -42,12 +42,19 @@ Programs in /bin
   cat       [<file>...] — print files, or the input
   chat      <url> [<nick>] — chat with whoever else is on a WebSocket
   clear     clear the screen
+  cmp       [-bhlsxz] [-i <skip>] [-n <count>] <file1> <file2> [<skip1>
+            [<skip2>]] — compare two files byte by byte; -l lists every
+            difference, -s prints nothing and answers in the status
   cp        [-r] [-fi] [-n] <src>... <dst> — copy files, directories with -r
   curl      [-i] [-X <method>] [-H <header>] [-d <data>] <url> — fetch a URL
   cut       -b|-c|-f <list> [-d <char>] [-s] [<file>...] — print the
             selected bytes, characters or fields of each line
   date      [-u] — print the date and time
   df        [-h] — show filesystem space, scaled with -h
+  diff      [-c|-u|-q] [-C <n>|-U <n>] [-iwbBN] [-r] [-L <label>] <file1>
+            <file2> — the lines that differ; -u and -c are the two patch
+            formats, -r walks two directories, and both files are held in
+            memory
   dirname   <path>... — all but the last part of a path
   du        [-a | -s] [-hk] [<path>...] — how much a tree takes, in kibibytes;
             -a counts every file, -s only the total, -h scales it

@@ -39,8 +39,10 @@ their libraries, so a syscall in one of them is a link error.
 
 Compiled in, and therefore testable there: `sh/parse.cpp`, `sh/tokenize.cpp`,
 `sh/expand.cpp`, `sh/match.cpp`, `sh/cond.cpp` (the grammar, the expander, the
-matcher, `test`'s expression), `proc/opt.cpp` and `proc/time.cpp` (the option
-parser and the calendar), and the syscall-free half of `src/cmd/pkg/`.
+matcher, `test`'s expression), `diff/diffreg.cpp` and `diff/emit.cpp` (the
+comparison and its three formats), `proc/opt.cpp` and `proc/time.cpp` (the
+option parser and the calendar), and the syscall-free half of `src/cmd/pkg/`.
+`diff/main.cpp` is the half that reads and writes, and stays out.
 `pkg/trust.cpp` and `pkg/index.cpp` qualify by taking a `PkgHost`: the suite
 hands them the kernel's own services where `/bin/pkg` hands them syscalls.
 `pkg/zip.cpp` qualifies the same way, by taking a `ZipSource`: the archive's
@@ -178,7 +180,10 @@ keystrokes is the thing under test — and it is what the rules are about.
   needs already exists. Pick a clock base after its neighbour's.
 - **A new program or builtin updates `rootfs/etc/help` in the same commit.**
   That document is the whole of `help`, nothing notices at run time when it goes
-  stale, and the `help` case fails on a forgotten line.
+  stale, and the `help` case fails on a forgotten line. A new program moves two
+  written-down counts with it: `compared` in `test/unit/test_zip.cpp`, which is
+  the archive's file count, and the three in `test/system/subst.mjs`, which
+  concatenates `/etc/help` three times.
 - **A change to the wasm ABI updates `test/system/abi.mjs` in the same
   commit** — the seven imports and nine exports, and every binary's three
   imports and four exports, are asserted there by name.

@@ -47,29 +47,11 @@ operations answer it, and what is left divides four ways:
   caller and not its filesystem, and §5.4 carries what that still wants.
 
 The twelve missing *programs* were checked against the table one by one. None
-is blocked on a syscall. **The gap is the program layer**, which is what
-sections A and B are.
+was blocked on a syscall, and section A is now spent: **what is left of the
+program layer is section B**, which is correctness rather than coverage. What
+adding a program costs is [Testing.md](Testing.md) §6, not a section here.
 
 ---
-
-## A — the program layer
-
-No ABI change. Each is one file in `src/cmd/`, a name in `BRAAM_BIN_LIST`
-(`src/cmd/CMakeLists.txt`), **a line in `rootfs/etc/help` in the same commit** —
-nothing notices at run time when that goes stale and the `help` system case
-fails on a forgotten line — and a case in `test/system/` with a line in the
-`CASES` table in `test/run.mjs`. The in-wasm suite cannot run a program, so
-every one of these is a system case.
-
-Adding a program also moves two counts that are written down: `compared` in
-`test/unit/test_zip.cpp` (the archive's file count) and the byte count in
-`test/system/subst.mjs` (which concatenates `/etc/help` three times).
-
-- [ ] **A8. `cmp`, `diff`** — `diff` last, the only one needing an algorithm.
-
-Size is not the constraint: `rootfs/` is around 1.6 MB of the 2 MB in
-`tools/size_budget.txt`, at 13–19 KB a program, or 27–37 KB for one carrying a
-`File`.
 
 ## B — program-layer correctness
 

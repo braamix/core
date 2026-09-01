@@ -12,6 +12,7 @@ add_executable(tests
     unit/test_db.cpp
     unit/test_dep.cpp
     unit/test_devfs.cpp
+    unit/test_diff.cpp
     unit/test_encode.cpp
     unit/test_filebuf.cpp
     unit/test_fmt.cpp
@@ -61,6 +62,12 @@ add_executable(tests
     # braam_sh, which would drag the process runtime's imports in with them.
     # glob.cpp is the walk over the store and does not belong here, and neither
     # does condrun.cpp, which is what answers cond.cpp's probes.
+    # /bin/diff's comparison and its three formats: Str, String and Vec and
+    # nothing else, so they are compiled in here as the shell's pure half is.
+    # diff/main.cpp is the half that reads and writes, and stays out.
+    ../src/cmd/diff/diffreg.cpp
+    ../src/cmd/diff/emit.cpp
+
     ../src/cmd/sh/cond.cpp
     ../src/cmd/sh/expand.cpp
     ../src/cmd/sh/match.cpp

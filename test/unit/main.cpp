@@ -53,6 +53,7 @@ void test_match();
 void test_opt();
 void test_help();
 void test_size();
+void test_diff();
 void test_path();
 void test_hostfs();
 void test_jsref();
@@ -125,6 +126,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_opt();
     test_help();
     test_size();
+    test_diff(); // after str and vec: a line table is views over one buffer
     test_math();
     test_ftoa(); // after math: it stands on frexp, fmod and scalbn
     test_compat(); // after alloc, text and ftoa: malloc stands on the heap,

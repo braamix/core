@@ -31,6 +31,169 @@ first:
 
 ---
 
+## `cmp` and `diff`, and an algorithm that is not FreeBSD's
+
+[TODO.md](TODO.md)'s **A8**, and section A is spent with it: every program that
+section named is now in `/bin`. Neither needs an operation the kernel did not
+have, so `PROC_ABI` does not move. Ported from FreeBSD's `usr.bin/cmp` and
+`usr.bin/diff` — the semantics, the option letters and the output strings,
+because scripts read those. Almost none of the code survives, and naming what
+does not is most of what is worth recording.
+
+### `cmp` is one loop where FreeBSD is five files
+
+`usr.bin/cmp` is 751 lines across `cmp.c`, `regular.c`, `special.c`, `link.c`
+and `misc.c`, and the split is the whole of its structure: `c_regular` maps both
+files in 8 MiB windows and installs a `SIGSEGV` handler to turn an mmap I/O
+error back into a diagnostic, `c_special` is the `getc()` fallback for anything
+`mmap` refuses, and `c_link` is a third copy of the same byte loop over two
+`readlink` buffers. All three end in the identical output branch.
+
+Here there is no `mmap`, so the fallback is the only path, and the three
+collapse into one loop over a `Side` that is refilled three ways — a
+descriptor, stdin, or a link's target held whole. That is not just less code: it
+**deletes a divergence between the two halves that FreeBSD still carries**.
+`c_regular` computes `length = MIN(MIN(len1, len2), limit)` and then, after the
+loop, reports EOF whenever `len1 != len2` — so `cmp -n 1` over `x` and `xy`
+answers "EOF on the shorter", while `c_special` given the same two through a
+pipe answers 0, its loop having stopped at `byte > limit` with neither `feof`
+set. The streaming shape has only the second behaviour, which is also the sane
+reading: a tail nobody asked to compare is not a difference.
+
+**`-h` needs no `O_NOFOLLOW`, which is as well, because there is none.**
+FreeBSD opens with it, catches `EMLINK`, and dispatches to `c_link` on that.
+Here `stat_of(path, false)` says whether each side is a `SYS_KIND_LINK`, and
+two links become two literal sides carrying their `read_link` targets — the same
+loop, a different fill. One link and one not is `Err`, naming the side that is
+not, as FreeBSD's `errx` does.
+
+**Two deliberate divergences.** `-v` is gone: it prints a version, and no
+program in this tree has one — the version is `uname` and `/proc`, and adding a
+`--version` to `cmp` alone would be a wart that then wants adding to forty-seven
+others. And the counts take `parse_size`'s grammar
+([src/proc/size.h](../src/proc/size.h), already `truncate`'s) rather than
+`expand_number(3)`: `K M G T` for 1024 and `KB MB GB TB` for 1000, a leading
+modifier refused, and **no `0x` or `0` prefix**. A second number grammar in the
+tree would cost more than hexadecimal skip offsets are worth, and the usage
+block says which one is in force.
+
+### `diff` is Myers, because `diffreg.c` is a temp file
+
+FreeBSD's `diffreg.c` is 1,736 lines, and `diffreg()` is a dispatcher: an input
+it can handle goes to `libdiff` (Myers), and everything else — `-c`, `-q`, `-i`,
+`-w`, `-b`, `-B`, and every format but normal and unified — falls back to
+`diffreg_stone()`, Hunt–Szymanski over `prepare`/`prune`/`equiv`/`stone`/
+`unravel`/`check`. So porting "the BSD algorithm" would have meant porting the
+half BSD itself routes around, and that half wants a **seekable `FILE*`**: it
+reads each file twice, once to hash and once in `check()` to confirm the hashes
+were not lying, with `rewind` and `fseek` between — which is why `opentemp()`
+exists, copying a pipe into `_PATH_TMP` so it can be read again. This system has
+no temp directory and no reason to want one.
+
+Myers' O(ND) greedy walk with the linear-space refinement is about 200 lines,
+reads nothing twice, and needs no allocation per step: two `i32` arrays of
+furthest-reaching diagonals, sized once for the whole problem and reused by
+every box, and the boxes on an explicit `Vec` stack rather than recursion — the
+rule [src/proc/io.h](../src/proc/io.h)'s `TreeWalk` already states, that a deep
+structure must not become a deep chain of coroutine frames. It is also what
+`git` and FreeBSD's own preferred path use.
+
+**The double read is replaced by comparing the hash against the bytes.**
+`check()` exists because a hash collision would make `stone()` report lines
+equal that are not — FreeBSD calls it a "jackpot" and re-reads both files to
+find them. Here the line table is already in memory, so `eq()` compares the
+64-bit hash first and the bytes only where it matched. That costs a `memcmp` per
+*equal* pair and nothing per unequal one, which is the cheap direction, and it
+is exact rather than probabilistic. "A 64-bit collision is unlikely" is not a
+correctness argument; not needing the argument is better than making it.
+
+**The input is held, and the usage block and `/etc/help` say so**, which is
+`sort`'s sentence and `sort`'s argument reused: a process has 256 pages
+(`BRAAM_BIN_MAX_PAGES`), so the ceiling is address space rather than a spill
+path nobody can see working. The storage is `sort`'s too, and it is the one
+thing that release said was worth copying — a chain of 64 KiB `String` blocks
+each reserved once and never appended past its capacity, with a `Vec<Str>` over
+them. A `String` that never regrows never reallocates, which is what keeps a
+view valid.
+
+**A cost ceiling, because O(ND) is O(N²) when nothing matches.** Past
+`max(256, isqrt(N+M))` edits in one box the search stops and splits at the
+furthest-reaching point it found, giving up optimality rather than time — GNU's
+`too_expensive`, and the same instinct as the `MAX(256, sqrt(n))` bound in
+`stone()`. Integer `isqrt`, so `braam::math` is not linked for one square root
+the way FreeBSD links `-lm`. The recursion gives each sub-box its own budget, so
+the ceiling costs a slightly longer edit script, never a wrong one.
+
+### The half with no syscall in it, and why the split is where it is
+
+`src/cmd/diff/` is three files: `main.cpp` reads, walks and writes;
+`diffreg.cpp` and `emit.cpp` touch nothing but `Str`, `String` and `Vec`, and
+are **compiled straight into `tests.wasm`** the way `sh/parse.cpp` and
+`pkg/zip.cpp` are (doc/Testing.md §2), so a syscall in either is a link error.
+That is not tidiness: the in-wasm suite cannot run a program, so without the
+split the only way to reach the middle-snake split, the cost ceiling, the
+context-frame clamp or a `@@` range with zero lines on one side would have been
+to type it at a 60-column prompt. `test/unit/test_diff.cpp` reaches all of them,
+including a 2,000-line pair with nothing in common, which is the ceiling's only
+real exercise.
+
+The emitters take one hunk (normal) or one group (unified, context) and append
+to a `String` the caller flushes at 4 KB, rather than writing a line at a time —
+`sort` and `cut`'s rule, that a write per line is a syscall per line — and that
+is also what makes them callable from a test with no descriptor at all.
+
+### Four things the formats get wrong if they are not thought about
+
+**A `-u` context frame is bounded by the shorter side.** The obvious code
+clamps each range on its own — `a0 = max(0, hunk.a0 - ctx)` and the same for
+`b0` — and produces two ranges that are not the same lines when a hunk sits
+within `ctx` of the start of one file but not the other. Context lines are
+matched *pairs*, so the count is `min(ctx, a0, b0)` on the front and
+`min(ctx, |a| - a1, |b| - b1)` on the back, taken once for both sides.
+
+**An empty range is not `n,0` in every format.** Normal's `range()` prints the
+line in *front* of the gap when the range is empty, which is what makes `2a3`
+mean "after line 2"; unified prints `n,0`. They are different functions for a
+reason and the tests pin both.
+
+**A missing final newline is part of what a line is.** GNU's
+`\ No newline at end of file` is usually treated as an output decoration, and
+then `diff` of `x` against `x\n` prints nothing — which is wrong, and worse,
+silently produces a patch that does not round-trip. It belongs in the
+comparison: `eq()` answers false when the two sides' last lines are each
+other's and only one of the files ended with a newline.
+
+**`-B` is a hunk filter, not a line predicate.** `-i`, `-b` and `-w` change what
+two lines are and so are folded into the hash, once, at read time — one place,
+exactly as FreeBSD's `readhash()` does it. "Ignore changes where all lines are
+blank" cannot be: it is a property of a whole hunk, and a hunk that inserts a
+blank line *and* a real one still counts. It is applied where the hunks are
+grouped.
+
+### The directory walk descends in place
+
+`diffdir.c` recurses at the point a subdirectory's name comes up, so its output
+is in one name order all the way down. An explicit stack of directory *pairs* —
+the obvious translation — is not that: it emits a whole directory, then its
+children, and a LIFO gets the siblings backwards as well. The walk here keeps a
+`Vec<Level>`, each level holding both listings and how far through the merge it
+is, so it descends and returns exactly where recursion would, without a
+coroutine frame per level. `list_dir` already answers in name order (`vfs_list`
+sorts, and `ls` relies on it), so there is no sort to write.
+
+### What the two of them cost
+
+`cmp` is 36,356 bytes and `diff` 53,165, which makes `diff` the largest program
+in the tree — three translation units, three emitters and a directory walk.
+`rootfs/` is 1,812 KiB of the 2,048 in `tools/size_budget.txt`. The unit suite
+gained one case, the system suite two, and the archive is 61 files.
+
+One thing the usage block cost: `diff`'s twelve options do not fit a 60×16
+screen one to a line — the first rows scroll off before the reader sees them —
+so `-c -u -q`, `-C -U` and `-b -w` share a line each. `--help` that cannot be
+read is not help, and doc/Testing.md §5's tenth rule is the same constraint seen
+from the test's side.
+
 ## `wc` and `head`, and the columns twenty assertions were pinning
 
 Both are ported against FreeBSD's `usr.bin/wc` and `usr.bin/head`, and neither

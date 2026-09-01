@@ -12,8 +12,10 @@ import { fail, hasRootfs, init, kernel } from "./system/harness.mjs";
 
 import * as abi from "./system/abi.mjs";
 import * as boot from "./system/boot.mjs";
+import * as cmp from "./system/cmp.mjs";
 import * as cut from "./system/cut.mjs";
 import * as cwd from "./system/cwd.mjs";
+import * as diff from "./system/diff.mjs";
 import * as dual from "./system/dual.mjs";
 import * as du from "./system/du.mjs";
 import * as entry from "./system/entry.mjs";
@@ -136,6 +138,9 @@ const CASES = [
     ["wc",         wc.check],
     ["head",       head.check],       // after wc: it counts what head printed
     ["xargs",      xargs.check],      // after the four: it runs them in batches
+    // Bytes, then lines: each needs a shell and nothing more.
+    ["cmp",        cmp.check],
+    ["diff",       diff.check],
     ["unzip",      unzip.check],
     ["entry",      entry.check],
     ["dual",       dual.check],       // leaves a second shell up, so others() gains one

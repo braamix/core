@@ -7,10 +7,10 @@
 add_subdirectory(pkg)
 add_subdirectory(sh)
 
-set(BRAAM_BIN_LIST basename cat chat clear cp curl cut date df dirname du echo edit env false
-                   fexport fimport find grep head hog less ln ls mkdir mount mv pbcopy pbpaste pkg
-                   ps pwd rm seq sh sleep sort spin tail tee test timeout touch tr truncate true
-                   uname uniq unzip vmstat watch wc xargs)
+set(BRAAM_BIN_LIST basename cat chat clear cmp cp curl cut date df diff dirname du echo edit env
+                   false fexport fimport find grep head hog less ln ls mkdir mount mv pbcopy
+                   pbpaste pkg ps pwd rm seq sh sleep sort spin tail tee test timeout touch tr
+                   truncate true uname uniq unzip vmstat watch wc xargs)
 set(BRAAM_BIN_PROGRAMS ${BRAAM_BIN_LIST} PARENT_SCOPE)
 
 # Every one of them takes a worker of its own, the shell included. There is
@@ -36,6 +36,10 @@ set(BRAAM_BIN_SRC_test test.cpp sh/cond.cpp sh/condrun.cpp)
 # /bin/find's -name is the shell's own pattern matcher, which is pure. The one
 # file rather than braam_sh, for the same reason.
 set(BRAAM_BIN_SRC_find find.cpp sh/match.cpp)
+
+# /bin/diff's comparison and its three formats have no syscall in them, and are
+# a directory of their own so the unit suite can compile them in.
+set(BRAAM_BIN_SRC_diff diff/main.cpp diff/diffreg.cpp diff/emit.cpp)
 
 # /bin/unzip is the package manager's zip reader over an archive that need not
 # be a package. The two files rather than braam_pkg, for the same reason.
