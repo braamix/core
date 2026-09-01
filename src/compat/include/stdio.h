@@ -25,8 +25,6 @@ int snprintf(char *buf, size_t cap, const char *fmt, ...)
 int vsnprintf(char *buf, size_t cap, const char *fmt, va_list ap);
 int sprintf(char *buf, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 int vsprintf(char *buf, const char *fmt, va_list ap);
-int sscanf(const char *s, const char *fmt, ...) __attribute__((format(scanf, 2, 3)));
-int vsscanf(const char *s, const char *fmt, va_list ap);
 
 #ifdef __cplusplus
 }
@@ -38,9 +36,24 @@ int vsscanf(const char *s, const char *fmt, va_list ap);
     __attribute__((unavailable("blocking: co_await " what " from compat/cio.h — "             \
                                "doc/Compat.md §4")))
 
+#ifndef BRAAM_ABSENT
+// A name the kit does not supply: the compiler says so at the call site, rather
+// than the linker at the end.
+#define BRAAM_ABSENT(what)                                                                    \
+    __attribute__((unavailable("not in the port kit: " what " — doc/Compat.md")))
+#endif
+
 // Declared so the diagnostic can name the fix. None of these is defined.
 typedef struct CompatFile FILE;
 extern FILE *stdin, *stdout, *stderr;
+
+// Every conversion the ports used has a function of its own in kernel/text.h.
+int sscanf(const char *s, const char *fmt, ...)
+    BRAAM_ABSENT("scan with scan_i64/scan_u64/scan_token/scan_until (kernel/text.h) "
+                 "or File::scan_* (proc/file.h)");
+int vsscanf(const char *s, const char *fmt, va_list ap)
+    BRAAM_ABSENT("scan with scan_i64/scan_u64/scan_token/scan_until (kernel/text.h) "
+                 "or File::scan_* (proc/file.h)");
 
 int fgetc(FILE *f) BRAAM_BLOCKS("b_fgetc(f)");
 int getc(FILE *f) BRAAM_BLOCKS("b_fgetc(f)");

@@ -11,9 +11,9 @@ C++20, compiled to wasm32, deployable as a static site with no server and no
 special HTTP headers. No libc under the system, no Emscripten, no `xterm.js` —
 nothing is linked that is not in this tree. A *ported* program may opt into
 `braam::compat` ([doc/Compat.md](doc/Compat.md)); nothing in this tree does.
-One part of the tree is not ours: `src/math/` is
-musl's libm, vendored under an MIT licence, and it is the only third-party code
-here.
+Two parts of the tree are not ours and they are the whole of it: `src/math/` is
+musl's libm, vendored under an MIT licence, and `src/compat/cwidth.cpp` is
+Markus Kuhn's `wcwidth` intervals under his own grant.
 
 Two things must never regress: the wasm ABI of seven imports and nine exports,
 and the three passing CTest cases.

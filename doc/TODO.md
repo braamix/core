@@ -62,26 +62,20 @@ of the opt-in. No entry here moves `PROC_ABI` or adds an operation; the caller
 each names is a **ported package**, since the kit exists for callers outside
 this tree.
 
-- [ ] **P1. Group A's remainder.** `wchar`/`wctype` (`iconv`'s `mbstate_t`, not
-      `le`'s, which cannot hold a split sequence), `strftime`/`mktime` over
-      `civil_secs`, `sscanf`, `fnmatch`, `sys/queue.h`. Callers: `le` and
-      `iconv` for the wide half, `zip` for the calendar, `le` for `fnmatch`.
-      Byte order is done — `<sys/endian.h>` and `<arpa/inet.h>` over clang's
-      `<endian.h>`. So is `getenv`, interned per name in a heap block, which
-      is what freed the five ports of the aliasing bug; and `mergesort`, BSD's
-      stable sort, for the ports that leaned on glibc's `qsort` being one.
-      `strtod`/`strtof`/`atof` are still declared in `<stdlib.h>` and defined
-      nowhere, which is a link error rather than a diagnostic at the call
-      site: implement them over `parse_f64`, or mark them `unavailable` the
-      way `<stdio.h>`'s blocking names are. `sscanf` has the same hole.
 - [ ] **P2. Group B.** `FILE` over `proc/file.h`, the `b_*` family, `struct
       stat`, dirent. `zip` and `le` each wrote this; `vi` is the smallest real
       surface and the migration to prove it on.
 - [ ] **P3. Migrate `duremark` and `adventure`.** The smallest shims, and
       `duremark` at 23,601 bytes is the honest size worst case: record both
       numbers.
-- [ ] **P4. Migrate the rest**, `iconv` last — its own `include/` tree must go
-      in the same commit, and its errno numbers change. `dhrystone` never.
+- [ ] **P4. Migrate the rest**, `iconv` last. Group A is complete, so each
+      migration is now a deletion: `le`'s `lewchar.h`, `lewchar.cpp`,
+      `wcwidth.c` and its `fnmatch`; `zip`'s `time_t` and the
+      `days_from_civil` that `civil_secs()` answers; `iconv`'s wide half and
+      its whole copy of `sys/queue.h`. `iconv`'s errno numbers change, and its
+      `#undef`s of `PATH_MAX` to 256 and `LINE_MAX` to 256 have to be settled
+      against the kit's 512 and 2048. `le` inherits a `fnmatch` that honours
+      the backslash, which its own did not. `dhrystone` never.
 - [ ] **P5. Make the float arm droppable.** It is 5,367 of `snprintf`'s 8,853
       bytes and every port pays it for `%d` alone, because the engine is one
       function. A separate TU behind a weak reference does not work — a weak

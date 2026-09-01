@@ -27,8 +27,14 @@ Str fmt_f64_shortest(char *out, usize cap, f64 v);
 Option<f64> parse_f64(Str s);
 
 // The same, stopping at the first character that cannot continue: `used` is how
-// many were taken, 0 for none, which is strtod's endptr.
-Option<f64> scan_f64(Str s, usize &used);
+// many were taken, 0 for none, which is strtod's endptr. `err` takes 34 —
+// musl's ERANGE — when the value did not fit, and 0 otherwise; a caller that
+// does not ask cannot tell an overflow from an ordinary answer.
+Option<f64> scan_f64(Str s, usize &used, i32 *err = nullptr);
+
+// The same at single precision, so strtof rounds once where a narrowed scan_f64
+// would round twice.
+Option<f32> scan_f32(Str s, usize &used, i32 *err = nullptr);
 
 // 64 characters, so %e and %g always fit and %f does below 1e40. Past that,
 // call fmt_f64 with a buffer of your own.

@@ -131,8 +131,8 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_diff(); // after str and vec: a line table is views over one buffer
     test_math();
     test_ftoa(); // after math: it stands on frexp, fmod and scalbn
-    test_compat(); // after alloc, text and ftoa: malloc stands on the heap,
-                   // strtol on the same grammar as scan_i64
+    test_compat(); // after alloc, text, time and ftoa: malloc stands on the
+                   // heap, strtol on scan_i64's grammar, mktime on civil_secs
     test_encode();
     test_sha256(); // after encode: the vectors are compared as hex
     test_version();

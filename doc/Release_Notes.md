@@ -31,6 +31,181 @@ first:
 
 ---
 
+## Group A's remainder, and the six names that were a link error
+
+[TODO.md](TODO.md)'s P1, and with it the port kit's Group A is complete: the
+calendar, the wide half, `fnmatch`, `sys/queue.h` and the `strtod` family. No
+operation, no `PROC_ABI`, no Concept.md amendment — the kit is an archive
+nothing links unless it names it, and `src/cmd/` still builds with
+`#include <time.h>` unresolved.
+
+### The hole that was a link error, not a diagnostic
+
+`strtod`, `strtof`, `atof`, `sscanf` and `vsscanf` were **declared** in the
+kit's headers and defined nowhere. That is the worst of both: a port writes the
+call, the compiler accepts it, and the linker fails at the end naming a symbol
+rather than a line. The kit's best idea is the `unavailable` attribute on
+`<stdio.h>`'s blocking names, and it was not being used on the names that were
+simply absent.
+
+So the five split, on whether there is a caller. `strtod` has one — `simbesm`
+carries a `sim_strtod` over `scan_f64` precisely because the real name would
+not link — so it is implemented. `sscanf` has none, and the tree already
+carries the argument against it: `zip/braam.h` says "a general one would be the
+rest of stdio for two call sites", and fifteen former `sscanf` sites across
+`le` and `zip` are already rewritten against `kernel/text.h`'s `scan_i64`,
+`scan_u64`, `scan_token` and `scan_until` — one function per conversion, where
+a format string defeats every check the compiler could make. So `sscanf` and
+`vsscanf` become `unavailable` under a second macro, `BRAAM_ABSENT`, whose
+message says "not in the port kit" rather than "blocking" and names the
+replacement. `<time.h>` uses the same macro for four more.
+
+### `strtod` is its own translation unit, and `scan_f64` had to grow an `err`
+
+`scan_f64` was already strtod's shape — `used` is the endptr, `used == 0` is
+"no conversion" — but it *discarded* `Cur::err`, so an overflow was
+indistinguishable from an ordinary answer and `strtod` could not set `ERANGE`.
+It gains an optional `i32 *err`, which is what the C signature needs. A
+`scan_f32` comes with it: `strtof` as a narrowed `strtod` rounds the decimal
+twice, and `__floatscan` already takes the precision as an argument.
+
+`cstrtod.cpp` is separate from `cstrtox.cpp` because musl's `__floatscan` is
+6,898 bytes — the single largest thing P1 adds — and `--gc-sections` works at
+function granularity but archive extraction works at member granularity. A port
+that names only `strtol` must not pay for it, and one translation unit is the
+whole of the fix. This is P5's problem in a case where it happens to be easy:
+the split works here because `strtol` never calls `strtod`, where `printf`'s
+`%d` and `%f` really are one function.
+
+### The calendar is `timegm` plus `tm_gmtoff`, because a zone is a coroutine
+
+`civil()` and `civil_secs()` already existed in `proc/time.h` and already
+normalised an out-of-range field, which the header calls mktime's contract. So
+`<time.h>` is mostly a re-spelling — except for the zone.
+
+There is no local zone available to Group A. The offset comes from
+`clock_now()`, which is a `Task<Result<Clock>>`, and a C signature cannot block
+here. Three answers were possible: pretend local is UTC (a lie that would
+silently shift every timestamp), put the whole calendar in
+`braam_compat_proc` and lose the unit tests with it, or make the offset the
+caller's. The third is what BSD's `struct tm` already provides: `tm_gmtoff` and
+`tm_zone`. So `timegm` reads the fields as UTC, `mktime` reads them as UTC
+shifted by `tm_gmtoff`, and `time`, `clock`, `localtime`, `localtime_r`,
+`ctime` and `ctime_r` are `unavailable`, naming `clock_now()` and `proc_now()`.
+`zip` already works this way by hand — it adds `ztz_min * 60` before calling
+`civil()` — so the shape is one a caller has already arrived at.
+
+`time_t` is 64-bit. `zip` had chosen `i64` and `le` `long`, which is 32 bits on
+wasm32; the kit takes musl's, which is the dialect its `errno` numbers already
+come from, and 2038 is not a date worth reintroducing.
+
+`strftime` carries the whole C99 set — every conversion including `%G`, `%V`
+and `%U` — where the only caller in the tree wants seven of them. A partial C
+signature that drops a conversion silently is exactly the wrong answer this
+document refuses for P5's float arm, and the ISO-week arithmetic is twenty
+lines. `civil_secs` supplies `tm_yday` by subtraction rather than a table.
+
+`mktime`'s normalisation cannot go straight through `civil_secs`: `Civil`'s
+fields are unsigned, so a negative `tm_mday` or `tm_sec` would wrap. Only the
+month carry is delicate, and `civil_secs` already does that; the rest is plain
+signed arithmetic in `epoch_of`, which is how `tm_sec = -1` on the first of a
+month lands on the last second of the month before.
+
+### Two `mbstate_t`s, and the one that can hold half a character
+
+`iconv` and `le` both wrote a wide half and they are not the same shape.
+`le`'s `mbstate_t` is `{ int dummy; }` with a comment saying UTF-8 has no shift
+state, which is true and beside the point: the state is not for a shift, it is
+for a *sequence that straddled a call*. `citrus_iconv_std.cpp` keeps one per
+conversion in `sc_mbstate` and feeds it a batch at a time, so `le`'s would
+corrupt every four-byte character that fell across a batch boundary. The kit
+takes `iconv`'s, `{ unsigned char buf[4]; unsigned char len; }`, and `le` —
+which resets before every decode and detects a split by arithmetic on its own
+buffer — is unaffected by having a real one underneath.
+
+The correctness gain is elsewhere. `utf8_decode` answers U+FFFD for every
+malformed form, which is right for a screen — bad input is visible rather than
+dropped — and wrong for a codec, where C requires `EILSEQ`. Both hand-written
+copies inherited that: `iconv`'s cannot tell a bad byte from a real U+FFFD at
+all, and `le`'s guesses with `used == 3 && s[0] == 0xEF`. The kit re-encodes
+what came back and compares bytes, which is a general rule rather than a
+special case: a genuine U+FFFD round-trips and a malformed sequence does not.
+So `mbrtowc("\xff\xfe")` is `(size_t)-1` with `EILSEQ`, and
+`mbtowc("\xef\xbf\xbd")` is 3 with the rune.
+
+### `wcwidth` is Kuhn's, and the grid disagrees with it
+
+This is the one place the kit answers for C rather than for this system, and it
+is worth saying plainly. Markus Kuhn's tables give 2 columns to East Asian Wide
+and Fullwidth; `kernel/screen.h`'s grid is one `Cell{char32_t ch}` per rune and
+has no notion of a wide one. A port doing column arithmetic with `wcwidth` will
+therefore disagree with the screen about a CJK character.
+
+The alternative — a `wcwidth` that returns 1 for every printable rune, agreeing
+with the grid — was considered and rejected: it would make the kit's `wcwidth`
+mean something no other `wcwidth` means, and `le` would then have to keep its
+own to get the answer it wants. Shipping the real one puts the disagreement
+where it belongs, in the grid, and makes it a screen question rather than a
+libc one. Nothing in P1 changes the grid.
+
+`cwidth.cpp` is therefore the second piece of vendored third-party data in the
+tree, after `src/math/`, and CLAUDE.md's sentence about that is amended. The
+East Asian Ambiguous variant, which Kuhn ships beside it, has no caller and is
+not here.
+
+`<wctype.h>` is honest about a smaller thing: its classes are `rune_lower` and
+`rune_upper`'s coverage — ASCII, Latin-1, Latin Extended-A, Greek, Cyrillic —
+plus a short table of the letter blocks that have no case at all, which is what
+`iswalpha` cannot find by asking for a case mapping. That is not full Unicode
+and the header says so rather than implying otherwise.
+
+### `fnmatch` is not `sh`'s matcher, and it honours the backslash
+
+`src/cmd/sh/match.cpp` has a glob matcher already, and it cannot be reused:
+it is `braam_sh`'s, `braam_sh` links `braam_proc`, and `src/cmd/` linking the
+port kit is the thing the kit exists not to do. The two also want different
+interfaces — `glob_match` takes the expander's quoting mask, one byte per byte
+of the pattern, where `fnmatch` takes flags and reads a backslash out of the
+pattern itself. So the kit gets its own, iteratively backtracking on `*` the
+way `le`'s copy already does, so a pattern of stars cannot reach the shadow
+stack.
+
+It carries the whole flag set — `FNM_PATHNAME`, `FNM_NOESCAPE`, `FNM_PERIOD`,
+`FNM_CASEFOLD`, `FNM_LEADING_DIR` — where `le` passes 0 at both its call sites,
+and the POSIX character classes with it. `[[:digit:]]` read as an ordinary
+bracket expression matches `[`, `:`, `d`, `i`, `g` and `t`, which is a silently
+wrong answer; the table of twelve costs the twelve `ctype` predicates, since
+`--gc-sections` cannot see through a table of function pointers, and that is
+most of `fnmatch`'s 1,957 bytes.
+
+`le`'s copy ignored the backslash, and C with flags 0 does not. That is a
+behaviour change P4 inherits at `highli.cpp:311`, where a syntax file's pattern
+is matched against a basename.
+
+### `sys/queue.h` is macros, so the cost is the caller's
+
+FreeBSD's `SLIST`, `LIST`, `STAILQ` and `TAILQ` with their `_SAFE` variants;
+no `CIRCLEQ`, which the BSDs themselves dropped, and no debugging hooks.
+`iconv` is the one caller and uses three of the four. `TAILQ_REMOVE_HEAD` is
+Citrus's own name rather than FreeBSD's and stays with it.
+
+### What it cost, and what the suite pins
+
+Nothing in `rootfs/` links the kit, so `kernel.wasm` and the boot archive are
+byte-for-byte what they were. Over a program that does nothing else, at 7,353
+bytes: `sys/queue.h` +107 (which is the caller's own loop), `fnmatch` +1,957,
+the wide half +3,463, the calendar +4,337, `strtod` +6,898.
+
+`test_compat` gains five cases. The one worth naming is `test_wide`, which
+feeds `mbrtowc` a four-byte sequence **one byte per call** and checks
+`(size_t)-2` three times and then the rune — the case `le`'s `mbstate_t` cannot
+represent, and the reason the kit has `iconv`'s. `test_time` pins every
+`strftime` conversion against 2009-02-13 23:31:30 UTC and the four
+normalisations, including the two with a negative field that `civil_secs`
+alone would have wrapped.
+
+---
+
 ## The line reader a `File` would only make bigger
 
 [TODO.md](TODO.md)'s D3. `File::getline` replaced the `LineReader` in `grep` and

@@ -4,17 +4,22 @@
 
 namespace {
 
-Cur cursor(Str s)
+// prec 0 is float and 1 is double; pok 1 is strtod's, which ungets a partial
+// match rather than failing on it.
+Option<f64> scan_prec(Str s, usize &used, i32 *err, int prec)
 {
     auto *p = reinterpret_cast<const unsigned char *>(s.data());
-    return Cur{ p, p, p + s.size(), 0 };
-}
-
-// prec 1 is double; pok 1 is strtod's, which ungets a partial match rather than
-// failing on it.
-f64 scan(Cur &c)
-{
-    return __floatscan(&c, 1, 1);
+    Cur c   = Cur{ p, p, p + s.size(), 0 };
+    f64 v   = __floatscan(&c, prec, 1);
+    usize n = usize(c.p - c.start);
+    // A lookahead past the end is ungot, so n can exceed the string only when
+    // nothing matched at all.
+    used = n < s.size() ? n : s.size();
+    if (err)
+        *err = c.err == 34 ? 34 : 0;
+    if (used == 0 || c.err == 22)
+        return None;
+    return v;
 }
 
 // fmtfp.c's flag word: one bit per flag character, at 1 << (c - ' ').
@@ -102,15 +107,15 @@ Option<f64> parse_f64(Str s)
     return v;
 }
 
-Option<f64> scan_f64(Str s, usize &used)
+Option<f64> scan_f64(Str s, usize &used, i32 *err)
 {
-    Cur c   = cursor(s);
-    f64 v   = scan(c);
-    usize n = usize(c.p - c.start);
-    // A lookahead past the end is ungot, so n can exceed the string only when
-    // nothing matched at all.
-    used = n < s.size() ? n : s.size();
-    if (used == 0 || c.err == 22)
+    return scan_prec(s, used, err, 1);
+}
+
+Option<f32> scan_f32(Str s, usize &used, i32 *err)
+{
+    Option<f64> v = scan_prec(s, used, err, 0);
+    if (!v.has_value())
         return None;
-    return v;
+    return f32(v.value());
 }

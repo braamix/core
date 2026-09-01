@@ -9,6 +9,7 @@
 #include <ctype.h>
 #include <endian.h>
 #include <fenv.h>
+#include <fnmatch.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -16,6 +17,10 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/queue.h>
+#include <time.h>
+#include <wchar.h>
+#include <wctype.h>
 
 namespace {
 
@@ -463,6 +468,299 @@ void test_math_header()
     CHECK_EQ(fegetround(), FE_TONEAREST);
 }
 
+// The three names that were declared and defined nowhere, so a caller got a
+// link error rather than an answer.
+void test_strtod()
+{
+    char *end = nullptr;
+    CHECK(strtod("3.5", &end) == 3.5);
+    CHECK(*end == '\0');
+
+    CHECK(strtod("  -2.5e2xyz", &end) == -250.0);
+    CHECK(Str(end) == "xyz");
+
+    // No conversion leaves the endptr at the string, which is how a caller
+    // tells "0" from "not a number".
+    const char *bad = "zzz";
+    CHECK(strtod(bad, &end) == 0.0);
+    CHECK(end == bad);
+
+    // strtol's grammar, at the other radix: hex floats and the two names.
+    CHECK(strtod("0x1p4", &end) == 16.0);
+    CHECK(isinf(strtod("inf", nullptr)));
+    CHECK(isnan(strtod("nan", nullptr)));
+
+    // ERANGE, which scan_f64 had no way to report before.
+    errno = 0;
+    CHECK(isinf(strtod("1e400", &end)));
+    CHECK_EQ(errno, ERANGE);
+    errno = 0;
+
+    CHECK(atof("1.25") == 1.25);
+    CHECK(strtof("3.5", &end) == 3.5f);
+    CHECK(*end == '\0');
+}
+
+void test_time()
+{
+    // 2009-02-13 23:31:30 UTC, a Friday.
+    const time_t stamp = 1234567890;
+
+    struct tm tm;
+    CHECK(gmtime_r(&stamp, &tm) == &tm);
+    CHECK_EQ(tm.tm_year, 109);
+    CHECK_EQ(tm.tm_mon, 1);
+    CHECK_EQ(tm.tm_mday, 13);
+    CHECK_EQ(tm.tm_hour, 23);
+    CHECK_EQ(tm.tm_min, 31);
+    CHECK_EQ(tm.tm_sec, 30);
+    CHECK_EQ(tm.tm_wday, 5);
+    CHECK_EQ(tm.tm_yday, 43);
+    CHECK_EQ(timegm(&tm), u32(stamp));
+
+    char buf[64];
+    auto fmt = [&](const char *f) {
+        strftime(buf, sizeof buf, f, &tm);
+        return Str(buf);
+    };
+    CHECK(fmt("%Y-%m-%d %H:%M:%S") == "2009-02-13 23:31:30");
+    CHECK(fmt("%a %b %e") == "Fri Feb 13");
+    CHECK(fmt("%A %B") == "Friday February");
+    CHECK(fmt("%C%y %j %u %w") == "2009 044 5 5");
+    CHECK(fmt("%I %p") == "11 PM");
+    CHECK(fmt("%D|%F|%T|%R") == "02/13/09|2009-02-13|23:31:30|23:31");
+    CHECK(fmt("%G-W%V %U %W") == "2009-W07 06 06");
+    CHECK(fmt("%z %Z 100%%") == "+0000 UTC 100%");
+    CHECK(fmt("%c") == "Fri Feb 13 23:31:30 2009");
+
+    // Truncation is 0, not a short answer: the buffer holds no whole result.
+    CHECK_EQ(strftime(buf, 4, "%Y", &tm), 0);
+    CHECK_EQ(strftime(buf, 5, "%Y", &tm), 4);
+
+    char ac[26];
+    CHECK(Str(asctime_r(&tm, ac)) == "Fri Feb 13 23:31:30 2009\n");
+
+    // mktime reads the fields through tm_gmtoff, which is the whole of what
+    // local means without a zone database.
+    struct tm loc  = tm;
+    loc.tm_hour    = 18;
+    loc.tm_gmtoff  = -5 * 3600;
+    CHECK_EQ(mktime(&loc), u32(stamp));
+    CHECK_EQ(loc.tm_hour, 18);
+    CHECK_EQ(loc.tm_gmtoff, -5 * 3600);
+
+    // Normalisation, in both directions -- civil_secs takes the month carry
+    // and the rest is signed arithmetic.
+    struct tm n = {};
+    n.tm_year   = 109;
+    n.tm_mon    = 12; // the thirteenth month
+    n.tm_mday   = 1;
+    timegm(&n);
+    CHECK_EQ(n.tm_year, 110);
+    CHECK_EQ(n.tm_mon, 0);
+
+    n           = tm;
+    n.tm_mon    = 0;
+    n.tm_mday   = 32; // 1 February
+    timegm(&n);
+    CHECK_EQ(n.tm_mon, 1);
+    CHECK_EQ(n.tm_mday, 1);
+
+    n         = tm;
+    n.tm_mon  = -1; // December of the year before
+    n.tm_mday = 1;
+    timegm(&n);
+    CHECK_EQ(n.tm_year, 108);
+    CHECK_EQ(n.tm_mon, 11);
+
+    n         = tm;
+    n.tm_mday = 1;
+    n.tm_hour = 0;
+    n.tm_min  = 0;
+    n.tm_sec  = -1; // the last second of the month before
+    timegm(&n);
+    CHECK_EQ(n.tm_mon, 0);
+    CHECK_EQ(n.tm_mday, 31);
+    CHECK_EQ(n.tm_sec, 59);
+
+    CHECK(difftime(stamp + 60, stamp) == 60.0);
+}
+
+void test_wide()
+{
+    const char *poo = "\xf0\x9f\x92\xa9"; // U+1F4A9, four bytes
+
+    // The whole reason the state is iconv's and not le's: a sequence split
+    // across four calls, with the bytes held between them.
+    mbstate_t st{};
+    wchar_t wc = 0;
+    CHECK_EQ(mbrtowc(&wc, poo, 1, &st), usize(-2));
+    CHECK(!mbsinit(&st));
+    CHECK_EQ(mbrtowc(&wc, poo + 1, 1, &st), usize(-2));
+    CHECK_EQ(mbrtowc(&wc, poo + 2, 1, &st), usize(-2));
+    CHECK_EQ(mbrtowc(&wc, poo + 3, 1, &st), 1);
+    CHECK(wc == 0x1f4a9);
+    CHECK(mbsinit(&st));
+
+    CHECK_EQ(mbrtowc(&wc, poo, 4, nullptr), 4);
+    CHECK_EQ(mbrtowc(&wc, "\0x", 2, nullptr), 0); // a NUL is 0, not 1
+
+    // Malformed is EILSEQ. utf8_decode answers U+FFFD for every bad form, so
+    // the two are told apart by re-encoding what came back.
+    errno = 0;
+    CHECK_EQ(mbrtowc(&wc, "\xff\xfe", 2, nullptr), usize(-1));
+    CHECK_EQ(errno, EILSEQ);
+    errno = 0;
+    CHECK_EQ(mbtowc(&wc, "\xc3", 1), -1);
+    errno = 0;
+
+    // And a real U+FFFD is a rune, which le's copy could only guess at.
+    CHECK_EQ(mbtowc(&wc, "\xef\xbf\xbd", 3), 3);
+    CHECK(wc == 0xfffd);
+
+    char out[4];
+    CHECK_EQ(wcrtomb(out, wchar_t(0x1f4a9), nullptr), 4);
+    CHECK(memcmp(out, poo, 4) == 0);
+    CHECK_EQ(wctomb(out, wchar_t(0xe9)), 2);
+    CHECK_EQ(mblen("\xc3\xa9", 2), 2);
+
+    wchar_t wbuf[8];
+    CHECK_EQ(mbstowcs(wbuf, "a\xc3\xa9z", 8), 3);
+    CHECK(wbuf[0] == 'a' && wbuf[1] == 0xe9 && wbuf[2] == 'z' && wbuf[3] == 0);
+    CHECK_EQ(wcslen(wbuf), 3);
+    char mb[8];
+    CHECK_EQ(wcstombs(mb, wbuf, sizeof mb), 4);
+    CHECK(memcmp(mb, "a\xc3\xa9z", 5) == 0);
+
+    // Kuhn's widths. The cell grid is one column per rune and disagrees about
+    // the third of these; doc/Compat.md says so.
+    CHECK_EQ(wcwidth(L'a'), 1);
+    CHECK_EQ(wcwidth(wchar_t(0)), 0);
+    CHECK_EQ(wcwidth(wchar_t(0x0301)), 0); // combining acute
+    CHECK_EQ(wcwidth(wchar_t(0x4e00)), 2); // CJK
+    CHECK_EQ(wcwidth(wchar_t(0x1b)), -1);  // ESC
+    CHECK_EQ(wcswidth(L"a一", 2), 3);
+}
+
+void test_wctype()
+{
+    CHECK(iswalpha(L'a') && iswalpha(wchar_t(0x0410)));  // Cyrillic А
+    CHECK(iswalpha(wchar_t(0x4e00)));                    // a letter with no case
+    CHECK(!iswalpha(L'1') && iswdigit(L'1') && iswalnum(L'1'));
+    CHECK(iswupper(wchar_t(0x0410)) && iswlower(wchar_t(0x0430)));
+    CHECK(towlower(wchar_t(0x0410)) == wint_t(0x0430));
+    CHECK(towupper(L'a') == wint_t(L'A'));
+    CHECK(iswspace(L' ') && iswspace(wchar_t(0x3000)));
+    CHECK(iswblank(L'\t') && !iswblank(L'\n'));
+    CHECK(iswprint(L'a') && !iswprint(wchar_t(0x1b)));
+    CHECK(iswcntrl(wchar_t(0x1b)) && iswpunct(L',') && iswgraph(L','));
+    CHECK(iswxdigit(L'f') && !iswxdigit(L'g'));
+
+    // One locale, so a transform is the function rather than a name.
+    wctrans_t up = wctrans("toupper");
+    CHECK(up != nullptr && wctrans("tolower") != nullptr);
+    CHECK(towctrans(L'a', up) == wint_t(L'A'));
+    CHECK(wctrans("nope") == nullptr);
+    CHECK(towctrans(L'a', nullptr) == wint_t(L'a'));
+}
+
+void test_fnmatch()
+{
+    CHECK_EQ(fnmatch("*.c", "main.c", 0), 0);
+    CHECK_EQ(fnmatch("*.c", "main.h", 0), FNM_NOMATCH);
+    CHECK_EQ(fnmatch("?at", "cat", 0), 0);
+    CHECK_EQ(fnmatch("[a-c]at", "bat", 0), 0);
+    CHECK_EQ(fnmatch("[!a-c]at", "bat", 0), FNM_NOMATCH);
+    CHECK_EQ(fnmatch("[^a-c]at", "dat", 0), 0);
+    CHECK_EQ(fnmatch("[]x]", "]", 0), 0); // a leading ']' is a literal
+    CHECK_EQ(fnmatch("[[:digit:]]x", "7x", 0), 0);
+    CHECK_EQ(fnmatch("[[:digit:]]x", "ax", 0), FNM_NOMATCH);
+
+    // An unterminated '[' is a literal, as sh's matcher has it too.
+    CHECK_EQ(fnmatch("[abc", "[abc", 0), 0);
+
+    // Backtracking, not recursion: a pattern of stars cannot reach the stack.
+    CHECK_EQ(fnmatch("********************a", "aaaaaaaaaaaaaaaaaaaaaaaaab", 0), FNM_NOMATCH);
+
+    // le's copy ignored the backslash, and C does not. P4 inherits the change.
+    CHECK_EQ(fnmatch("\\*", "*", 0), 0);
+    CHECK_EQ(fnmatch("\\*", "x", 0), FNM_NOMATCH);
+    CHECK_EQ(fnmatch("\\*", "\\x", FNM_NOESCAPE), 0);
+
+    CHECK_EQ(fnmatch("a/b", "a/b", FNM_PATHNAME), 0);
+    CHECK_EQ(fnmatch("a*b", "a/b", FNM_PATHNAME), FNM_NOMATCH);
+    CHECK_EQ(fnmatch("a*b", "a/b", 0), 0);
+    CHECK_EQ(fnmatch("*", ".x", FNM_PERIOD), FNM_NOMATCH);
+    CHECK_EQ(fnmatch(".*", ".x", FNM_PERIOD), 0);
+    CHECK_EQ(fnmatch("*/*", "a/.x", FNM_PATHNAME | FNM_PERIOD), FNM_NOMATCH);
+    CHECK_EQ(fnmatch("ABC", "abc", FNM_CASEFOLD), 0);
+    CHECK_EQ(fnmatch("a", "a/b", FNM_LEADING_DIR), 0);
+    CHECK_EQ(fnmatch("a", "ab", FNM_LEADING_DIR), FNM_NOMATCH);
+}
+
+struct QNode {
+    int v;
+    TAILQ_ENTRY(QNode) tq;
+    LIST_ENTRY(QNode) le;
+    STAILQ_ENTRY(QNode) sq;
+};
+TAILQ_HEAD(QTailHead, QNode);
+LIST_HEAD(QListHead, QNode);
+STAILQ_HEAD(QStailHead, QNode);
+
+// Macros only, so what is checked is that they compose and walk. The three
+// flavours iconv names are LIST, STAILQ and TAILQ.
+void test_queue()
+{
+    QNode n[4] = { { 0, {}, {}, {} }, { 1, {}, {}, {} }, { 2, {}, {}, {} }, { 3, {}, {}, {} } };
+
+    struct QTailHead th;
+    TAILQ_INIT(&th);
+    CHECK(TAILQ_EMPTY(&th));
+    for (QNode &e : n)
+        TAILQ_INSERT_TAIL(&th, &e, tq);
+    CHECK(TAILQ_FIRST(&th) == &n[0]);
+    CHECK(TAILQ_LAST(&th, QTailHead) == &n[3]);
+    CHECK(TAILQ_PREV(&n[3], QTailHead, tq) == &n[2]);
+
+    int sum = 0;
+    QNode *p = nullptr;
+    TAILQ_FOREACH(p, &th, tq)
+        sum += p->v;
+    CHECK_EQ(sum, 6);
+
+    QNode extra = { 9, {}, {}, {} };
+    TAILQ_INSERT_BEFORE(&n[2], &extra, tq);
+    CHECK(TAILQ_NEXT(&n[1], tq) == &extra);
+
+    QNode *tmp = nullptr;
+    TAILQ_FOREACH_SAFE(p, &th, tq, tmp)
+        TAILQ_REMOVE(&th, p, tq);
+    CHECK(TAILQ_EMPTY(&th));
+
+    struct QListHead lh;
+    LIST_INIT(&lh);
+    for (QNode &e : n)
+        LIST_INSERT_HEAD(&lh, &e, le);
+    CHECK(LIST_FIRST(&lh) == &n[3]);
+    LIST_REMOVE(&n[3], le);
+    CHECK(LIST_FIRST(&lh) == &n[2]);
+    LIST_REMOVE(&n[1], le); // from the middle, with no head to hand
+    CHECK(LIST_NEXT(&n[2], le) == &n[0]);
+
+    struct QStailHead sh;
+    STAILQ_INIT(&sh);
+    for (QNode &e : n)
+        STAILQ_INSERT_TAIL(&sh, &e, sq);
+    CHECK(STAILQ_FIRST(&sh) == &n[0]);
+    STAILQ_REMOVE_HEAD(&sh, sq);
+    CHECK(STAILQ_FIRST(&sh) == &n[1]);
+    sum = 0;
+    STAILQ_FOREACH(p, &sh, sq)
+        sum += p->v;
+    CHECK_EQ(sum, 6);
+}
+
 } // namespace
 
 void test_compat()
@@ -474,6 +772,7 @@ void test_compat()
     test_ctype();
     test_alloc_compat();
     test_strtol();
+    test_strtod();
     test_sort();
     test_mergesort();
     test_env_intern();
@@ -481,4 +780,9 @@ void test_compat()
     test_endian();
     test_math_header();
     test_errno_bridge();
+    test_time();
+    test_wide();
+    test_wctype();
+    test_fnmatch();
+    test_queue();
 }

@@ -5,17 +5,32 @@
 # Group A: pure computation. Links braam_flags and braam_math alone — no
 # syscall, no host import — which is what lets tests.wasm link it, exactly as
 # it does braam_math.
+#
+# ctime.cpp, cwchar.cpp and cwctype.cpp reference civil()/civil_secs() and the
+# UTF-8 codec, which live in braam_proc and braam_core. Those stay undefined in
+# this archive and the final link answers them — braam::proc for a program, the
+# compiled-in time.cpp and braam_core for tests.wasm — as cenv_intern.cpp's
+# heap_alloc already does. All three are pure, so nothing is smuggled in.
+#
+# cstrtod.cpp is a translation unit of its own: a port naming only strtol must
+# not pull musl's __floatscan in behind it.
 add_library(braam_compat_pure STATIC
     calloc.cpp
     cctype.cpp
     cenv_intern.cpp
     cerr.cpp
     cfmt.cpp
+    cfnmatch.cpp
     cmem.cpp
     cmisc.cpp
     csort.cpp
     cstring.cpp
-    cstrtox.cpp)
+    cstrtod.cpp
+    cstrtox.cpp
+    ctime.cpp
+    cwchar.cpp
+    cwctype.cpp
+    cwidth.cpp)
 
 # PUBLIC: a memcpy compiled with the builtin recognised becomes a call to
 # itself, and clang turns a consumer's `while (w[n]) n++` into a wcslen call.

@@ -29,11 +29,19 @@ guard, and it is tested.
 ## Three groups
 
 **Group A — pure computation.** Exact C signatures and semantics, drop-in:
-`mem*`, `str*`, `ctype`, `malloc`/`calloc`/`realloc`/`free`, the `strtol`
-family, `qsort`/`mergesort`/`bsearch`, `snprintf`/`vsnprintf`/`sprintf`,
-`errno`, `strerror` and `getenv`. Group A has no syscall, which is why
-`braam_compat_pure` links into `tests.wasm` the way `braam_math` does: a
-syscall in it is a link error.
+`mem*`, `str*`, `ctype`, `malloc`/`calloc`/`realloc`/`free`, the `strtol` and
+`strtod` families, `qsort`/`mergesort`/`bsearch`,
+`snprintf`/`vsnprintf`/`sprintf`, `errno`, `strerror`, `getenv`, the calendar
+(`<time.h>`), the wide half (`<wchar.h>`, `<wctype.h>`), `fnmatch` and
+`<sys/queue.h>`. Group A has no syscall, which is why `braam_compat_pure` links
+into `tests.wasm` the way `braam_math` does: a syscall in it is a link error.
+
+Group A does reach the tree's *pure* primitives and leaves them undefined in the
+archive, for the final link to answer: `cenv_intern.cpp` calls `heap_alloc`,
+`ctime.cpp` calls `civil`/`civil_secs`, `cwchar.cpp` the UTF-8 codec and
+`cwctype.cpp` `rune_lower`/`rune_upper`. A `PORT` binary resolves all four
+through `braam::proc`, and `tests.wasm` through `braam_core` and the
+compiled-in `proc/time.cpp`.
 
 `getenv` is the one member with a foot outside: the environment block is
 `braam_proc`'s. So it is split — the interning, which is what is worth testing,
@@ -54,6 +62,13 @@ surrounding code does not change:
 one build hands a porter every call site with its replacement named. `zip` found
 its 1208 `co_await`s by hand.
 
+The same device covers what the kit has decided *not* to supply, under a second
+macro that says "not in the port kit" rather than "blocking": `sscanf` and
+`vsscanf`, which name `kernel/text.h`'s scanners, and `<time.h>`'s `time`,
+`clock`, `localtime` and `ctime`, which name `clock_now()` and `proc_now()`.
+Those six were declared and defined nowhere before, so a caller met a link
+error naming a mangled symbol; now the compiler answers at the call site.
+
 **Group C — absent.** `setjmp`/`longjmp` (no restorable value stack; `vi`'s
 `error()` unwinding one frame at a time is the recipe), `fork`, `setenv`
 (argued and rejected — doc/TODO.md, and its absence is what lets `getenv`
@@ -61,7 +76,7 @@ intern an answer once and never revisit it), `pthread_create`, `dlopen` (a
 static module table: `iconv`'s `citrus_module.cpp`), `mmap` (read into a heap
 block: `citrus_mmap.cpp`), signal handlers, `utime`, `chmod`, µs and CPU clocks.
 `exit()` and `abort()` trap: a coroutine cannot exit through a return, so return
-a status from `proc_main`.
+a status from `proc_main`. `sscanf` is here too, argued below.
 
 Beside those, three headers exist because a port asks for them by name and the
 answer is not the kit's own code: `<math.h>` is `braam::math` under the name C
@@ -93,6 +108,42 @@ freestanding `<endian.h>` arrived only in clang 23.
   call. Two live results never alias and a long value is never truncated —
   five ports each answered out of one `static char val[512]` and shared both
   bugs.
+- **`time_t` is 64-bit**, as musl's is on a 32-bit target. `zip` had picked
+  `i64` and `le` `long`; the kit takes the one that does not end in 2038.
+- **`mktime` is `timegm` plus `tm_gmtoff`.** There is no local zone in a pure
+  group: the offset comes from `clock_now()`, and that is a coroutine. So
+  `struct tm` carries BSD's `tm_gmtoff` and `tm_zone`, `mktime` reads the
+  fields through the first of them, and `time`, `clock`, `localtime` and
+  `ctime` are `unavailable` rather than lies. `tm_isdst` is always 0.
+- **`sscanf` is not supplied.** Every conversion the ports actually used has a
+  function of its own in `kernel/text.h` and `proc/file.h` — `scan_i64`,
+  `scan_u64`, `scan_token`, `scan_until` — and a format string defeats every
+  check the compiler could make. Fifteen former call sites across `le` and
+  `zip` are already rewritten that way, and `zip`'s own note says it: a general
+  one would be the rest of stdio for two call sites.
+- **`mbstate_t` holds a split sequence**, `{ unsigned char buf[4]; unsigned
+  char len; }`, which is `iconv`'s and not `le`'s placeholder: Citrus keeps one
+  per conversion in `sc_mbstate` and feeds it a batch at a time.
+- **A malformed sequence is `EILSEQ`, never U+FFFD.** `utf8_decode` answers
+  U+FFFD for every malformed form, which is right for a screen and wrong for a
+  codec, so `mbrtowc` and `mbtowc` re-encode what came back and compare bytes.
+  A real U+FFFD in the input therefore survives as a rune — the distinction
+  `le` approximated with a test on the lead byte.
+- **`wcwidth` is Markus Kuhn's, and the grid is not.** It reports Unicode's
+  width, 2 for East Asian Wide and Fullwidth; the terminal is one `Cell` per
+  rune (`kernel/screen.h`), so a port doing column arithmetic with it will
+  disagree with the screen about a wide character. It is the one place the kit
+  answers for C rather than for this system, and `src/compat/cwidth.cpp` is
+  vendored data beside `src/math/` for that reason.
+- **`iswalpha` and its family are `rune_lower`/`rune_upper`'s coverage** —
+  ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic have case — plus a short
+  table of the letter blocks that have none. Not full Unicode, and `<wctype.h>`
+  says so rather than implying otherwise.
+- **`fnmatch` honours `\`**, as C does with flags 0 and as `le`'s own copy did
+  not. It carries the whole flag set including the POSIX character classes,
+  because `[[:digit:]]` parsed as an ordinary bracket is a silently wrong
+  answer. It is not `sh`'s `glob_match`: that one is `braam_sh`'s and takes the
+  expander's quoting mask where `fnmatch` takes flags and a backslash.
 - **`strerror` returns the POSIX *name***, `"ENOENT"`, mirroring `error_name()`
   in `kernel/result.h`. Every byte of English prose a Unix libc spends here
   stays unspent.
@@ -131,6 +182,24 @@ the split would make `%f` silently print nothing in a port that forgot to ask
 for it. A wrong answer is worse than 5 KB. `doc/TODO.md` P5 carries the shape a
 fix would need.
 
+Group A's remainder, measured the same way but as a delta over a program that
+does nothing else, at 7,353 bytes — each of these is what naming *only* that
+arm costs, since `--gc-sections` drops the rest:
+
+| | over the empty program |
+| --- | --- |
+| `<sys/queue.h>` — a `TAILQ` built and walked | +107 |
+| `fnmatch` | +1,957 |
+| `mbrtowc`, `wcwidth`, `iswalpha` | +3,463 |
+| `gmtime_r`, `strftime` | +4,337 |
+| `strtod` | +6,898 |
+
+`<sys/queue.h>` is macros, so its 107 bytes are the caller's own loop. `fnmatch`
+carries the twelve `ctype` predicates because a POSIX character class names them
+through a table, which `--gc-sections` cannot see past. `strtod` is the largest
+by far — musl's `__floatscan` — which is why `cstrtod.cpp` is a translation
+unit of its own: a port naming only `strtol` does not pay it.
+
 A program that does not name `braam::compat` pays **zero** — no archive, no
 header, no flag.
 
@@ -149,3 +218,12 @@ not the C library, and stays upstream.
 `converters/iconv/include/` and `editors/le/cinc/` answer the same names. Which
 `-I` wins is silent. A migration deletes the package's own header set in the
 same commit as it adds `PORT`.
+
+Four of the names P1 added are answered privately today, so the rule now bites
+on more than the two directories: `iconv`'s `braam.h` carries the wide half and
+all of `sys/queue.h`, `le`'s `lewchar.h`/`wcwidth.c` the wide half and its
+`braam.h` an `fnmatch`, and `zip`'s `braam.h` a `time_t` and a
+`days_from_civil` that `civil_secs()` now answers. Each goes in the commit that
+adds `PORT` to it, which is `doc/TODO.md` P3 and P4. `iconv`'s is the one with
+a conflict to settle rather than a deletion: it `#undef`s `PATH_MAX` to 256 and
+`LINE_MAX` to 256, against the kit's 512 and 2048.
