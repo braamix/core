@@ -31,6 +31,87 @@ first:
 
 ---
 
+## The two smallest shims, and the 10,697 bytes `duremark` did not spend
+
+[TODO.md](TODO.md)'s P3, in `braam-apps`: `benchmarks/duremark` and
+`games/adventure`, the two smallest porting layers, against the kit now that P1
+and P2 have finished it. Nothing in this tree changes but three documents —
+`kernel.wasm`, every `src/cmd/` binary and `rootfs.zip` are byte-identical,
+because nothing here links the kit.
+
+### Half of it had already happened, and the entry did not say so
+
+`PORT` went on both packages on 2026-08-29, when the kit was Group A minus its
+remainder and Group B did not exist. Those two commits recorded 23,508 → 25,894
+for `duremark`, whose hand-written formatter became the kit's `vsnprintf`, and
+164,354 → 167,538 for `adventure`, which was asking the C library for `strlen`
+and `atoi` and nothing else. P4's entry was rewritten by P1 and P2 to say what
+each remaining package still has to delete; P3's was not, so what it was still
+owed was never written down.
+
+It is this: the calendar, and a decision about Group B in each. Both are small,
+and that is the finding rather than a shortfall — `D2a` and `D3` ended the same
+way.
+
+### `adventure` gives up its calendar, and pays 431 bytes for it
+
+`datime()` answers upstream's "days since 1977" and needs a day of the year,
+which `civil()` does not carry. So the port had a `CUM_DAYS[12]` table and a
+leap-year test over it. That is exactly the arithmetic P1 put in the kit:
+`gmtime_r` fills `tm_yday`, and the table and the test are gone.
+
+It costs **+431 bytes**, 167,734 → 168,165, because `gmtime_r` computes the
+whole `struct tm` where twelve constants and one `if` computed one field. Taken
+anyway: a port keeping a private copy of a calendar is what Compat.md §7 is
+about, and a hand-cut leap year is the kind of thing that is wrong in 2100 and
+right in every test that runs before it. `clock_now()` still supplies the epoch
+and the zone — `localtime` is `BRAAM_ABSENT` and names that path — so
+`adv_clock()` is untouched.
+
+`adventure` also stopped building against this branch, which is D3's fallout
+and not P3's: `LineReader::next` is an awaiter now, so
+`if (Task<Result<bool>> t = lines->next(out))` no longer converts. It is
+`co_await lines->next(out)`, as `sh`, `less`, `cp`, `mv` and `chat` already
+write it. `archivers/zip` has the same three call sites over `File::getline`
+and does **not** build; that is P4's commit to fix, and it is recorded here so
+the next person does not think they broke it.
+
+### Group B is declined in both, for two different reasons
+
+`adventure`'s six file syscalls — `save.cpp`'s four, `main.cpp`'s
+`remove_path`, `wizard.cpp`'s `stat_of` — were upstream's `open`, `write`,
+`close`, `read`, `unlink` and `access`, and Group B has a name for each. It
+keeps `proc/io.h` regardless. The `b_*` family spells a path `const char *`,
+this port carries every path as a `Str`, and `String` has no `c_str()`: each
+site would gain a NUL-terminated `char[PATH_MAX]` that §3 says belongs in a
+heap block rather than a coroutine frame. That is a worse shape than
+`open_at(Str)`, not a better one. `vi` took Group B because `vi` is still C and
+its paths are already `char *` — the rule is what the port already is, not
+which layer is newer.
+
+`duremark`'s is a number. `du_printf` could be upstream's literal
+`#define du_printf printf` again, as `co_await b_printf(...)`, with `out_buf`,
+`du_flush` and `write_status` deleted. That binary was built, measured and
+thrown away: **36,591 bytes against 25,894, +10,697**, or 41%, for a report of
+eleven lines written once at the end of a run. §5's arms put `b_printf` at
++20,199 over an empty `PORT` program and this is half that, because `duremark`
+already pays for the `snprintf` engine — what it would be buying is the `FILE`
+and `proc/file.h`'s buffered stream underneath it. On a benchmark whose entire
+C library surface is `printf` and `clock`, and whose README is about its size,
+the buffered pair stays.
+
+### Both numbers
+
+| | before | after |
+| --- | --- | --- |
+| `duremark` | 25,894 | 25,894 |
+| `adventure` | 167,734 | 168,165 |
+
+The baselines are this branch and `PROC_ABI` 20, not the figures in the
+2026-08-29 commits: `adventure` was 167,538 there and rebuilt to 167,734 for the
+ABI. `duremark` does not move, and the entry's own claim that it is "the honest
+size worst case" is what the 41% above measures — not what it kept.
+
 ## Group B, and the header that will not include `<stdio.h>`
 
 [TODO.md](TODO.md)'s P2, and with it the port kit is complete: streams,

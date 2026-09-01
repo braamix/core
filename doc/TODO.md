@@ -62,9 +62,6 @@ of the opt-in. No entry here moves `PROC_ABI` or adds an operation; the caller
 each names is a **ported package**, since the kit exists for callers outside
 this tree.
 
-- [ ] **P3. Migrate `duremark` and `adventure`.** The smallest shims, and
-      `duremark` at 23,601 bytes is the honest size worst case: record both
-      numbers.
 - [ ] **P4. Migrate the rest**, `iconv` last. Groups A and B are complete, so
       each migration is now a deletion: `le`'s `lewchar.h`, `lewchar.cpp`,
       `wcwidth.c`, its `fnmatch` and all four of `leio.h`, `leio.cpp`,
@@ -74,7 +71,10 @@ this tree.
       its whole copy of `sys/queue.h`. `iconv`'s errno numbers change, and its
       `#undef`s of `PATH_MAX` to 256 and `LINE_MAX` to 256 have to be settled
       against the kit's 512 and 2048. `le` inherits a `fnmatch` that honours
-      the backslash, which its own did not. `dhrystone` never.
+      the backslash, which its own did not. `dhrystone` never. **`zip` does not
+      build against this branch** — D3 made `File::getline` an awaiter and its
+      three call sites still take a `Task`; P3 fixed `adventure`'s one, and
+      these go in P4's commit.
 - [ ] **P5. Make the float arm droppable.** It is 5,367 of `snprintf`'s 8,853
       bytes and every port pays it for `%d` alone, because the engine is one
       function. A separate TU behind a weak reference does not work — a weak

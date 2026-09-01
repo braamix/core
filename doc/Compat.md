@@ -284,7 +284,9 @@ with it:
 
 `examples/portio`, which names all of it, is **73,594**. `b_printf` is the
 `snprintf` engine above with a stream under it, so a port that has both pays
-for the engine once. The `FILE` family's 30 KB is `File` itself: `File::fill_`
+for the engine once — measured on `duremark`, which already had the engine,
+`b_printf` in place of a buffer it writes itself is +10,697 rather than
++20,199. The `FILE` family's 30 KB is `File` itself: `File::fill_`
 reaches `Input::read`, which reaches `errln`, so a port opening one stream
 carries the multi-file reader whether or not it names one — that is
 `proc/file.h`'s shape, not the kit's.
@@ -313,7 +315,7 @@ on more than the two directories: `iconv`'s `braam.h` carries the wide half and
 all of `sys/queue.h`, `le`'s `lewchar.h`/`wcwidth.c` the wide half and its
 `braam.h` an `fnmatch`, and `zip`'s `braam.h` a `time_t` and a
 `days_from_civil` that `civil_secs()` now answers. Each goes in the commit that
-adds `PORT` to it, which is `doc/TODO.md` P3 and P4. `iconv`'s is the one with
+adds `PORT` to it, which is `doc/TODO.md` P4. `iconv`'s is the one with
 a conflict to settle rather than a deletion: it `#undef`s `PATH_MAX` to 256 and
 `LINE_MAX` to 256, against the kit's 512 and 2048.
 
