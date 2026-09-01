@@ -663,6 +663,8 @@ single-precision kernels rather than rounded doubles.
 Option<f64> parse_f64(Str);                 // strtod, correctly rounded
 Option<f64> scan_f64(Str, usize &used);     // the same, with strtod's endptr
 Str fmt_f64(char *out, usize cap, f64, i32 prec = -1, char style = 'g');
+Str fmt_f64_padded(char *out, usize cap, f64, i32 prec, char style,
+                   i32 width, Str flags);
 Str fmt_f64_shortest(char *out, usize cap, f64);
 Buf<N> &put_f64(Buf<N> &, f64, i32 prec = -1, char style = 'g');
 ```
@@ -671,6 +673,13 @@ Buf<N> &put_f64(Buf<N> &, f64, i32 prec = -1, char style = 'g');
 its default of six; these are musl's `strtod` and `printf` engines, so a
 conversion is exactly the one a Unix program expects. `fmt_f64_shortest` names
 a double in the fewest digits that read back to it bit-for-bit.
+
+`fmt_f64_padded` is the same conversion with printf's field width and flags —
+`flags` holds the characters `#`, `0`, `-`, ` ` and `+`, in any order — because
+a zero pad goes *inside* the sign and no padding around a finished conversion
+can produce that. It is a second function rather than two more defaulted
+parameters so that `--gc-sections` drops it whole from a binary that never asks
+for a width. `/bin/seq` is what calls it.
 
 **A program pays only for what it calls** — `--gc-sections` never extracts an
 unreferenced archive member. `sqrt` alone costs 309 bytes, since it is one wasm

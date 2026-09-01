@@ -159,6 +159,15 @@ keystrokes is the thing under test — and it is what the rules are about.
    which reads like a shell bug rather than a full ring. A fixture that would
    be longer is two lines. `term` is the case that pastes past the ring on
    purpose, and it paces the keys the way `web/worker.js` does.
+10. **A typed line and its prompt must fit the screen.** `output()` takes
+    everything after the row holding `"$ "`, so a command that wraps leaves
+    its tail on the next row and `is()` compares that tail as though the
+    program had printed it — which reads like junk in front of the real
+    output rather than a line too long. The prompt is the status, the cwd's
+    basename and `$ `, so at 60 columns the command itself has about fifty
+    characters. A longer one is split in two, or shortened: an error case
+    usually needs no `echo … |` in front of it, since the program fails
+    before it reads anything.
 
 ## 6. Adding a case
 

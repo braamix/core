@@ -78,6 +78,41 @@ void formatting()
     CHECK(cut == "1234");
 }
 
+void check_pad(f64 v, i32 prec, char style, i32 width, Str flags, Str want)
+{
+    char out[64];
+    Str got = fmt_f64_padded(out, sizeof out, v, prec, style, width, flags);
+    if (got != want) {
+        Buf<200> b;
+        b.put("fmt_f64_padded: got \"").put(got).put("\" want \"").put(want).put('"');
+        test_check(false, b.str(), __FILE_NAME__, __LINE__);
+    }
+}
+
+// The width and the flags fmt_f64 does not pass. A zero pad goes inside the
+// sign, which is what no padding around the result could produce.
+void padding()
+{
+    check_pad(1.5, 1, 'f', 8, "", "     1.5");
+    check_pad(1.5, 1, 'f', 8, "-", "1.5     ");
+    check_pad(1.5, 1, 'f', 8, "0", "000001.5");
+    check_pad(-1.5, 1, 'f', 8, "0", "-00001.5");
+    check_pad(-1.5, 1, 'f', 8, "", "    -1.5");
+    check_pad(1.5, 1, 'f', 0, "+", "+1.5");
+    check_pad(1.5, 1, 'f', 0, " ", " 1.5");
+    check_pad(1.0, 0, 'f', 0, "#", "1."); // the alternate form keeps the point
+    check_pad(1.0, -1, 'g', 0, "#", "1.00000");
+
+    // Nothing to pad to, and a flag word that is not one: both are fmt_f64's
+    // own conversion.
+    check_pad(1.5, 1, 'f', 0, "", "1.5");
+    check_pad(1.5, 1, 'f', 0, "xyz", "1.5");
+
+    // Two flags at once, and a width narrower than the number.
+    check_pad(-1.5, 1, 'f', 8, "-0", "-1.5    ");
+    check_pad(1234.5, 1, 'f', 3, "0", "1234.5");
+}
+
 void parsing()
 {
     check_parse("0", 0.0);
@@ -184,6 +219,7 @@ void test_ftoa()
     test_begin("ftoa");
 
     formatting();
+    padding();
     parsing();
     round_trip();
     into_buf();

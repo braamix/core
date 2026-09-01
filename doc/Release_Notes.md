@@ -31,6 +31,212 @@ first:
 
 ---
 
+## Four filters, and the two libraries that had no caller
+
+[TODO.md](TODO.md)'s **A6** — `tee`, `cut`, `tr` and `seq` — and with `tr`, its
+**D1**. The ports read against are v7's `tee` and `tr` by way of `v7besm/cmd/`,
+LiteBSD's `cut` and FreeBSD's `seq`. None needed an operation the kernel did not
+have, which is what A6's own entry predicted: the gap is the program layer.
+
+**Two of the four are the first caller of something that was only unit-tested.**
+`File::get`, `File::put` and `rune_lower` had no caller in `src/cmd/` at all —
+D1 said so — and `/bin/tr` is now all three. `braam::math` was in the same
+position: the library shipped, the manual documented it, and nothing in the tree
+linked it. `/bin/seq` is the first `LIBS braam::math` in `src/cmd/`.
+
+### `tr` is runes, so v7's three tables cannot be
+
+v7's `tr` is eight-bit clean and its `code[256]`, `squeez[256]` and `vect[256]`
+are byte tables. Its own manual page writes down what that costs: *"a multi-byte
+character can only be named in string1 or string2 by writing out its bytes —
+`tr п н` does not exchange two letters"*. What it buys is that `tr a-z A-Z`
+passes Cyrillic through untouched, since every one of the 256 values maps to
+itself unless named.
+
+Over codepoints both halves get better, and the tables become **three
+questions** rather than three arrays. `in1(c)` is membership, `to(c)` is the
+mapping, `squeezed(c)` is the squeeze set, and every flag composes through them
+exactly as it did through v7's arrays: string2 padded with its last element is
+`to`'s `i >= size` branch, a member with no string2 at all is its
+`runes.empty()` branch, and a member of string2 past the end of string1 still
+counting for `-s` falls out of `squeezed` consulting the whole set.
+
+**`-c` has to be a predicate.** v7 materialised the complement — `vect[]`
+rewritten in place into a list of non-members — because it walked that list in
+lockstep with string2 to pair the two. The complement of a rune set has 1.1
+million members, so there is no list to walk; `in1` negates instead, and the
+pairing it would have driven is gone with it. That is why `-c` with a string2 of
+more than one element is refused: with no index into string1, every complemented
+rune would take the same element, and saying so is better than picking one.
+
+**The classes split in two, and the split is the whole design.**
+`[:digit:]`, `[:space:]` and `[:punct:]` are a short ASCII run each, so they are
+walked out into the set's `runes` and keep their positions — `tr '[:digit:]' xy`
+pairs `0` with `x` and everything after with `y`, which is what a written-out
+set would do. `[:lower:]`, `[:upper:]`, `[:alpha:]` and `[:alnum:]` have no list
+that could be written down over runes and stay predicates.
+
+**`[:lower:]` against `[:upper:]` is the one mapping, and it is `rune_lower` and
+`rune_upper`.** No pairing of two element lists could express it — the Cyrillic
+pair alone is sixty-six entries — so it is a function pointer set once and read
+in `to()`. It is one branch in one place: `-c`, `-d` and `-s` go on reading the
+class bits as before. And the two functions are their own membership test, since
+a letter with another case differs from itself under one of them, which is why
+`[:lower:]` needs no table either. `tr '[:lower:]' '[:upper:]'` uppercases
+Greek and Cyrillic; `tr a-z A-Z` still does not, and the system case pins both
+lines next to each other because the contrast is the point.
+
+That is also the honest boundary. `rune_lower` and `rune_upper` map one
+codepoint to one, so `[:lower:]` here means *a rune that has an upper-case
+form* rather than Unicode's `Ll`: `ß` is not in it, and `[:alnum:]` misses every
+caseless script. `tr -d '[:alnum:]'` leaves 日本 alone, and the case pins that
+too, so the definition is nailed down rather than accidental.
+
+**Three v7 behaviours are deliberately not carried over.** v7 drops a NUL from
+the input and cannot hold one in a set, because 0 is its end-of-set marker; here
+U+0000 is an ordinary rune both ways, which is why the copy loop needs an
+explicit *nothing written yet* flag where v7 relied on zero being unproducible.
+v7's escapes are `\ooo` and *`\c` is `c`*, so `\n` is the letter `n`; these are
+GNU's, because a `\n` that means `n` is a trap and nothing else here spells a
+newline that way. And **`-s` with one set squeezes that set**: v7's `squeez[]`
+was built from string2 alone, so `tr -s a` did nothing at all there, where
+POSIX and GNU squeeze string1 and that is what `tr -s ' '` is written for.
+
+`\ooo` names a codepoint rather than a byte, which is the rune model showing
+through: `\303` is U+00C3 and not the first byte of a two-byte sequence. A
+`tr` over binary is not what this one is for — a malformed sequence reaches
+`File::get` as U+FFFD — and that is the D1 bargain: a set element is a
+character, and the price is byte transparency.
+
+**The loop is the reason D1 wanted this program.** `FileGet` and `FilePut` are
+awaiters with an `await_ready` fast path, so a rune already in the buffer never
+enters a coroutine and the shadow stack does not grow per rune. That is the
+shape B3 says `getline` should acquire, and `tr` is what proves it at scale: the
+case pushes 5,120 runes through a real pipe.
+
+### `cut`'s list is ranges, which deletes three bugs at once
+
+BSD marks a byte per position in `positions[_POSIX2_LINE_MAX]` and reads fields
+into an `lbuf` of the same size. Three of its behaviours follow from that array
+and from nothing else: a position past 2,048 is `list: N too large`, a line past
+2,048 bytes is `line too long` and fatal — **and so is a final line with no
+newline, and so is a line holding a NUL**, since the scan looks for a `\0`
+before a `\n` and cannot tell the three apart.
+
+A `Vec<Range>`, sorted and merged once, has none of them. `-N` is `{1, N}` and
+`N-` is `{N, 0}`, so BSD's `autostart`, `autostop` and `maxval` globals — and
+the clamp that had to reconcile them — are not there either. The system case
+cuts a 4,096-byte line and a last line with no newline, both of which were the
+fatal errors upstream.
+
+**`-c` counts characters and `-b` counts bytes**, which is the honest reading on
+a UTF-8 system and is why POSIX's `-n` is absent: *do not split a character* is
+what `-c` already means here. `cut -c 1-3` and `cut -b 1-6` give the same three
+Cyrillic letters, and the case pins the pair.
+
+### `seq` keeps `-f`, because the engine already had it
+
+`-f` is a printf format, and this tree has no printf and argues against format
+strings. But the conversion `-f` accepts is *only* a float one — FreeBSD's
+`valid_format` admits `%[#0- +']*[0-9]*[.[0-9]*]?[aAeEfFgG]` and exactly one of
+it — and the engine behind `fmt_f64` is musl's `fmt_fp`, which **already takes a
+field width and printf's flag word**. `fmt_f64` passed 0 for both and threw the
+rest away.
+
+So the seam is one function, `fmt_f64_padded`, passing them through, with the
+flags given as their printf characters so musl's `1u << (c - ' ')` encoding
+stays inside `ftoa.cpp`. Nothing was added to the engine. **It is a separate
+function rather than defaulted parameters on `fmt_f64`**, and that is the whole
+of why it costs nothing: `-ffunction-sections` with `--gc-sections` drops an
+uncalled function at link time, so every binary that links `braam::math` and
+never asks for a width is unchanged, while defaulted parameters would have put
+the flag-character scan on the common path and widened `fmt_f64_shortest`'s
+seventeen calls for a feature they do not use. That is D2's measurement again,
+in a smaller place.
+
+One thing the engine alone gets wrong: `fmtfp.c` is musl's `fmt_fp` without the
+`vfprintf` around it, and printf's rule that `-` overrides `0` lives in the
+caller. `flag_bits` drops `ZERO_PAD` when `LEFT_ADJ` is set, and
+`test_ftoa.cpp` pins it along with the case only a real width can produce — a
+zero pad **inside** the sign, `-01.0` rather than `0-1.0`, which is exactly what
+`-w` of a negative range needs and what no padding around a finished conversion
+could give.
+
+`'` is thousands grouping. It parses and does nothing, rather than being
+refused: the C locale is the only one here and does not group, so glibc and
+FreeBSD print `%'g` and `%g` identically — ignoring it is the exact answer
+rather than an approximation. Width and precision are capped at 400 and 120,
+because past those the conversion would be truncated inside its buffer without
+saying so, and a silent wrong number is worse than `not a format`.
+
+**`-w` is `generate_format` without `sprintf`.** Everything it took from
+`sprintf`'s return value is on the `Str` that `fmt_f64` hands back — the printed
+width is `size()`, the exponent form is a `find('e')`, and the decimal places
+are the digits after the point. FreeBSD's asymmetry is reproduced on purpose and
+commented as such: `first` and `incr` fold into the precision, `last` into the
+width alone. So is the recomputation of `last` as the value the loop will
+actually stop at, which is what sizes `seq -w 0 .05 .1` to `0.10` rather than to
+`.1`. What is *not* reproduced is the undocumented second `-w`, which upstream
+switches the pad from zeros to spaces; a repeated flag silently changing the
+output is not something to keep.
+
+**The default increment is +1 whichever way the range points.** FreeBSD flips
+the sign by direction, so its `seq 3 1` counts down and its `seq 1 0` prints
+`1 0`. GNU's does neither, and GNU's is right for the one place `seq` is
+actually used: `for i in $(seq 1 $n)` with `n` of 0 must do nothing, not two
+turns. An increment pointing the wrong way prints nothing too, for the same
+reason; a **zero** increment is still an error, as it is in Plan 9, GNU and
+FreeBSD alike. An empty range prints nothing at all — not even the newline
+FreeBSD writes unconditionally.
+
+FreeBSD's rounding fixup is kept exactly: `cur = first + incr * step` rather
+than an accumulation, and at the end, if the value that ended the loop *prints*
+as `last` does and not as the one before it, the loop stopped on rounding and
+`last` is emitted. That is the whole of why `seq 1 0.1 1.2` ends at `1.2`.
+
+**`OptParse` needed no change to take a negative operand.** FreeBSD guards
+`getopt` with `!numeric(argv[optind])`; the same guard is `p.rest()[0]` tested
+before each `next()`, which works because a word part-way through a bundle
+necessarily begins with `-` and one of `w f s t`. `looks_numeric` is FreeBSD's
+loose `numeric()` and not `parse_f64` on purpose — they answer different
+questions, and keeping them apart is what makes `seq 1e` say *not a number*
+rather than *bad option*.
+
+### `tee` loses its buffers
+
+v7 copies byte by byte from a `BSIZE` input buffer into a `BSIZE` output buffer,
+and when any destination is a terminal or a pipe it breaks the fill loop early
+and writes in sixteen-byte dribbles so that an interactive `tee` echoes a line
+as it is typed. `read_chunk` hands over what arrived rather than blocking for a
+full block, so both the second buffer and the dribble are answered by the shape
+of the call. Nothing replaced them.
+
+Three of v7's behaviours are fixed rather than kept. It sized `openf[]` at 20
+and let the argument loop write past it into `n`, `t` and `aflag`; there is no
+table here, only a `Vec` of descriptors and the kernel's own limit. It detected
+a failed open by `stat`ing the *name* afterwards, so a `creat` that failed on an
+existing file left `-1` in the table to write to for ever. And it returned 0
+whatever happened; a file that will not open is reported and the status is 1,
+while everything else named still gets the bytes.
+
+A fourth is new rather than fixed: an output whose far end has gone ends the
+run. v7 never looked at a `write`, so `seq 100000 | tee f | head -n 2` would
+have read the whole input to write it nowhere; `Err(Closed)` on any of the
+outputs breaks the loop, which is the same rule `head` follows to stop the
+producer upstream.
+
+`-i` is `sig_catch(SIG_INT)` and an `Err(Intr)` retried on the read. It is the
+one thing here that needed a signal, and `SIG_INT` was already in
+`SIG_CATCHABLE`.
+
+### The measurements
+
+`/bin/tee` is 18,113 bytes, `/bin/cut` 23,862, `/bin/seq` 31,237 — the one
+linking `braam::math` — and `/bin/tr` 34,171, which is what a `File` costs.
+`rootfs/` is 1,605,146 of the 2 MB budget.
+
+---
+
 ## A screen a program opens, and `PROC_ABI` 20
 
 0.8 gave the *page* up to four terminals and gave a *process* exactly one of

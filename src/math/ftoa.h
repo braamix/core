@@ -13,6 +13,12 @@
 // characters at the default precision.
 Str fmt_f64(char *out, usize cap, f64 v, i32 prec = -1, char style = 'g');
 
+// The same, with printf's field width and flags, which the engine underneath
+// takes and fmt_f64 does not pass: a zero pad goes inside the sign, which no
+// padding around the result can produce. `flags` is the flag characters of a %
+// conversion -- "#0- +" in any order -- and anything else in it is ignored.
+Str fmt_f64_padded(char *out, usize cap, f64 v, i32 prec, char style, i32 width, Str flags);
+
 // The fewest significant digits that parse back to v exactly.
 Str fmt_f64_shortest(char *out, usize cap, f64 v);
 

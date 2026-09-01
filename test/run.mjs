@@ -12,6 +12,7 @@ import { fail, hasRootfs, init, kernel } from "./system/harness.mjs";
 
 import * as abi from "./system/abi.mjs";
 import * as boot from "./system/boot.mjs";
+import * as cut from "./system/cut.mjs";
 import * as cwd from "./system/cwd.mjs";
 import * as dual from "./system/dual.mjs";
 import * as du from "./system/du.mjs";
@@ -47,6 +48,7 @@ import * as redirect from "./system/redirect.mjs";
 import * as rename from "./system/rename.mjs";
 import * as respawn from "./system/respawn.mjs";
 import * as script from "./system/script.mjs";
+import * as seq from "./system/seq.mjs";
 import * as sh from "./system/sh.mjs";
 import * as sort from "./system/sort.mjs";
 import * as signal from "./system/signal.mjs";
@@ -56,6 +58,8 @@ import * as sysinfo from "./system/sysinfo.mjs";
 import * as columns from "./system/columns.mjs";
 import * as term from "./system/term.mjs";
 import * as tail from "./system/tail.mjs";
+import * as tee from "./system/tee.mjs";
+import * as tr from "./system/tr.mjs";
 import * as truncate from "./system/truncate.mjs";
 import * as chunk from "./system/chunk.mjs";
 import * as cp from "./system/cp.mjs";
@@ -121,6 +125,11 @@ const CASES = [
     ["uniq",       uniq.check],       // after sort: the pipeline it is written for
     ["truncate",   truncate.check],
     ["path",       path.check],
+    // The four filters of A6, together: each needs a shell and nothing more.
+    ["tee",        tee.check],
+    ["cut",        cut.check],
+    ["tr",         tr.check],
+    ["seq",        seq.check],
     ["unzip",      unzip.check],
     ["entry",      entry.check],
     ["dual",       dual.check],       // leaves a second shell up, so others() gains one

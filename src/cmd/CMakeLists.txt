@@ -7,14 +7,18 @@
 add_subdirectory(pkg)
 add_subdirectory(sh)
 
-set(BRAAM_BIN_LIST basename cat chat clear cp curl date df dirname du echo edit env false fexport
-                   fimport find grep head hog less ln ls mkdir mount mv pbcopy pbpaste pkg ps pwd
-                   rm sh sleep sort spin tail test timeout touch truncate true uname uniq unzip
-                   vmstat watch wc)
+set(BRAAM_BIN_LIST basename cat chat clear cp curl cut date df dirname du echo edit env false
+                   fexport fimport find grep head hog less ln ls mkdir mount mv pbcopy pbpaste pkg
+                   ps pwd rm seq sh sleep sort spin tail tee test timeout touch tr truncate true
+                   uname uniq unzip vmstat watch wc)
 set(BRAAM_BIN_PROGRAMS ${BRAAM_BIN_LIST} PARENT_SCOPE)
 
 # Every one of them takes a worker of its own, the shell included. There is
 # nothing to ask for: it is what a program is (Concept.md §4).
+
+# /bin/seq is the one program that asks for a library the kernel does not link:
+# musl's strtod and printf float engines, over doubles it cannot avoid.
+set(BRAAM_BIN_LIB_seq braam::math)
 
 # A program that is more than one translation unit names the library that holds
 # the rest of it, and where its own source is when that is not <name>.cpp.

@@ -17,6 +17,25 @@ f64 scan(Cur &c)
     return __floatscan(&c, 1, 1);
 }
 
+// fmtfp.c's flag word: one bit per flag character, at 1 << (c - ' ').
+int flag_bits(Str flags)
+{
+    constexpr int LEFT_ADJ = 1 << ('-' - ' ');
+    constexpr int ZERO_PAD = 1 << ('0' - ' ');
+
+    int fl = 0;
+    for (usize i = 0; i < flags.size(); i++) {
+        char c = flags[i];
+        if (c == '#' || c == '0' || c == '-' || c == ' ' || c == '+')
+            fl |= 1 << (c - ' ');
+    }
+    // printf's '-' overrides '0'. vfprintf drops the bit before calling the
+    // engine; fmtfp.c is the engine alone, so it is dropped here.
+    if (fl & LEFT_ADJ)
+        fl &= ~ZERO_PAD;
+    return fl;
+}
+
 // The signed integer after the 'e' of an %e conversion.
 i32 exponent_of(Str s)
 {
@@ -41,6 +60,13 @@ Str fmt_f64(char *out, usize cap, f64 v, i32 prec, char style)
 {
     Sink sink{ out, cap, 0 };
     fmt_fp(&sink, v, 0, prec, 0, style);
+    return Str(out, sink.n < cap ? sink.n : cap);
+}
+
+Str fmt_f64_padded(char *out, usize cap, f64 v, i32 prec, char style, i32 width, Str flags)
+{
+    Sink sink{ out, cap, 0 };
+    fmt_fp(&sink, v, width, prec, flag_bits(flags), style);
     return Str(out, sink.n < cap ? sink.n : cap);
 }
 

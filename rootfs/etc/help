@@ -44,6 +44,8 @@ Programs in /bin
   clear     clear the screen
   cp        [-r] [-fi] [-n] <src>... <dst> — copy files, directories with -r
   curl      [-i] [-X <method>] [-H <header>] [-d <data>] <url> — fetch a URL
+  cut       -b|-c|-f <list> [-d <char>] [-s] [<file>...] — print the
+            selected bytes, characters or fields of each line
   date      [-u] — print the date and time
   df        [-h] — show filesystem space, scaled with -h
   dirname   <path>... — all but the last part of a path
@@ -76,16 +78,22 @@ Programs in /bin
   ps        list the tasks the kernel is running, and which are processes
   pwd       print the current directory
   rm        [-r] <path>... — remove files, or directories with -r
+  seq       [-w] [-f <fmt>] [-s <str>] [-t <str>] [<first> [<incr>]] <last>
+            — count from <first> to <last>; -w pads with zeros
   sh        [-eux] [-s | -c <command> | <file>] [<arg>...] — the shell
   sleep     [-m] <secs> — wait, in seconds, or milliseconds with -m
   sort      [-bfnru] [-t <char>] [-k <key>]... [<file>...] — sort lines; the
             input is held in memory, and -k names a field rather than the line
   spin      [<millions>] — loop without stopping, so you can kill it
   tail      [-n <count>] [<file>...] — the last lines, ten by default
+  tee       [-ai] [<file>...] — copy the input to the output and to each
+            file; -a adds to them, -i ignores ^C
   test      <expr> — test a condition; the result is the exit status
   timeout   [-m] <secs> <command> [<arg>...]
             — run a command, and kill it after a delay (124)
   touch     <file>... — make empty files, or update an existing one's mtime
+  tr        [-cds] <string1> [<string2>] — translate, squeeze or delete
+            characters; -c uses the ones not named, -d deletes, -s squeezes
   truncate  [-co] [-r <rfile>] [-s [+-<>/%]<size>] <file>...
             — set a file's length, growing it with zeros or shrinking it
   true      do nothing, and succeed

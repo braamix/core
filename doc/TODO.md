@@ -65,12 +65,11 @@ Adding a program also moves two counts that are written down: `compared` in
 `test/unit/test_zip.cpp` (the archive's file count) and the byte count in
 `test/system/subst.mjs` (which concatenates `/etc/help` three times).
 
-- [ ] **A6. `tee`, `cut`, `tr`, `seq`** — one read/write loop each.
 - [ ] **A7. `xargs`** — `Spawn`/`Wait`; watch `SYS_CHILD_MAX` (16). It is also
       what answers for `find -exec`, which A3 left out for it.
 - [ ] **A8. `cmp`, `diff`** — `diff` last, the only one needing an algorithm.
 
-Size is not the constraint: `rootfs/` is around 1.5 MB of the 2 MB in
+Size is not the constraint: `rootfs/` is around 1.6 MB of the 2 MB in
 `tools/size_budget.txt`, at 13–19 KB a program, or 27–37 KB for one carrying a
 `File`.
 
@@ -99,12 +98,6 @@ where several writes coalesce into one syscall. None of the below moves
 `PROC_ABI` or adds an operation, and each names the caller that would satisfy
 §4.3's first rule.
 
-- [ ] **D1. `/bin/tr`.** A6 already names it, and it is the rune path's first
-      real caller: `File::get`, `File::put` and `rune_lower` have no caller in
-      `src/cmd/` today and are covered by `test/unit/test_filebuf.cpp` and the
-      manual's worked example alone. Wants a line in `rootfs/etc/help` and a
-      system case, and moves `compared` in `test_zip.cpp` and the byte count in
-      `subst.mjs` as any new program does.
 - [ ] **D2. Nothing, for formatted output over a `File`.** Recorded so it is
       not re-derived: typed `put`s were built and reverted. `df` was converted
       whole — output byte-identical, columns verified — and cost **7,494 bytes,
