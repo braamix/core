@@ -76,7 +76,8 @@ Programs in /bin
   hog       take memory until the limit stops it
   less      [<file>] — read a file a screen at a time; q quits
   ln        -s [-f] <target> <name> — make a symbolic link
-  ls        [-1CRSdhlrt] [<path>...] — list files, in columns on a terminal
+  ls        [-1CRSadhlrt] [<path>...] — list files, in columns on a terminal;
+            a dot name only under -a
   mkdir     [-p] <dir>... — make directories, with missing parents under -p
   mount     [<special> <dir>] — list the mounted filesystems, or mount one
   mv        [-fi] <src>... <dst> — move or rename files

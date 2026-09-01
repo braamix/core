@@ -31,6 +31,45 @@ first:
 
 ---
 
+## The dot `ls` was the only thing still showing
+
+`ls` listed every name a directory held. The shell's globber has never done
+that — `glob.cpp`'s "a leading dot has to be asked for" is as old as globbing
+here — so `*` and a bare `ls` disagreed about what was in a directory, and the
+disagreement was `ls`'s. It now hides a leading dot unless `-a` asks, which is
+what every Unix `ls` has done since v7 and what makes the two agree.
+
+The filter is four lines in `list_one`, and where they sit is the whole of the
+design. They compact `st.ents` in place immediately after `list_dir` returns —
+*before* `sort_block` and before the `-R` push walks the block for child
+directories. So hiding a name and not descending into it are one decision
+rather than two that can drift apart: `ls -R` skips `.git` because it never saw
+it, not because a second test caught it. `-l`'s `total` falls out the same way,
+counting the blocks of what is shown rather than of what is there. Filtering at
+print time would have needed three separate exclusions and would have got one
+of them wrong.
+
+`.` and `..` are not synthesized under `-a`, and this is the one place the
+listing departs from BSD. The VFS has no such entries — `path.cpp` and `fs.js`
+know the two names only to reject them in a path — so producing them would mean
+inventing a kind, a size and an mtime for each, and then a guard in the `-R`
+walk against descending into the entry that *is* the directory being walked.
+Two fabricated rows in every listing, to be excluded again everywhere they
+matter. `-a` shows the names that exist.
+
+Operands are exempt: `ls .profile` prints, and so does `ls -d .git`. The filter
+is in `list_one`, which is fed by `list_dir`; `run` builds its block out of
+argv and never passes through it. That is BSD's rule too, and here it needed no
+code to get — a name the user typed is a name the user asked for.
+
+`find` still shows everything, deliberately, and `test/system/find.mjs` pins
+that. A dot rule belongs to the thing that *lists a directory for a reader* —
+`ls` and the globber — not to the thing that walks a tree for a script.
+
+`/home/t`, the fixture the twenty-one listing cases share, now has a `.dot` and
+a `.d/` in it, and all twenty-one expectations are unchanged. That is the
+assertion: the same strings, over a directory that now holds two more entries.
+
 ## `cmp` and `diff`, and an algorithm that is not FreeBSD's
 
 [TODO.md](TODO.md)'s **A8**, and section A is spent with it: every program that

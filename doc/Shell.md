@@ -917,7 +917,7 @@ builtins with it; each program also answers for itself.
 | `hog` | take memory until the cap refuses more |
 | `less` | page a file on a terminal, copy it off one; `q` quits |
 | `ln` | make a symbolic link |
-| `ls` | list directories, in columns on a terminal |
+| `ls` | list directories, in columns on a terminal; a dot name only under `-a` |
 | `mkdir` | create directories |
 | `mount` | list the mounted filesystems; mounting one is refused so far |
 | `mv` | move or rename files |

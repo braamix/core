@@ -43,6 +43,10 @@ export function check() {
     // Restamps aaa, so -t and -S disagree — and so `touch` on a file that is
     // already there is a moved mtime rather than a no-op.
     submit("touch /home/t/aaa", 1186.34);
+    // Hidden unless -a asks: every case below that does not ask must read as if
+    // these two were not there, -R's walk included.
+    submit("echo x > /home/t/.dot", 1186.35);
+    submit("mkdir /home/t/.d", 1186.36);
 
     // aaa=3, bb=2, sub/=4, so the column is 4 + 2 wide and three of them fit.
     const listing = (line, now) => {
@@ -66,6 +70,11 @@ export function check() {
         // The last of -S and -t wins, as the last of -l, -1 and -C does.
         ["ls -St /home/t", "aaa   bb    sub/"],
         ["ls -tS /home/t", "bb    aaa   sub/"],
+        // -a reveals the two, in byte order, so a dot name sorts first.
+        ["ls -a /home/t", ".d/   .dot  aaa   bb    sub/"],
+        ["ls -a1 /home/t", ".d/|.dot|aaa|bb|sub/"],
+        ["ls -aR /home/t",
+            "/home/t:|.d/   .dot  aaa   bb    sub/||/home/t/.d:||/home/t/sub:"],
         ["ls -d /home/t", "/home/t/"],
         // Bundled, and a named directory gets no `total`.
         ["ls -dl /home/t", "dir  0            - /home/t/"],
@@ -113,7 +122,7 @@ export function check() {
     // lists, and asking is stdout and 0.
     s = submit("clear", 1186.82);
     s = submit("ls --help", 1186.83);
-    if (!output(s).includes("    ls [-1CRSdhlrt] [<path>...]") || !rows(s).includes(prompt(0)))
+    if (!output(s).includes("    ls [-1CRSadhlrt] [<path>...]") || !rows(s).includes(prompt(0)))
         fail(`ls --help printed ${JSON.stringify(output(s))}, expected the usage block`);
     s = submit("clear", 1186.84);
     s = submit("ls -h /home/t", 1186.85);

@@ -15,19 +15,20 @@
 
 namespace {
 
-constexpr Opts LS_OPTS{ "1CRSdhlrt", "" };
+constexpr Opts LS_OPTS{ "1CRSadhlrt", "" };
 
 constexpr usize GAP         = 2;   // between columns
 constexpr u32 WIDTH_DEFAULT = 80;  // -C with no terminal to measure
 constexpr u64 BLOCK         = 512; // FS_BLOCK, which is what `total` counts
 constexpr Str USAGE =
     "Usage:\n"
-    "    ls [-1CRSdhlrt] [<path>...]\n"
+    "    ls [-1CRSadhlrt] [<path>...]\n"
     "Options:\n"
     "    -l    one line each: kind, size, time, name\n"
     "    -C    in columns; the default on a terminal\n"
     "    -1    one name per line\n"
     "    -R    descend into the directories listed\n"
+    "    -a    names beginning with a dot as well\n"
     "    -d    the directory itself, not what is in it\n"
     "    -t    newest first\n"
     "    -S    largest first\n"
@@ -46,6 +47,7 @@ struct Lister {
     bool columns = false; // -C, or a terminal with no layout flag given
     bool human   = false; // -h
     bool recurse = false; // -R
+    bool all     = false; // -a
     bool reverse = false; // -r
     char order   = 0;     // -S or -t, the last of the two given
     bool self    = false; // -d
@@ -356,6 +358,20 @@ Task<i32> list_one(Lister &st, Str path)
     st.ents = move(r.value());
     if (!st.dir.assign(path))
         co_return 1;
+
+    // A leading dot has to be asked for. Dropped before the sort and before
+    // -R's push, so a dot directory is neither printed nor walked.
+    if (!st.all) {
+        usize w = 0;
+        for (usize i = 0; i < st.ents.size(); i++) {
+            if (st.ents[i].name.size() && st.ents[i].name[0] == '.')
+                continue;
+            if (w != i)
+                st.ents[w] = move(st.ents[i]);
+            w++;
+        }
+        st.ents.resize(w);
+    }
     sort_block(st);
 
     // Pushed in reverse of the order they will print, so they pop in it. A link
@@ -489,6 +505,9 @@ Task<i32> proc_main(Args args)
             break;
         case 'R':
             st->recurse = true;
+            break;
+        case 'a':
+            st->all = true;
             break;
         case 'S':
         case 't':
