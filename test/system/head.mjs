@@ -61,8 +61,8 @@ export function check() {
     is("head -n 1 nope > /dev/null 2>&1; echo $?", "1");
     is("head -n 1 b > /dev/null; echo $?", "0");
 
-    // Far past the depth a coroutine per line died at: 65,536 lines through
-    // one read loop, which is why this program no longer holds a File.
+    // Far past the depth a coroutine per line died at, back when getline was
+    // one: 65,536 lines through one read loop.
     line("seq 1 65536 > big");
     is("head -n 65536 big | wc -l", counts(65536));
     line("rm big");

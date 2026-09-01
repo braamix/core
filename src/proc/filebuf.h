@@ -57,6 +57,9 @@ struct FileBuf {
     // Appends the held bytes up to a newline, consuming what it appended.
     LineStep take_line(String &out, bool keep_nl);
 
+    // Whether a whole line is in hand: what take_line answers Done to.
+    bool has_line() const { return ready() && held().find('\n') != Str::npos; }
+
     // ---- writing -------------------------------------------------------
 
     bool append(Str s);

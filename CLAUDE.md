@@ -209,6 +209,12 @@ Further constraints, easy to violate by habit:
 - **Coroutine frame allocation is the hot path.** A frame past 512 bytes costs a
   whole 64 KiB span; long-lived state belongs in a heap block the frame points
   at. `FS_BLOCK` is 512 for the same reason.
+- **A per-item loop is an awaiter, not a `Task`.** A `Task` that answers without
+  suspending resumes its awaiter on the awaiter's own stack, so a loop that
+  calls one per item never reaches the trampoline and the shadow stack grows a
+  frame an item (§3.3). `File::get`, `File::getline`, `LineReader::next` and
+  `TreeWalk::next` are awaiters with an `await_ready` fast path for that reason;
+  the fast half must answer wholly or consume nothing.
 - **A host request may outlive the coroutine that issued it.** Anything whose
   address crosses to JS must be a heap record that survives a cancelled await,
   never a frame buffer; `wake()` on an unclaimed token reaps one, which is why

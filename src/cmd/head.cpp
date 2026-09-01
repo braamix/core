@@ -9,8 +9,9 @@
 // up this program's input, and the next write on the other side reports Closed.
 // That is also what ends `cat /dev/random | head -c 8`.
 //
-// Lines are split out of chunks here rather than read through File::getline: a
-// coroutine per line is a stack frame per line.
+// Lines are split out of chunks here rather than read through File::getline:
+// each file is opened here, for the per-file headers, and a File's bytes buy
+// nothing else.
 
 namespace {
 

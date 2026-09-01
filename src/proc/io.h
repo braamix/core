@@ -12,6 +12,22 @@
 #include "kernel/vec.h"
 #include "rt.h"
 
+// The shared half of a buffered step: either the buffer answered in
+// await_ready, or this carries the slow path's frame, which the awaiter — and
+// so the awaiting coroutine's frame — owns.
+struct SlowStep {
+    Task<void> slow;
+
+    template <class P>
+    std::coroutine_handle<> enter(std::coroutine_handle<P> caller) noexcept
+    {
+        auto h                   = slow.handle();
+        h.promise().continuation = caller;
+        h.promise().cancel       = caller.promise().cancel;
+        return h;
+    }
+};
+
 // Writes all of `s`, retrying a short write.
 Task<Result<void>> write_all(u32 fd, Str s);
 
@@ -101,6 +117,27 @@ Task<Result<void>> copy_file(Str from, Str to);
 // Descends on SYS_KIND_DIR alone, so a link is handed over rather than followed
 // and no cycle guard is needed. `root` itself is not reported — a caller that
 // wants it stats it — and is a view, so it must outlive the walk.
+struct TreeWalk;
+
+// One entry of a walk. An awaiter for the reason LineNext is one: an entry the
+// walk already listed must not enter a coroutine.
+struct TreeNext : SlowStep {
+    TreeWalk *w    = nullptr;
+    String *path   = nullptr;
+    DirEntry *e    = nullptr;
+    Result<bool> v = Err(Error::Io);
+
+    bool await_ready();
+
+    template <class P>
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<P> c) noexcept
+    {
+        return enter(c);
+    }
+
+    Result<bool> await_resume() const { return v; }
+};
+
 struct TreeWalk {
     explicit TreeWalk(Str root) : root_(root)
     {
@@ -117,7 +154,7 @@ struct TreeWalk {
     // ok(false) past the last one. A directory that will not list is an Err
     // naming it in `at()`, and that level is dropped — so a caller that reports
     // and calls again walks the rest, and one that returns stops here.
-    Task<Result<bool>> next(String &path, DirEntry &e);
+    TreeNext next(String &path, DirEntry &e) { return TreeNext{ {}, this, &path, &e }; }
 
     // How much of a reported path is the root: path.substr(root_len()) is what
     // lies under it, leading '/' and all. The root itself contributes none.
@@ -127,11 +164,20 @@ struct TreeWalk {
     Str at() const { return at_.str(); }
 
 private:
+    friend struct TreeNext;
+
     struct TreeLevel {
         Vec<DirEntry> ents;
         usize at = 0;
         String path;
     };
+
+    // True when the levels in hand answered.
+    bool step_(String &path, DirEntry &e, Result<bool> &v);
+
+    void report_(String &path, DirEntry &e, Result<bool> &v);
+
+    Task<void> next_slow_(String *path, DirEntry *e, Result<bool> *v);
 
     Vec<TreeLevel> levels_;
     Str root_;
@@ -419,17 +465,44 @@ private:
     bool own_;
 };
 
-// Splits an Input into lines. The applet's twin in src/user/io.h, kept the same
-// shape so a ported program's loop is the loop it had: a line may span any
-// number of chunks, and a final fragment with no newline is a line.
+struct LineReader;
+
+// One line. ok(false) at end of input. An awaiter, not a Task: a line already
+// in the buffer must not enter a coroutine, or the loop is a frame per line.
+struct LineNext : SlowStep {
+    LineReader *r  = nullptr;
+    String *out    = nullptr;
+    Result<bool> v = Err(Error::Io);
+
+    bool await_ready();
+
+    template <class P>
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<P> c) noexcept
+    {
+        return enter(c);
+    }
+
+    Result<bool> await_resume() const { return v; }
+};
+
+// Splits an Input into lines. The applet's twin in src/user/io.h answers the
+// same way — ok(true) with a line, ok(false) at end of input — and is still a
+// Task, having no caller but test_io; a line may span any number of chunks, and
+// a final fragment with no newline is a line.
 struct LineReader {
     explicit LineReader(Input &in) : in_(in) {}
 
-    // ok(true) with `out` set to the next line, without its newline; ok(false)
-    // at end of input.
-    Task<Result<bool>> next(String &out);
+    // `out` holds the next line, without its newline.
+    LineNext next(String &out) { return LineNext{ {}, this, &out }; }
 
 private:
+    friend struct LineNext;
+
+    // True when the buffer alone answered.
+    bool take_(String &out, Result<bool> &v);
+
+    Task<void> next_slow_(String *out, Result<bool> *v);
+
     Input &in_;
     String buf_;
     usize pos_ = 0; // consumed prefix of buf_, compacted when it refills

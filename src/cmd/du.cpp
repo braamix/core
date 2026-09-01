@@ -151,9 +151,7 @@ Task<i32> walk_one(Duer &st, Str root)
     i32 status = 0;
     TreeWalk walk(root);
     for (;;) {
-        Result<bool> more = Err(Error::NoMemory);
-        if (Task<Result<bool>> t = walk.next(st.path, st.ent))
-            more = co_await t;
+        Result<bool> more = co_await walk.next(st.path, st.ent);
         if (more.is_err()) {
             if (more.error() == Error::Cancelled)
                 co_return 130;

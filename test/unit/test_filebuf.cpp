@@ -176,6 +176,25 @@ void test_filebuf()
         CHECK(out.empty());
     }
 
+    // has_line is what take_line would answer Done to, and it is what lets
+    // File::getline answer from the buffer without entering a coroutine.
+    {
+        FileBuf b;
+        String out;
+
+        CHECK(!b.has_line()); // no block at all
+        b.adopt(block, sizeof(block));
+        CHECK(!b.has_line());
+
+        refill(b, "frag");
+        CHECK(!b.has_line());
+        refill(b, "ment\nrest");
+        CHECK(b.has_line());
+        CHECK(b.take_line(out, false) == LineStep::Done);
+        CHECK(out == "fragment");
+        CHECK(!b.has_line());
+    }
+
     // Writing: what fits goes in, what does not is refused whole.
     {
         FileBuf b;

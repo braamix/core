@@ -34,9 +34,7 @@ Task<Result<bool>> confirm(Str dst, LineReader &answers)
     co_await write_all(SYS_STDERR, "? ");
 
     String line;
-    Result<bool> r = Err(Error::NoMemory);
-    if (Task<Result<bool>> t = answers.next(line))
-        r = co_await t;
+    Result<bool> r = co_await answers.next(line);
     if (r.is_err())
         co_return Err(r.error());
     co_return r.value() && !line.empty() && (line.str()[0] == 'y' || line.str()[0] == 'Y');

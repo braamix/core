@@ -159,9 +159,8 @@ Task<i32> proc_main(Args args)
             co_return r.error() == Error::Cancelled ? 130 : 1;
         }
 
-        // Split here rather than through a line reader: a Task that answers
-        // without suspending resumes its caller on the caller's own stack, so a
-        // coroutine per line is a stack frame per line.
+        // Split here rather than through a line reader: this program holds
+        // no File, and a File's bytes buy nothing it needs.
         String chunk = move(r.value());
         Str s        = chunk.str();
         while (!s.empty()) {

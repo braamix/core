@@ -203,6 +203,14 @@ payload. An awaiter takes its token *before* it suspends, so it can tell the
 host which token to signal and only then park. `tick()` is the only thing that
 ever resumes a coroutine.
 
+A `Task` that answers **without suspending** resumes its awaiter from inside its
+own final suspend, on the awaiter's own stack: a loop that calls one per item
+never gets back to the trampoline, and the shadow stack grows a frame an item
+until it traps. **A per-item step is therefore an awaiter with an `await_ready`
+fast path, not a `Task`** — the buffer, the line or the entry that is already in
+hand must enter no coroutine at all. `File::get`, `File::getline`,
+`LineReader::next` and `TreeWalk::next` are that shape.
+
 ### 3.4 The JS boundary
 
 The whole surface is nine exports and seven imports, asserted exactly in

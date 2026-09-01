@@ -146,8 +146,7 @@ Task<i32> script()
     bool exiting = false;
 
     for (;;) {
-        Task<Result<bool>> t = lines.next(line);
-        Result<bool> r       = t ? co_await t : Err(Error::NoMemory);
+        Result<bool> r = co_await lines.next(line);
         if (r.is_err())
             co_return r.error() == Error::Cancelled ? 130 : 1;
         if (!r.value())

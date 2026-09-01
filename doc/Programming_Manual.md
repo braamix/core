@@ -444,8 +444,10 @@ answers `ok(false)`. The stack is explicit and on the heap, so depth costs no
 coroutine frame and there is no ceiling to declare; `root` itself is not
 reported, since a caller that wants it has already stat'd it. A directory that
 will not list is an `Err` naming itself in `at()`, and that level is dropped —
-report it and call again to walk the rest, or return and stop. `copy_tree`
-and `/bin/find` are both written over it.
+report it and call again to walk the rest, or return and stop. `next` is an
+awaiter rather than a `Task`, for the reason `File`'s reads are: an entry the
+walk has already listed must not enter a coroutine. `copy_tree`, `/bin/find`
+and `/bin/du` are all written over it.
 
 `rename_path(from, to)` follows neither end and replaces the destination — and
 its `Err(Unsupported)` is an instruction rather than a failure: the store cannot
@@ -526,10 +528,17 @@ took whitespace and a sign before finding no digit answers `Err(Invalid)`
 rather than restoring them. The `Str` half has no such limit: `used` is 0 when
 nothing matched, so a caller that wants to back up simply does not advance.
 
-`get()` and `put()` are not `Task`s but awaiters, so the common case — the
-buffer already holds a rune, or has room for one — allocates no coroutine frame
-at all, and a slow-path frame that will not allocate becomes `Err(NoMemory)`
-rather than the panic that `co_await` on a null `Task` gives.
+`get()`, `put()`, `read()`, `write()` and `getline()` are not `Task`s but
+awaiters, so the common case — the buffer already holds a rune, a whole line, or
+room for what is being written — allocates no coroutine frame at all, and a
+slow-path frame that will not allocate becomes `Err(NoMemory)` rather than the
+panic that `co_await` on a null `Task` gives. That is not only an allocation
+saved. A `Task` that answers **without suspending** resumes its awaiting
+coroutine on the awaiter's own stack, so a loop over an already-buffered stream
+never returns to the trampoline and the shadow stack grows a frame an item:
+`getline` as a `Task` died at four thousand lines. **A per-item loop wants an
+awaiter with an `await_ready` fast path, not a `Task`** — `LineReader::next` and
+`TreeWalk::next` in `io.h` are the same shape for the same reason.
 
 Four rules, all of which bite:
 

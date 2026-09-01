@@ -322,49 +322,84 @@ Task<Result<void>> copy_file(Str from, Str to)
     co_return r;
 }
 
-Task<Result<bool>> TreeWalk::next(String &path, DirEntry &e)
+// One entry off the levels in hand. Deepest first, and a level with nothing
+// left is popped: an empty directory adds one and loses it again without
+// reporting anything.
+void TreeWalk::report_(String &path, DirEntry &e, Result<bool> &v)
 {
-    at_.clear();
-
-    // The root the first time, then whichever directory was reported last: one
-    // listing per call at most, so a failure names one directory.
-    if (!began_ || !pending_.empty()) {
-        TreeLevel lv;
-        if (!lv.path.assign(began_ ? pending_.str() : root_))
-            co_return Err(Error::NoMemory);
-        began_ = true;
-        pending_.clear();
-
-        Result<Vec<DirEntry>> got = Err(Error::NoMemory);
-        if (Task<Result<Vec<DirEntry>>> t = list_dir(lv.path.str()))
-            got = co_await t;
-        if (got.is_err()) {
-            at_ = move(lv.path);
-            co_return Err(got.error());
-        }
-        lv.ents = move(got.value());
-        if (!levels_.push(move(lv)))
-            co_return Err(Error::NoMemory);
-    }
-
-    // Deepest first, and a level with nothing left is popped: an empty
-    // directory adds one and loses it again without reporting anything.
     while (!levels_.empty() && levels_.back().at == levels_.back().ents.size())
         levels_.pop();
-    if (levels_.empty())
-        co_return false;
+    if (levels_.empty()) {
+        v = false;
+        return;
+    }
 
     TreeLevel &lv = levels_.back();
     e             = move(lv.ents[lv.at]);
     lv.at++;
-    if (path_join(lv.path.str(), e.name.str(), path).is_err())
-        co_return Err(Error::NoMemory);
+    if (path_join(lv.path.str(), e.name.str(), path).is_err()) {
+        v = Err(Error::NoMemory);
+        return;
+    }
 
     // Descended into on the next call, so the caller sees a directory before
     // what is in it.
-    if (e.kind == SYS_KIND_DIR && !pending_.assign(path.str()))
-        co_return Err(Error::NoMemory);
-    co_return true;
+    if (e.kind == SYS_KIND_DIR && !pending_.assign(path.str())) {
+        v = Err(Error::NoMemory);
+        return;
+    }
+    v = true;
+}
+
+// True when no listing is needed: the entry is one this walk already holds.
+bool TreeWalk::step_(String &path, DirEntry &e, Result<bool> &v)
+{
+    at_.clear();
+    if (!began_ || !pending_.empty())
+        return false;
+    report_(path, e, v);
+    return true;
+}
+
+// The root the first time, then whichever directory was reported last: one
+// listing per call at most, so a failure names one directory.
+Task<void> TreeWalk::next_slow_(String *path, DirEntry *e, Result<bool> *v)
+{
+    TreeLevel lv;
+    if (!lv.path.assign(began_ ? pending_.str() : root_)) {
+        *v = Err(Error::NoMemory);
+        co_return;
+    }
+    began_ = true;
+    pending_.clear();
+
+    Result<Vec<DirEntry>> got = Err(Error::NoMemory);
+    if (Task<Result<Vec<DirEntry>>> t = list_dir(lv.path.str()))
+        got = co_await t;
+    if (got.is_err()) {
+        at_ = move(lv.path);
+        *v  = Err(got.error());
+        co_return;
+    }
+    lv.ents = move(got.value());
+    if (!levels_.push(move(lv))) {
+        *v = Err(Error::NoMemory);
+        co_return;
+    }
+
+    report_(*path, *e, *v);
+}
+
+bool TreeNext::await_ready()
+{
+    if (w->step_(*path, *e, v))
+        return true;
+    slow = w->next_slow_(path, e, &v);
+    if (!slow) {
+        v = Err(Error::NoMemory);
+        return true;
+    }
+    return false;
 }
 
 Task<Result<void>> copy_tree(Str from, Str to)
@@ -379,9 +414,7 @@ Task<Result<void>> copy_tree(Str from, Str to)
     String src, dst;
     DirEntry e;
     for (;;) {
-        Result<bool> more = Err(Error::NoMemory);
-        if (Task<Result<bool>> t = walk.next(src, e))
-            more = co_await t;
+        Result<bool> more = co_await walk.next(src, e);
         if (more.is_err())
             co_return Err(more.error());
         if (!more.value())
@@ -991,53 +1024,89 @@ Task<Result<String>> Input::read()
     }
 }
 
-Task<Result<bool>> LineReader::next(String &out)
+// What the bytes in hand answer: a line, the last fragment, or end of input.
+bool LineReader::take_(String &out, Result<bool> &v)
 {
-    out.clear();
-    for (;;) {
-        for (usize i = pos_; i < buf_.size(); i++) {
-            if (buf_[i] != '\n')
-                continue;
-            if (!out.append(Str(buf_.data() + pos_, i - pos_)))
-                co_return Err(Error::NoMemory);
-            pos_ = i + 1;
-            if (pos_ == buf_.size()) {
-                buf_.clear();
-                pos_ = 0;
-            }
-            co_return true;
+    for (usize i = pos_; i < buf_.size(); i++) {
+        if (buf_[i] != '\n')
+            continue;
+        out.clear();
+        if (!out.append(Str(buf_.data() + pos_, i - pos_))) {
+            v = Err(Error::NoMemory);
+            return true;
         }
-
-        if (eof_) {
-            if (pos_ == buf_.size())
-                co_return false;
-            if (!out.append(Str(buf_.data() + pos_, buf_.size() - pos_)))
-                co_return Err(Error::NoMemory);
+        pos_ = i + 1;
+        if (pos_ == buf_.size()) {
             buf_.clear();
             pos_ = 0;
-            co_return true;
         }
+        v = true;
+        return true;
+    }
 
+    if (!eof_)
+        return false;
+
+    out.clear();
+    if (pos_ == buf_.size()) {
+        v = false;
+        return true;
+    }
+    // A final fragment with no newline is a line.
+    if (!out.append(Str(buf_.data() + pos_, buf_.size() - pos_))) {
+        v = Err(Error::NoMemory);
+        return true;
+    }
+    buf_.clear();
+    pos_ = 0;
+    v    = true;
+    return true;
+}
+
+Task<void> LineReader::next_slow_(String *out, Result<bool> *v)
+{
+    out->clear();
+    for (;;) {
         Task<Result<String>> t = in_.read();
-        if (!t)
-            co_return Err(Error::NoMemory);
+        if (!t) {
+            *v = Err(Error::NoMemory);
+            co_return;
+        }
         Result<String> r = co_await t;
         if (r.is_err()) {
-            if (r.error() != Error::Closed)
-                co_return Err(r.error());
+            if (r.error() != Error::Closed) {
+                *v = Err(r.error());
+                co_return;
+            }
             eof_ = true;
-            continue;
+        } else {
+            // The unread tail slides down before the buffer takes more, so a
+            // long-running reader does not grow it without bound.
+            if (pos_ > 0) {
+                usize rest = buf_.size() - pos_;
+                __builtin_memmove(buf_.data(), buf_.data() + pos_, rest);
+                buf_.truncate(rest);
+                pos_ = 0;
+            }
+            if (!buf_.append(r.value().str())) {
+                *v = Err(Error::NoMemory);
+                co_return;
+            }
         }
 
-        // The unread tail slides down before the buffer takes more, so a
-        // long-running reader does not grow it without bound.
-        if (pos_ > 0) {
-            usize rest = buf_.size() - pos_;
-            __builtin_memmove(buf_.data(), buf_.data() + pos_, rest);
-            buf_.truncate(rest);
-            pos_ = 0;
-        }
-        if (!buf_.append(r.value().str()))
-            co_return Err(Error::NoMemory);
+        if (take_(*out, *v))
+            co_return;
     }
+}
+
+bool LineNext::await_ready()
+{
+    if (r->take_(*out, v))
+        return true;
+    slow = r->next_slow_(out, &v);
+    if (!slow) {
+        v = Err(Error::NoMemory);
+        return true;
+    }
+    return false;
 }

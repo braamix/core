@@ -24,6 +24,7 @@ import * as flow from "./system/flow.mjs";
 import * as fullscreen from "./system/fullscreen.mjs";
 import * as complete from "./system/complete.mjs";
 import * as glob from "./system/glob.mjs";
+import * as grep from "./system/grep.mjs";
 import * as head from "./system/head.mjs";
 import * as help from "./system/help.mjs";
 import * as interrupt from "./system/interrupt.mjs";
@@ -140,6 +141,7 @@ const CASES = [
     ["wc",         wc.check],
     ["head",       head.check],       // after wc: it counts what head printed
     ["xargs",      xargs.check],      // after the four: it runs them in batches
+    ["grep",       grep.check],       // after xargs: the same shell, and a file of its own
     // Bytes, then lines: each needs a shell and nothing more.
     ["cmp",        cmp.check],
     ["diff",       diff.check],

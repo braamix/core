@@ -35,24 +35,8 @@ constexpr usize FILE_BUF = 512;
 
 struct File;
 
-// The shared half of a buffered step. Either the buffer answered in
-// await_ready, or this carries the slow path's frame, which the awaiter — and
-// so the awaiting coroutine's frame — owns.
-struct FileSlow {
-    Task<void> slow;
-
-    template <class P>
-    std::coroutine_handle<> enter(std::coroutine_handle<P> caller) noexcept
-    {
-        auto h                   = slow.handle();
-        h.promise().continuation = caller;
-        h.promise().cancel       = caller.promise().cancel;
-        return h;
-    }
-};
-
 // One rune. Err(Closed) at end of input.
-struct FileGet : FileSlow {
+struct FileGet : SlowStep {
     File *f            = nullptr;
     Result<char32_t> v = Err(Error::Io);
 
@@ -68,7 +52,7 @@ struct FileGet : FileSlow {
 };
 
 // One rune, encoded.
-struct FilePut : FileSlow {
+struct FilePut : SlowStep {
     File *f        = nullptr;
     char32_t ch    = 0;
     Result<void> v = Err(Error::Io);
@@ -85,7 +69,7 @@ struct FilePut : FileSlow {
 };
 
 // Bytes, not runes: a UTF-8 sequence may straddle two calls.
-struct FileWrite : FileSlow {
+struct FileWrite : SlowStep {
     File *f = nullptr;
     Str s;
     Result<void> v = Err(Error::Io);
@@ -103,7 +87,7 @@ struct FileWrite : FileSlow {
 
 // As many bytes as are there, never more than the span. Err(Closed) at end of
 // input, so a short read is never mistaken for one.
-struct FileRead : FileSlow {
+struct FileRead : SlowStep {
     File *f = nullptr;
     Span<char> into;
     Result<usize> v = Err(Error::Io);
@@ -117,6 +101,27 @@ struct FileRead : FileSlow {
     }
 
     Result<usize> await_resume() const { return v; }
+};
+
+// One line. ok(false) at end of input; a final fragment with no newline is a
+// line. An awaiter, not a Task: a line already in the buffer must not enter a
+// coroutine, or the loop is a frame per line.
+struct FileLine : SlowStep {
+    File *f      = nullptr;
+    String *out  = nullptr;
+    bool keep_nl = false;
+
+    Result<bool> v = Err(Error::Io);
+
+    bool await_ready();
+
+    template <class P>
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<P> c) noexcept
+    {
+        return enter(c);
+    }
+
+    Result<bool> await_resume() const { return v; }
 };
 
 struct File {
@@ -150,9 +155,11 @@ struct File {
 
     FileRead read(Span<char> into) { return FileRead{ {}, this, into }; }
 
-    // ok(true) with `out` set to the next line; ok(false) at end of input. A
-    // final fragment with no newline is a line.
-    Task<Result<bool>> getline(String &out, bool keep_nl = false);
+    // ok(true) with `out` set to the next line; ok(false) at end of input.
+    FileLine getline(String &out, bool keep_nl = false)
+    {
+        return FileLine{ {}, this, &out, keep_nl };
+    }
 
     // ---- scanning ------------------------------------------------------
     //
@@ -221,17 +228,20 @@ private:
     friend struct FilePut;
     friend struct FileWrite;
     friend struct FileRead;
+    friend struct FileLine;
 
     // True when the buffer alone answered.
     bool take_(Result<char32_t> &out);
     bool put_(char32_t c, Result<void> &out);
     bool write_(Str s, Result<void> &out);
     bool read_(Span<char> into, Result<usize> &out);
+    bool line_(String &out, bool keep_nl, Result<bool> &v);
 
     Task<void> get_slow_(Result<char32_t> *out);
     Task<void> put_slow_(char32_t c, Result<void> *out);
     Task<void> write_slow_(Str s, Result<void> *out);
     Task<void> read_slow_(Span<char> into, Result<usize> *out);
+    Task<void> line_slow_(String *out, bool keep_nl, Result<bool> *v);
 
     // One byte of lookahead, which is all the scanners need and all the
     // buffer promises to take back.

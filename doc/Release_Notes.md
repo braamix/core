@@ -31,6 +31,98 @@ first:
 
 ---
 
+## A line that must not enter a coroutine, and the walk with the same shape
+
+B3 was written down when `sort` trapped on a 512-line file with the stack four
+hundred frames deep, and it named the mechanism exactly: a `Task` that answers
+**without suspending** resumes its awaiting coroutine from inside its own final
+suspend, on the awaiter's own stack. `SysCall::await_ready` is always false, so
+a real syscall is the only thing in a process that unwinds back to `_resume`'s
+trampoline; a loop over an already-buffered stream performs none, and the shadow
+stack grows a frame an item until the module traps. What the entry did not say
+is how *near* the surface it was. Measured before the fix, on a file of `seq`
+output:
+
+| | died at |
+| --- | --- |
+| `grep zzz big` | 4,096 lines |
+| `cat big \| tail -n 1` | 1,024 lines |
+| `less big` | 2,048 lines |
+| `du -s` on one directory | 1,000 entries |
+
+The first three are `File::getline` and `LineReader::next`, which B3 named. The
+fourth is `TreeWalk::next`, which it did not, and which was found while checking
+that nothing else in `proc/io.h` had the shape: a walk answers most entries out
+of the level it has already listed, so `du` — which sums from the listing and
+performs no syscall per file — died at a thousand files in a directory. `find`
+and `cp -r` walk the same tree and survive, because each writes or copies per
+entry and unwinds on that syscall. That is luck rather than design, and it is
+the argument for fixing the walk here rather than filing it: the two programs
+that do not trap are one refactor away from being the two that do.
+
+**The fix is the shape `FileGet`, `FileRead` and `FileWrite` have had since
+0.7** — an awaiter whose `await_ready()` answers from what is in hand, so the
+common case enters no coroutine at all, and whose slow path is a `Task` built
+*into the awaiter*, which lives in the awaiting coroutine's own frame. Three
+more of them now: `FileLine`, `LineNext` and `TreeNext`. A call that must refill
+enters exactly one coroutine, and that coroutine always suspends, so depth is
+bounded by what a single fill costs rather than by the length of the input.
+`FileSlow` served a non-`File` type once `LineReader` and `TreeWalk` acquired
+one, so it moved to `proc/io.h` under the name `SlowStep`, which is all the
+rename was.
+
+**A fast half must answer wholly or take nothing**, which is the one thing the
+split is delicate about. `FileBuf::take_line` consumes the fragment it could not
+finish, so a fast half that called it and then gave up would have eaten bytes
+the slow half knows nothing about — the `seen` counter that makes "a final
+fragment with no newline is a line" work is per call. Hence `FileBuf::has_line`,
+inline and unit-tested: the fast half looks first and only then takes.
+`LineReader::take_` and `TreeWalk::step_` answer the same way — a newline
+already in the buffer, an entry already in the level, or nothing at all.
+
+**`LineReader` was fixed in place rather than unwound onto `File`.** Converting
+its callers was the alternative, and it would have cost `less`, `chat` and `sh`
+a `File` each — some 7 KB apiece for a stream they only read — while D3 still
+wants the type gone for a different reason. The awaiter costs `less` 134 bytes
+and `chat` 135. The kernel twin in `src/user/io.h` stays a `Task`: it has no
+caller but `test_io`, and what the two share is the answer shape — `ok(true)`
+with a line, `ok(false)` at the end — which the awaiter keeps. Its comment now
+says so, so the divergence is not read as drift.
+
+**`getline` also gained the `settle_(false)` that `get_slow_` and `read_slow_`
+always had.** An `Update` stream that wrote and then called `getline` read its
+own output buffer back as input. No caller in the tree does that — there are two
+`getline` callers and both are read-only — but the slow half is the place that
+rule lives, and the split was the moment to put it there.
+
+**The chunk-splitting in `sort`, `uniq`, `head`, `cut` and `diff` stays, and
+its comments changed.** Each said a coroutine per line is a stack frame per
+line, which was true when it was written and is not now. What remains is D2's
+measurement: dropping `File` altogether took `sort` from 36,588 bytes to 26,277
+and `uniq` from 31,216 to 21,173, and none of the five has a second reason to
+carry one. `head` opens each file itself for its per-file headers as well. So
+the loops are unchanged and the comments now say what actually keeps them.
+
+What it cost, in bytes: `grep` 27,285 → 27,944, `tail` 33,868 → 34,478, `cp`
+39,928 → 40,377, `mv` 40,780 → 41,234, `less` 33,762 → 33,896, `chat` 20,917 →
+21,052, `du` 34,171 → 34,290, `find` 37,025 → 37,058, and `sh` 240,041 →
+240,028, which is 13 bytes back for dropping a null-`Task` guard. The staging
+tree went from 1,832 KB to 1,836 KB against a 2,048 KB budget. The awaiter's
+state moves into the *caller's* frame, which is what those hundreds of bytes
+are, and no frame near §8.2's 512-byte cliff was found: the two `getline`
+callers hold a `String` and a `File` reference either way.
+
+The coverage is four cases and one unit block. `grep` had no case at all — its
+loop was B3's own example and nothing ran it — so `test/system/grep.mjs` is new,
+with the 65,536-line file that used to trap and the semantics that had never
+been asserted. `tail` gains the same scale on its streaming path, `du` a
+2,000-entry directory, and `fullscreen` a 65,536-line page through `less`, which
+is the `LineReader` regression. Those three fixtures are written into the store
+rather than through the shell: every write moves the fake store's clock, and the
+`ls -l` stamps pinned in `ls`, `glob` and `rename` are downstream of them.
+`test_filebuf` covers `has_line`, which is the only piece of this that a suite
+with no program in it can reach.
+
 ## Tab, and the word the lexer already knew where to find
 
 `Tab` was unbound. Shell.md said so twice — "Tab is unbound" in §2, and "No Tab

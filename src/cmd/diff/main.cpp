@@ -110,7 +110,8 @@ bool keep(DiffFile &f, Str line)
 }
 
 // The whole file, split into lines. Chunks are split here rather than through
-// a line reader: a coroutine per line is a stack frame per line.
+// a line reader: this program holds no File, and a File's bytes buy nothing it
+// needs.
 Task<Result<void>> slurp(Str path, DiffFile &f)
 {
     u32 fd   = SYS_STDIN;

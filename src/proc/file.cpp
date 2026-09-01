@@ -663,37 +663,76 @@ Task<void> File::write_slow_(Str s, Result<void> *out)
 
 // ------------------------------------------------------------ the rest
 
-Task<Result<bool>> File::getline(String &out, bool keep_nl)
+// A whole line in hand, or nothing taken: take_line consumes the fragment it
+// could not finish, which the slow half would then have to be told about.
+bool File::line_(String &out, bool keep_nl, Result<bool> &v)
 {
+    if (!clean()) {
+        v = eof() ? Result<bool>(false) : Result<bool>(Err(err_));
+        return true;
+    }
+    if (writing_ || !buf_.has_line())
+        return false;
+
     out.clear();
-    if (!clean())
-        co_return eof() ? Result<bool>(false) : Result<bool>(Err(err_));
-    if (!readable_())
-        co_return Err(fail_(Error::Invalid));
+    if (buf_.take_line(out, keep_nl) == LineStep::NoMemory) {
+        v = Err(fail_(Error::NoMemory));
+        return true;
+    }
+    v = true;
+    return true;
+}
+
+Task<void> File::line_slow_(String *out, bool keep_nl, Result<bool> *v)
+{
+    out->clear();
+    if (!readable_()) {
+        *v = Err(fail_(Error::Invalid));
+        co_return;
+    }
+    if (writing_) {
+        Task<Result<void>> s = settle_(false);
+        if (!s) {
+            *v = Err(fail_(Error::NoMemory));
+            co_return;
+        }
+        if (Result<void> r = co_await s; r.is_err()) {
+            *v = Err(r.error());
+            co_return;
+        }
+    }
 
     usize seen = 0;
     for (;;) {
         if (buf_.ready() && !buf_.empty()) {
             usize was   = buf_.size();
-            LineStep st = buf_.take_line(out, keep_nl);
+            LineStep st = buf_.take_line(*out, keep_nl);
             seen += was - buf_.size();
-            if (st == LineStep::NoMemory)
-                co_return Err(fail_(Error::NoMemory));
-            if (st == LineStep::Done)
-                co_return true;
+            if (st == LineStep::NoMemory) {
+                *v = Err(fail_(Error::NoMemory));
+                co_return;
+            }
+            if (st == LineStep::Done) {
+                *v = true;
+                co_return;
+            }
         }
 
         Task<Result<usize>> t = fill_();
-        if (!t)
-            co_return Err(fail_(Error::NoMemory));
+        if (!t) {
+            *v = Err(fail_(Error::NoMemory));
+            co_return;
+        }
         Result<usize> r = co_await t;
         if (r.is_err()) {
             // A final fragment with no newline is a line.
             if (r.error() == Error::Closed) {
                 fail_(Error::Closed);
-                co_return seen != 0;
+                *v = seen != 0;
+                co_return;
             }
-            co_return Err(fail_(r.error()));
+            *v = Err(fail_(r.error()));
+            co_return;
         }
     }
 }
@@ -817,6 +856,18 @@ bool FileRead::await_ready()
     if (f->read_(into, v))
         return true;
     slow = f->read_slow_(into, &v);
+    if (!slow) {
+        v = Err(f->fail_(Error::NoMemory));
+        return true;
+    }
+    return false;
+}
+
+bool FileLine::await_ready()
+{
+    if (f->line_(*out, keep_nl, v))
+        return true;
+    slow = f->line_slow_(out, keep_nl, &v);
     if (!slow) {
         v = Err(f->fail_(Error::NoMemory));
         return true;

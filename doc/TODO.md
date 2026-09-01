@@ -55,17 +55,6 @@ adding a program costs is [Testing.md](Testing.md) §6, not a section here.
 
 ## B — program-layer correctness
 
-- [ ] **B3. A `getline` loop is a stack frame per line.** A `Task` that answers
-      without suspending resumes its awaiting coroutine on the awaiter's own
-      stack, so a loop over an already-buffered stream never gets back to the
-      trampoline and the shadow stack grows per line: `grep zzz` over a
-      65,536-line file traps, and `tail` and `LineReader`'s two callers have
-      the same shape. `/bin/sort`, `/bin/uniq` and `/bin/head` split chunks
-      themselves, which is an avoidance and not the fix. The fix is
-      `File::getline` as an awaiter with an `await_ready` fast path — the shape
-      `FileGet`, `FileRead` and `FileWrite` already have, and the reason those
-      never grow: a line already in the buffer must not enter a coroutine at
-      all.
 - [ ] **B2. `copy_tree` will not merge.** Its destination must not exist, so
       `cp -r a b` with `b/a` already there fails rather than merging. `mv` has
       the same shape. Distinguishing "a directory is already there" from "a file
@@ -103,10 +92,12 @@ where several writes coalesce into one syscall. None of the below moves
       is the accumulator's allocation, not a syscall, and it must not cost a
       suspension point per field to get it.
 - [ ] **D3. `Input` and `LineReader` onto `File`.** `File::getline` replaced
-      the `LineReader` in `grep` and `tail`; `cp` and `mv` still have one, so
-      two line readers exist and one of them cannot be unwound. `Input`
-      stays either way: it is the files-or-stdin decision, which `File` takes
-      rather than makes.
+      the `LineReader` in `grep` and `tail`; `cp`, `mv`, `less`, `chat` and
+      `sh -s` still hold one, so two line readers exist and one of them cannot
+      be unwound. Nothing is blocked on it: B3 made both awaiters, so what is
+      left is duplication rather than a defect, and unwinding it costs each of
+      those five a `File`. `Input` stays either way: it is the files-or-stdin
+      decision, which `File` takes rather than makes.
 - [ ] **D4. Nothing, for `/bin/sh`.** Recorded so it is not re-derived: the
       shell was converted and reverted. Its builtins already write once
       (`builtin.h`), `job.cpp` writes to descriptors that are often a pipe or a

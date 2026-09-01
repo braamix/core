@@ -82,6 +82,22 @@ export function check() {
     if (row(s, s.cursor_y) !== prompt())
         fail(`less did not give the screen back: ${JSON.stringify(rows(s))}`);
 
+    // The pager slurps its input before it paints, a line at a time: with
+    // LineReader a Task rather than an awaiter this died at 2,048 lines (B3).
+    // Written into the store rather than through the shell, since every write
+    // moves the clock the stamps in ls, glob and rename are pinned to.
+    let many = "";
+    for (let i = 1; i <= 65536; i++)
+        many += `${i}\n`;
+    store.files.set("/home/big", new TextEncoder().encode(many));
+    s = submit("clear", 3081);
+    s = submit("less /home/big", 3082);
+    if (row(s, 0) !== "1" || !rows(s).some((line) => line.startsWith(" /home/big ")))
+        fail(`less did not page 65,536 lines: ${JSON.stringify(rows(s))}`);
+    press("q".codePointAt(0));
+    run(3083);
+    store.files.delete("/home/big");
+
     // Two pagers in a pipeline, and only one of them is one: the first stage's
     // output is a pipe, so it copies and claims nothing, and the second pages
     // what it was handed. Without that split the pair would deadlock on the

@@ -48,6 +48,10 @@ export function check() {
                  `but ${JSON.stringify(streamed)} from a pipe`);
     }
 
+    // The streaming path reads through getline, which is an awaiter: a line
+    // already in the buffer enters no coroutine. This died at 1,024 (B3).
+    is("seq 1 65536 | tail -n 2", "65535|65536");
+
     // Several files are one concatenation, which no window can serve.
     put("/home/tl/c", "x\ny\n");
     is("tail -n 3 /home/tl/a /home/tl/c", "three|x|y");

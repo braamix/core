@@ -3,7 +3,7 @@
 // Part of the system suite; test/run.mjs runs the cases in order and
 // doc/Testing.md has the rules they run by.
 
-import { chdir, counts, shows } from "./harness.mjs";
+import { chdir, counts, shows, store } from "./harness.mjs";
 
 const { at, is, line } = shows(13925);
 
@@ -95,6 +95,16 @@ export function check() {
     // Asking is stdout and 0; a bad command line is stderr and 2.
     is("du -as /home/du > /dev/null 2>&1; echo $?", "2");
     is("du --help > /dev/null; echo $?", "0");
+
+    // A wide directory: the walk answers most entries from the level it has
+    // listed, and with TreeWalk::next a Task rather than an awaiter that was a
+    // frame per entry — this died at 1,000 (B3). Written into the store, since
+    // every write moves the clock the stamps in ls, glob and rename pin.
+    line("mkdir /home/du/wide");
+    for (let i = 0; i < 2000; i++)
+        store.files.set(`/home/du/wide/f${i}`, new TextEncoder().encode("xx"));
+    is("du -s /home/du/wide", at7(1000, "/home/du/wide"));
+    line("rm -r /home/du/wide");
 
     // A path that is not there is reported, the rest is still walked, and the
     // status says one of them failed.
