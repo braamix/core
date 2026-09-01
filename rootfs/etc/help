@@ -107,6 +107,10 @@ Programs in /bin
   watch     [-m] [-n <secs>] <command> [<arg>...] — run a command again and
             again
   wc        [<file>...] — count lines, words and bytes
+  xargs     [-0rtx] [-E <eof>] [-I <str>] [-L <n>] [-n <count>] [-s <size>]
+            [<command> [<arg>...]] — read arguments from the input and run a
+            command over them, in batches; -I runs once a line, putting the
+            line where <str> is
 
 Packages
 --------

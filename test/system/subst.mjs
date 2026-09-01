@@ -36,7 +36,7 @@ export function check() {
     // so without drain-before-wait this one hangs rather than fails. The
     // counts are three copies of /etc/help, so a line added or reworded there
     // moves them.
-    t.is("x=$(cat /home/c/big); echo \"$x\" | wc", "438 3609 23961");
+    t.is("x=$(cat /home/c/big); echo \"$x\" | wc", "450 3726 24750");
     submit("rm -r /home/c", t.at(0.01));
 
     // Functions, `.`, `eval` and `return`. The unit suite has the grammar;

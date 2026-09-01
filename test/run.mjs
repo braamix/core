@@ -69,6 +69,7 @@ import * as unzip from "./system/unzip.mjs";
 import * as vars from "./system/vars.mjs";
 import * as worker from "./system/worker.mjs";
 import * as wrap from "./system/wrap.mjs";
+import * as xargs from "./system/xargs.mjs";
 
 // A third field marks a case that reads the archive and is skipped without one.
 const ARCHIVE = true;
@@ -130,6 +131,7 @@ const CASES = [
     ["cut",        cut.check],
     ["tr",         tr.check],
     ["seq",        seq.check],
+    ["xargs",      xargs.check],      // after the four: it runs them in batches
     ["unzip",      unzip.check],
     ["entry",      entry.check],
     ["dual",       dual.check],       // leaves a second shell up, so others() gains one

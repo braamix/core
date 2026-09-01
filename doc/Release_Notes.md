@@ -31,6 +31,84 @@ first:
 
 ---
 
+## `xargs`, and the stdin a child must not share
+
+[TODO.md](TODO.md)'s **A7**, ported from FreeBSD's `usr.bin/xargs`. It needed
+no operation the kernel did not have — `spawn`, `wait_child` and `kill_child`
+were already in `proc/io.h` with three callers in `src/cmd/` — so `PROC_ABI`
+does not move. It is also what `find` was left without: `-exec` and `-ok` were
+deferred to this entry, and `find … | xargs …` is now that composition.
+
+### The child's stdin is `/dev/null`, and here it is not a choice
+
+FreeBSD redirects it so the utility does not steal `xargs`' input; `-o` asks
+for `/dev/tty` instead. Here it is stronger than a courtesy. This process
+reads its own stdin in whole chunks and holds what it has not split yet, so a
+child sharing descriptor 0 would not see "the rest of the input" — it would
+see whatever happened to fall outside the last chunk boundary, which is a
+different remainder every time the producer upstream writes differently.
+`ChildIo` *moves* a descriptor at or above `SYS_FD_MIN`, so `/dev/null` is
+opened once per run rather than once per process.
+
+`-o` and `-p` are out with the same argument: both open `/dev/tty`, of which
+there is none — a terminal here is a screen and a console (§3.5), reached by
+`Sys::Tty` and `KeyClaim` rather than by a path. `-J`, `-P`, `-R` and `-S` are
+FreeBSD extensions left out beside them. `-P` in particular would want a child
+table and a reaper of its own to bound against `SYS_CHILD_MAX` (16); one child
+at a time satisfies A7's warning by construction instead.
+
+### Four of FreeBSD's rules kept, and one dropped
+
+Kept, because each is load-bearing and none of them is guessable:
+
+- **`-I` is a run to the line, and the arguments do not also go on it.** The
+  line reaches the command only where the marker is; `xargs -I% echo x` prints
+  `x` and not `x a`. The command's own name is never substituted either.
+- **`-x` wants `-n`.** It says "fail rather than truncate", and there is
+  nothing to truncate against without a limit to have overrun.
+- **`-E`'s marker matches a whole argument**, not a prefix, so `-E a` does not
+  stop at `ab`.
+- **`-r` does nothing.** An empty input runs nothing here anyway, which is what
+  the flag asks for elsewhere; it is taken so a script that passes it works.
+
+Dropped: FreeBSD's flush test is `(Lflag <= count && xflag)`, and `Lflag` is 0
+when `-L` was not given — so `-x`, which is only legal with `-n`, makes
+`0 <= count` true at every line and `xargs -n2 -x` behaves as `-n1`. That is a
+bug rather than a rule, and POSIX says `-x` bounds the size and not the
+batching, so the line trigger here asks whether `-L` was given.
+
+One rule is nobody's and is what the shipped implementations do rather than
+what the source reads: **a line with nothing on it is not a line.** It does
+not advance `-L`'s count, and no run is ever made over no arguments at all.
+
+### There is no `ARG_MAX`, so the program declares one
+
+FreeBSD sizes its buffer from `sysconf(_SC_ARG_MAX)` less the environment.
+Nothing here answers that: `Sys::Spawn` bounds only the environment
+(`SYS_ENV_MAX`), and the real ceiling is `SYS_STAGE_MAX` — a syscall payload
+is staged, and argv rides in one. `LINE_MAX` is 128 KiB, well inside it, and
+is both the default and the cap `-s` clamps to. The budget an input argument
+may take is that less what the command's own words already cost, terminators
+included, which is what makes `-s 16` over `/bin/echo` leave six bytes.
+
+Without `-R` and `-S` there is no per-argument replacement count or byte cap,
+so `-I` substitutes every occurrence in every word. FreeBSD's defaults of 5
+and 255 exist to be tuned by those two flags; hardcoding numbers whose knobs
+are absent would be arbitrary rather than compatible.
+
+### A frame per run, not a frame per byte
+
+The parser is a plain function over a chunk that returns as soon as the caller
+has something to `co_await` — a run, or a fault. **B3**'s shape, arrived at
+the same way `cut` and `tr` did: a coroutine per input unit is a shadow-stack
+frame per input unit, and for `xargs` the unit is a byte. Arguments
+accumulate as offsets into one `String` rather than as `Str`s, since a view
+into a growing buffer dangles; the `Vec<Str>` a spawn is handed is built at
+flush time, when nothing more will move it. The one place the buffer is not
+simply cleared is FreeBSD's relocation: a batch that fills up in the middle of
+an argument runs what is complete and then moves the unfinished tail to the
+front, so `echo aa bbb | xargs -s 15` is two runs and not an error.
+
 ## Four filters, and the two libraries that had no caller
 
 [TODO.md](TODO.md)'s **A6** — `tee`, `cut`, `tr` and `seq` — and with `tr`, its

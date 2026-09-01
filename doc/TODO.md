@@ -65,8 +65,6 @@ Adding a program also moves two counts that are written down: `compared` in
 `test/unit/test_zip.cpp` (the archive's file count) and the byte count in
 `test/system/subst.mjs` (which concatenates `/etc/help` three times).
 
-- [ ] **A7. `xargs`** — `Spawn`/`Wait`; watch `SYS_CHILD_MAX` (16). It is also
-      what answers for `find -exec`, which A3 left out for it.
 - [ ] **A8. `cmp`, `diff`** — `diff` last, the only one needing an algorithm.
 
 Size is not the constraint: `rootfs/` is around 1.6 MB of the 2 MB in
