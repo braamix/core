@@ -76,7 +76,7 @@ export function check() {
     // the instance holds, and the ceiling the kernel gave it.
     if (!rows(s).some((line) => /^mem    \d+$/.test(line)))
         fail(`/proc/2 does not report its memory: ${JSON.stringify(rows(s))}`);
-    if (!rows(s).includes(`cap    ${256 * 65536}`))
+    if (!rows(s).includes(`cap    ${1600 * 65536}`))
         fail(`/proc/2 does not report its cap: ${JSON.stringify(rows(s))}`);
     if (!rows(s).some((line) => line.startsWith("cwd    /home")))
         fail(`/proc/2 has no cwd, so no process is there: ${JSON.stringify(rows(s))}`);

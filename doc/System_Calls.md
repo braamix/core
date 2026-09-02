@@ -334,8 +334,8 @@ reports `Exited`.
 
 **`Sys::Stage` is the host's syscall, not a program's.** It exists so the host
 can ask where to copy a payload, and a program never calls it — but a hostile
-binary can, so it is bounded by `SYS_STAGE_MAX` (1 MiB, the largest blit there
-can be) rather than handed an arbitrary `heap_alloc`.
+binary can, so it is bounded by `SYS_STAGE_MAX` (100 MB, the largest payload the
+wire carries) rather than handed an arbitrary `heap_alloc`.
 
 **The set is closed at five, permanently.** All five are answerable inside the
 process's own worker with no kernel to ask, which is the only reason a
@@ -1052,9 +1052,9 @@ arrived as an error.
 
 **There is no digest operation, and that is the interesting half.**
 `crypto.subtle.digest` takes a whole message, so a SHA-256 here would mean
-staging every byte to be hashed through `SYS_STAGE_MAX` — a megabyte, and
-therefore a cap on how large a package could be, imposed by the shape of a
-syscall rather than by anything about packages. A program hashes its own bytes
+staging every byte to be hashed through `SYS_STAGE_MAX`, and therefore a cap on
+how large a package could be, imposed by the shape of a syscall rather than by
+anything about packages. A program hashes its own bytes
 instead, off a descriptor, a chunk at a time, and nothing large crosses the
 boundary. The rule that a stream of bytes comes back as a descriptor cuts both
 ways: what a program can already read a chunk at a time, it can already digest a
@@ -1229,7 +1229,7 @@ program passed it, and a negative status on this wire is an error code.
 **The bounds are `SYS_CHILD_MAX` (16 live children) and `SYS_PROC_DEPTH` (16
 levels).** Past either, `Spawn` is `Err(NoMemory)` — deliberately not
 `Err(Again)`, which `proc_syscall` retries for ever. Every child is an instance
-with a 16 MB cap, so without them the first fork bomb takes the page with it. A
+with a 100 MB cap, so without them the first fork bomb takes the page with it. A
 shell reports that error as `too many processes` and 126, which is as close as
 it can get: one `Error` value carries both bounds and a genuine allocation
 failure.
@@ -1242,7 +1242,7 @@ failure.
 | `SYS_FD_MIN` | 3 | the first index into the process's own table |
 | `SYS_CHUNK` | 512 | one read when the caller names no length |
 | `SYS_READ_MAX` | 65532 | the most a caller may name; a full read is one span |
-| `SYS_STAGE_MAX` | 1 MiB | the cap on `Sys::Stage`, which is the largest blit there can be |
+| `SYS_STAGE_MAX` | 100 MB | the cap on `Sys::Stage`, and therefore on one payload |
 | `SYS_BLIT_HEAD` | 7 | `ScreenBlit`'s header, in `u32`s |
 | `SYS_O_READ`…`APPEND` | 1, 2, 4, 8, 16 | open flags, restated rather than shared with the VFS |
 | `SYS_O_EXCL` | 32 | with `SYS_O_CREATE`; a name that exists is `Err(Exists)` |
@@ -1654,8 +1654,8 @@ shipped in `braam-sdk-<version>.zip`, so a program can be built outside this
 repository and dropped onto a running system without rebuilding it —
 [Programming_Manual.md](Programming_Manual.md) is that story.
 
-`--import-memory` with no declared maximum is what makes the 16 MB cap the
-kernel's decision. `-Wl,--max-memory=16777216` would also work and would be the
+`--import-memory` with no declared maximum is what makes the 100 MB cap the
+kernel's decision. `-Wl,--max-memory=104857600` would also work and would be the
 *binary's* number; this way a binary cannot ask for more by being compiled
 differently.
 

@@ -16,7 +16,7 @@ constexpr u32 DEFAULT_SECS = 2;
 constexpr u32 MAX_SECS     = 4294967; // as many as convert to ms inside a u32
 
 // The most of a child's output to hold. A command that prints for ever must not
-// grow this process until its 16 MB cap stops it.
+// grow this process until its memory cap stops it.
 constexpr usize MAX_CAPTURE = 32 * 1024;
 
 // One round: the child writes into a pipe, and this reads it to the end.

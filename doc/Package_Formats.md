@@ -351,8 +351,8 @@ Two rules a reader given a stream needs and one given a buffer does not:
   ends before it or runs past it. The declared size is inside the digested
   archive and is as trusted as the archive; the inflated bytes are not.
 - **An entry compressed larger than `SYS_STAGE_MAX`** cannot be read at all:
-  `Sys::Inflate` stages its input (System_Calls.md §8). `rootfs.zip`'s largest
-  entry is 75 KB compressed.
+  `Sys::Inflate` stages its input (System_Calls.md §8). That is 100 MB, and
+  `rootfs.zip`'s largest entry is 75 KB compressed.
 
 `parseZip` checks neither: `DecompressionStream` hands back a buffer, and the
 one archive it reads is the release's own.

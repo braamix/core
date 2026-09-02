@@ -37,7 +37,7 @@ export function check() {
     const [used, cap] = shell.split(" ").slice(8, 10).map(Number);
     if (!(used > 0 && used < cap))
         fail(`init committed ${used} of ${cap} bytes, expected some of it`);
-    if (cap !== 256 * 65536)
+    if (cap !== 1600 * 65536)
         fail(`init's cap is ${cap}, expected PROC_MAX_PAGES`);
 
     // ps itself is one of the tasks it lists — it is a process like any other,

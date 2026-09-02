@@ -507,6 +507,12 @@ void test_zip()
         ZipSink nothing(0);
         CHECK(nothing.complete());
         CHECK(!nothing.take("x"));
+
+        // A want past the old 1 MiB stage cap, which ZIP_PACKED_MAX put out of
+        // reach: the ceiling is the declared size and nothing else.
+        ZipSink big(2u << 20);
+        CHECK(big.take("braam"));
+        CHECK(!big.complete());
     }
 
     CHECK_EQ(heap_stats().bytes_in_use, in_use);

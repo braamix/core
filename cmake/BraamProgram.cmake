@@ -12,7 +12,7 @@
 # PROC_ABI from; the includer sets both.
 
 set(BRAAM_BIN_INITIAL_PAGES 4)
-set(BRAAM_BIN_MAX_PAGES 256)
+set(BRAAM_BIN_MAX_PAGES 1600)
 math(EXPR BRAAM_BIN_INITIAL_BYTES "${BRAAM_BIN_INITIAL_PAGES} * 65536")
 
 function(braam_add_program)
@@ -47,7 +47,7 @@ function(braam_add_program)
         message(FATAL_ERROR "braam_add_program: NOFLOAT is meaningless without PORT")
     endif()
 
-    # --import-memory makes the 16 MB cap the kernel's decision rather than the
+    # --import-memory makes the 100 MB cap the kernel's decision rather than the
     # binary's claim. The stamp repeats the initial size the link used.
     target_link_options(bin_${P_NAME} PRIVATE
         -Wl,--import-memory

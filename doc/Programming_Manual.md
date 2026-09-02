@@ -741,7 +741,7 @@ link error or a trap rather than a warning:
 - **Keep coroutine frames small.** A frame past 512 bytes costs a whole 64 KiB
   span from the allocator's top size class. Long-lived state belongs in a heap
   block the frame points at, not in the frame.
-- **The memory cap is 16 MB**, and it is the kernel's number, not the binary's:
+- **The memory cap is 100 MB**, and it is the kernel's number, not the binary's:
   `--import-memory` with no declared maximum means the host supplies the
   `Memory` and its ceiling.
 

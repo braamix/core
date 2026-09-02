@@ -436,7 +436,7 @@ package manager reaches its programs by putting a directory on `PATH`.
   process physically cannot issue a syscall as another: it holds no function
   that does so. The same applies to the `externref` table (§3.7).
 - **Memory limits: isolated, and a bonus.** A memory's declared maximum is a
-  hard ceiling, 256 pages or 16 MB, and growth simply fails past it. That is an
+  hard ceiling, 1600 pages or 100 MB, and growth simply fails past it. That is an
   rlimit without cgroups. When a process ends, all its memory returns at once.
 
 ### 4.2 What they do not buy: CPU time

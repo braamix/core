@@ -1010,7 +1010,7 @@ change to argue in Concept.md first.
   change. Redirecting one works.
 - **Only a pipeline may go into the background**, for the reason in §11.
 - **`( … )` isolates state, not memory.** There is no `fork`, so a runaway
-  inside a subshell still spends the shell's 16 MB.
+  inside a subshell still spends the shell's 100 MB.
 - **`$( )` is not a subshell and takes no checkpoint.** `$(cd /x)` moves the
   shell; `$(exit)` does not end it. Its output is bounded only by the process's
   memory cap.

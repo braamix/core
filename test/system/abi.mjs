@@ -73,8 +73,8 @@ export function check(binaries) {
         const m = new Uint32Array(meta[0]);
         if (m[0] !== 0x6d617262 || m[1] !== 20)
             fail(`${basename(binary)}'s metadata is ${m[0].toString(16)}/${m[1]}`);
-        if (m[4] !== 256)
-            fail(`${basename(binary)} asks for ${m[4]} pages, expected 256`);
+        if (m[4] !== 1600)
+            fail(`${basename(binary)} asks for ${m[4]} pages, expected 1600`);
     }
 
     // The counts run.mjs prints when the suite is through.

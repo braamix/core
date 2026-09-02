@@ -2431,3 +2431,52 @@ it stays off the coroutine frame, which is §8.2's 512 bytes.
 `Used` and `Avail` widen independently. They are one width in BSD because the
 figures are of a kind, but the header of each is its own word and a column that
 does not need the room should not take it.
+
+## The two ceilings a 100 MB package needed
+
+`Sys::Inflate` caps its input and not its output, and the input cap was
+`SYS_STAGE_MAX` — one megabyte, which `src/cmd/pkg/zip.h` inherits as
+`ZIP_PACKED_MAX` and `unzip.cpp` turns into `Err(Unsupported)` for a larger
+entry. That is a bound on the *compressed* half of one file, and it is a bound
+the packager cannot work around: a BESM-6 disk pack of 8,256,000 bytes
+compresses to 1,467,064, so `pkg install simbesm` could not read the entry at
+all. **`SYS_STAGE_MAX` is now 100 MB.**
+
+The constant's comment used to read "the most a blit may carry, which is the
+largest grid there can be", and that was never the number's job — a blit is
+bounded by the grid independently, because the `ScreenBlit` case takes a payload
+of exactly `SYS_BLIT_HEAD` plus `w * h` cells inside the live screen and
+`screen.h` caps the screen at 512 by 256. `Sys::Stage`'s check in `proc_stage`
+is the only enforcement, and what it guards against is a hostile binary calling
+`Sys::Stage` directly rather than a blit being too big. So the number is now
+what it always meant for the other two ops: the most one staged payload may
+carry. `Sys::Verify` inherits it and its callers are unchanged, capping well
+below at `INDEX_MAX` (512 KiB) and `PACKAGE_MAX` (4 MiB).
+
+**`PROC_MAX_PAGES` moves with it, 256 pages to 1600 — 16 MB to 100 MB.** Raising
+the stage cap alone would have bought nothing: `zip_read` materialises the
+inflated entry as one `String`, and a process holding the 2.6 MB archive, the
+1.4 MB packed copy and 8.25 MB of output has no room left inside 16 MB. The two
+ceilings are the same number because the payload is copied and not shared — a
+staged payload of N bytes costs N in the process *and* N in the kernel, which
+`web/proc.js` says at the `sys_async` import.
+
+Neither is an ABI change and `PROC_ABI` stays at 20. The wire is what it was;
+only two limits moved, and both directions degrade cleanly. A binary stamped for
+256 pages keeps 256 on the new kernel, because `exec` only ever clamps a stamped
+claim *down*. A binary stamped for 1600 on an old kernel is clamped to 256 the
+same way, and one that then stages past a megabyte gets a `proc_stage` of zero —
+a `NoMemory`, not a corruption.
+
+`cmake/BraamProgram.cmake` carries `BRAAM_BIN_MAX_PAGES`, which `stamp.py`
+writes into every binary's `braam` section, so it moves to 1600 too: the SDK is
+installed with that file, and a program built out of tree gets the new ceiling
+without knowing it asked. The heap on both sides was already able to take it —
+`MAX_SPANS` is 4096, 256 MiB of addressable heap, and a request past `MAX_SMALL`
+becomes a run of whole spans. What it costs is that wasm memory never shrinks:
+one 100 MB stage grows the kernel's memory for the life of the page.
+
+What did not move: `UNPACK_MAX` (50 MiB) and `PACKAGE_MAX` (4 MiB), which are
+the package format's bounds and not the syscall's. simbesm unpacks to 16,770,924
+bytes out of a 2,589,583-byte zip, and both were always inside them — the stage
+cap was the only thing in the way.

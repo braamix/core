@@ -22,7 +22,7 @@ export function check() {
     const hogged = rows(s).find((line) => line.startsWith("hog: pid "));
     if (!hogged)
         fail(`hog said nothing: ${JSON.stringify(rows(s))}`);
-    if (!/^hog: pid \d+, took 1[0-9] MiB, memory is 256 pages$/.test(hogged))
+    if (!/^hog: pid \d+, took \d+ MiB, memory is 1600 pages$/.test(hogged))
         fail(`hog reported ${JSON.stringify(hogged)}`);
     if (!rows(s).includes("hog: memory.grow refused past the cap"))
         fail(`memory.grow was not capped: ${JSON.stringify(rows(s))}`);

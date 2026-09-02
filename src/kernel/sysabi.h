@@ -28,7 +28,7 @@ constexpr Str PROC_SECTION   = "braam";
 constexpr u32 PROC_MAGIC     = 0x6d617262; // "bram"
 constexpr u32 PROC_ABI       = 20;
 constexpr u32 PROC_PAGE      = 65536;
-constexpr u32 PROC_MAX_PAGES = 256; // 16 MB, the ceiling the kernel imposes
+constexpr u32 PROC_MAX_PAGES = 1600; // 100 MB, the ceiling the kernel imposes
 
 static_assert(u32(PROC_MAX_PAGES) < 65536, "the page counts no longer fit in one word");
 
@@ -274,9 +274,9 @@ static_assert(SYS_PID_MAX < (1u << 24), "a pid must fit the op word's argument")
 constexpr usize SYS_CHILD_MAX = 16;
 constexpr u32 SYS_PROC_DEPTH  = 16;
 
-// The most a blit may carry, which is the largest grid there can be. Sys::Stage
-// is capped at the same number, and so is what Sys::Verify can check.
-constexpr u32 SYS_STAGE_MAX = 1u << 20;
+// The most one staged payload may carry: what Sys::Inflate takes and what
+// Sys::Verify can check. A blit is bounded by the grid instead.
+constexpr u32 SYS_STAGE_MAX = 100u << 20;
 
 // Ed25519's fixed sizes, in bytes.
 constexpr u32 SYS_ED25519_KEY = 32;

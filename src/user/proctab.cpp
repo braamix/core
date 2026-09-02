@@ -113,7 +113,7 @@ Call *proc_staging(Proc &p)
 u32 proc_stage(Proc &p, u32 n)
 {
     // A hostile binary can call Sys::Stage directly, so the size it asks for
-    // is bounded by the largest payload the ABI has: a blit of the whole grid.
+    // is bounded by the largest payload the ABI has: SYS_STAGE_MAX.
     if (n > SYS_STAGE_MAX)
         return 0;
     Call *c = proc_staging(p);
