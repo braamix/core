@@ -362,10 +362,20 @@ void screen_write(Term &t, Str utf8)
             return; // a truncated sequence at the end
         i += len;
 
-        if (ch == '\n')
+        // The cursor motions a byte stream carries; everything else is a glyph.
+        switch (ch) {
+        case '\n':
             screen_newline(t);
-        else
+            break;
+        case '\r':
+            screen_return(t);
+            break;
+        case '\b':
+            screen_left(t);
+            break;
+        default:
             screen_put(t, ch);
+        }
     }
 }
 
@@ -377,16 +387,31 @@ void screen_newline(Term &t)
     next_row(t);
 }
 
+void screen_return(Term &t)
+{
+    if (sized(t))
+        t.g.cursor_x = 0;
+}
+
+// One column back, over a row boundary, erasing nothing: `\b \b' needs the
+// first \b to leave the character standing.
+void screen_left(Term &t)
+{
+    if (!sized(t))
+        return;
+    if (t.g.cursor_x) {
+        t.g.cursor_x--;
+    } else if (t.g.cursor_y) {
+        t.g.cursor_x = t.g.cols - 1;
+        t.g.cursor_y--;
+    }
+}
+
 void screen_backspace(Term &t)
 {
     if (!sized(t) || (t.g.cursor_x == 0 && t.g.cursor_y == 0))
         return;
-    if (t.g.cursor_x) {
-        t.g.cursor_x--;
-    } else {
-        t.g.cursor_x = t.g.cols - 1;
-        t.g.cursor_y--;
-    }
+    screen_left(t);
     t.cells[t.g.cursor_y * t.g.cols + t.g.cursor_x] = blank(t);
     damage(t, t.g.cursor_x, t.g.cursor_y);
 }

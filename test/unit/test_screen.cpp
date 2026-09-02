@@ -134,6 +134,35 @@ void test_screen()
     CHECK_EQ(s.cursor_y, 0);
     CHECK_EQ(at(0, 0), 'a');
 
+    // \b in the stream moves the cursor and erases nothing, so `\b \b' rubs
+    // out one character; \r goes to column 0. Neither paints a cell.
+    screen_reset(t0());
+    screen_resize(t0(), 8, 2);
+    screen_write(t0(), "ab\b \b");
+    CHECK_EQ(at(0, 0), 'a');
+    CHECK_EQ(at(1, 0), ' '); // the space of `\b \b', not a blank cell
+    CHECK_EQ(s.cursor_x, 1);
+    screen_write(t0(), "\bx");
+    CHECK_EQ(at(0, 0), 'x');
+    CHECK_EQ(s.cursor_x, 1);
+    screen_write(t0(), "yz\rq");
+    CHECK_EQ(at(0, 0), 'q');
+    CHECK_EQ(at(1, 0), 'y');
+    CHECK_EQ(s.cursor_x, 1);
+
+    // Back over a row boundary, and nothing at the origin.
+    screen_reset(t0());
+    screen_resize(t0(), 3, 2);
+    screen_write(t0(), "abcd\b\b");
+    CHECK_EQ(s.cursor_x, 2);
+    CHECK_EQ(s.cursor_y, 0);
+    CHECK_EQ(at(2, 0), 'c');
+    CHECK_EQ(at(0, 1), 'd');
+    screen_write(t0(), "\b\b\b");
+    CHECK_EQ(s.cursor_x, 0);
+    CHECK_EQ(s.cursor_y, 0);
+    CHECK_EQ(at(0, 0), 'a');
+
     // Shrinking drops from the top of the rows in use, and carries the cursor.
     screen_reset(t0());
     screen_resize(t0(), 4, 4);

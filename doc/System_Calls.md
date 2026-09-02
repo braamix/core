@@ -1466,8 +1466,10 @@ takes a payload of one `u32` instead — empty being the caller's.
 one console, and what `^C` means is a policy question rather than a screen.
 
 **A screen is a descriptor, so `Read`, `Write` and `Close` serve it.** `Write`
-paints text on that grid, as a write to stdout does — cells, no escapes.
-`Close` gives back both claims, and so does dying, since they live on the handle
+paints text on that grid, as a write to stdout does — cells, no escapes, and
+`\n`, `\r` and `\b` the only three bytes that move the cursor instead of
+becoming one. `\b` erases nothing, so a writer rubs a character out with
+`\b \b` the way it would on a terminal. `Close` gives back both claims, and so does dying, since they live on the handle
 rather than on the process. `Read` is `Err(Unsupported)`: a terminal's cooked
 input is a `Channel` with one receiver and that receiver is the terminal's own
 shell, so keys come through `KeyClaim` and `KeyRead`.

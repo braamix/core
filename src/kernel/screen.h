@@ -121,6 +121,10 @@ void screen_style(Term &t, u8 fg, u8 bg, u8 attrs);
 void screen_put(Term &t, char32_t ch);
 void screen_write(Term &t, Str utf8);
 void screen_newline(Term &t);
+void screen_return(Term &t);
+
+// One column back, erasing nothing; screen_backspace also blanks the cell.
+void screen_left(Term &t);
 void screen_backspace(Term &t);
 
 void screen_move(Term &t, u32 x, u32 y);
