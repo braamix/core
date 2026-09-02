@@ -63,6 +63,53 @@ Covered by [test/system/initprog.mjs](../test/system/initprog.mjs): a named
 program runs and no prompt appears, the line is trimmed, a missing one says so
 and is not offered an unpack, and an empty file is the shell.
 
+## The page that failed silently
+
+`web/embed.html` is the one that demonstrates the *embedding* arrangement — two
+kernels on a page, a worker each, sharing nothing but the origin's storage
+(§3.5) — so it is what somebody reads before putting a terminal on a site of
+their own. It was also the only page of the four that said nothing when it went
+wrong.
+
+It had fallen a generation behind. `index.html`, `dual.html` and `quad.html`
+each picked up a noscript notice, a boot watchdog and a `#status` pane as those
+were written; `embed.html` was not touched again and kept none of them.
+Scripting off was a blank page. A `braam.js` fetch a blocking extension held
+open was a blank page. A browser without `OffscreenCanvas` was an uncaught throw
+in a console. And a boot stuck behind any of that was a black canvas, because
+`mount()` was called with no `onError` at all, so its own stall report — the
+report written precisely for that case — went to `console.error` where nobody
+was looking. The page most likely to be opened by somebody who does not yet know
+how braam boots was the page that told them least.
+
+None of this is new work; it is four blocks copied from `dual.html`, which is
+the reference for a page with more than one pane. What is new is the one thing
+those pages have no need of.
+
+**A diagnostic says which kernel spoke.** `dual.html` and `quad.html` are one
+`mount()`, so one boot watch and one voice. `embed.html` is two `mount()` calls
+and therefore two independent stall timers, and an unprefixed pane would show
+the same "boot is stuck" line twice with nothing to tell the two workers apart —
+which is the opposite of what a diagnostic is for. So each mount takes an
+`onLog`/`onError` pair that names it, and the two share the one status pane.
+
+**One `try` for the pair.** `mount()` checks `transferControlToOffscreen` on
+every spec before it makes a worker, and that is a property of the browser, not
+of a canvas: the two mounts fail together or succeed together, so there is no
+half-mounted page to unwind. The `catch` disables the dispose button, since a
+page that mounted nothing has nothing to dispose.
+
+**The key bars are per kernel.** `braam.js` only appends buttons into the
+container a spec names and styles nothing; which bar is visible is the page's
+CSS, keyed off a `data-pane` flag the page keeps in step on a pointerdown.
+`dispose()` already removes that pane's buttons and its focus ring, so disposing
+the right kernel needs one line here — move the flag back to the left, so the
+bar still on screen belongs to the kernel still running.
+
+The arrangement itself is unchanged, so §3.5 is untouched. `index.html` is still
+short of the focus ring and the `overflow: hidden` the two multi-pane pages
+have; that is a separate tidy.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

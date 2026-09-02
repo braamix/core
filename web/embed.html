@@ -6,6 +6,9 @@
 <title>braam — embedded</title>
 <style>
     html { color-scheme: dark; }
+    /* No page scroll: a scrollbar appearing would narrow a canvas, which the
+       resize watch would answer by reflowing the grid that made it appear. */
+    html, body { overflow: hidden; }
     body {
         margin: 0;
         height: 100vh;
@@ -13,7 +16,7 @@
         box-sizing: border-box;
         padding: 0.6rem;
         display: grid;
-        grid-template-rows: auto 1fr;
+        grid-template-rows: auto 1fr auto;
         gap: 0.6rem;
         background: #0e0f14;
         color: #c8cbd6;
@@ -21,30 +24,118 @@
     }
     header { color: #6f7488; }
     .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; min-height: 0; }
-    .term { display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+    /* min-height on both the row and the canvas: a canvas is a replaced element
+       with an intrinsic 300x150 box, which would otherwise set the row's floor
+       and push the page past the viewport on a short window. */
+    .term { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
     .term h2 { margin: 0 0 0.3rem; font-size: 13px; font-weight: normal; color: #6f7488; }
     canvas {
         display: block; width: 100%; height: 100%; min-height: 0;
+        cursor: text;
         border: 1px solid #242632;
         touch-action: none; /* a drag over the grid selects; it does not scroll */
         -webkit-touch-callout: none;
     }
     /* The focus is on braam.js's hidden input, so canvas:focus never matches. */
     canvas.braam-focus { border-color: #4a5a8a; outline: none; }
-    button { font: inherit; color: inherit; background: #1a1c26; border: 1px solid #242632; }
+    /* The keys a touch keyboard does not have. A bar belongs to the kernel it
+       types into, so there are two and the focused one is shown. */
+    .keys { display: none; }
+    @media (any-pointer: coarse) {
+        body[data-pane="left"] #keys-left,
+        body[data-pane="right"] #keys-right {
+            display: flex;
+            flex: 0 0 auto;
+            gap: 0.4rem;
+            padding: 0.4rem 0 0;
+        }
+    }
+    .braam-key {
+        flex: 1 1 0;
+        padding: 0.6rem 0;
+        font: inherit;
+        color: #c8cbd6;
+        background: #1a1c26;
+        border: 1px solid #242632;
+        border-radius: 4px;
+        touch-action: manipulation;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+    }
+    .braam-key-on { color: #0e0f14; background: #6f7488; }
+    button#stop { font: inherit; color: inherit; background: #1a1c26; border: 1px solid #242632; }
+    #status {
+        margin: 0;
+        padding: 0.35rem 0;
+        border-top: 1px solid #24263200;
+        color: #6f7488;
+        white-space: pre-wrap;
+    }
+    #status:not(:empty) { border-top-color: #242632; }
+    .error { color: #ff5555; }
 </style>
 </head>
-<body>
+<body data-pane="left">
 <header>
     Two kernels on one page — one worker each, sharing nothing but the origin's storage.
     Click a terminal to type in it. <button id="stop">dispose the right one</button>
 </header>
 <div class="pair">
-    <div class="term"><h2>left</h2><canvas id="left"></canvas></div>
-    <div class="term"><h2>right — amber</h2><canvas id="right"></canvas></div>
+    <div class="term"><h2>left</h2><canvas id="left"></canvas><div class="keys" id="keys-left"></div></div>
+    <div class="term"><h2>right — amber</h2><canvas id="right"></canvas><div class="keys" id="keys-right"></div></div>
 </div>
+<pre id="status"></pre>
+<!-- With scripting off, nothing below runs. This is the only thing that speaks. -->
+<noscript>
+<div class="error">braam: JavaScript is off for this page, so nothing here can run.
+Allow scripting for this site — an extension such as a script blocker can hold it
+off even while the extension itself is disabled.</div>
+</noscript>
+<!-- Classic, not a module: no fetch of its own, so it runs when braam.js's never
+     answers. braam.js disarms it and takes the watch over from there. One for
+     the page, since one module load serves both kernels. -->
+<script>
+const BRAAM_STALL_MS = 5000; // BOOT_STALL_MS in braam.js, which takes over
+window.braamStage = "fetching braam.js";
+setTimeout(() => {
+    if (!window.braamStage)
+        return;
+    const line = document.createElement("div");
+    line.className = "error";
+    line.textContent = `braam: nothing happened in ${BRAAM_STALL_MS / 1000}s while `
+        + `${window.braamStage}. The page loaded but its script did not.`
+        + " A blocking extension or a proxy can hold a fetch open for ever;"
+        + " try a private window or a profile with extensions off.";
+    document.getElementById("status").appendChild(line);
+}, BRAAM_STALL_MS);
+</script>
 <script type="module">
 import { mount } from "./braam.js";
+
+window.braamStage = null; // disarms the watchdog above
+
+const status = document.getElementById("status");
+const stop = document.getElementById("stop");
+
+function note(text, cls) {
+    const line = document.createElement("div");
+    if (cls) line.className = cls;
+    line.textContent = text;
+    status.appendChild(line);
+}
+
+// iOS does not shrink the layout viewport for the software keyboard and
+// ignores interactive-widget, so the page sizes itself from the visual
+// viewport. The terminals need nothing: a shorter body is two shorter canvases
+// of two kernels, which braam.js already re-measures.
+const vv = window.visualViewport;
+if (vv) {
+    const fit = () => { document.body.style.height = `${vv.height}px`; };
+    vv.addEventListener("resize", fit);
+    vv.addEventListener("scroll", fit);
+    fit();
+}
 
 // A palette is an embedder's choice, so the right-hand terminal takes one of
 // its own; everything else about the two is identical.
@@ -53,15 +144,51 @@ const amber = [
     "#4a3a1a", "#f97316", "#eab308", "#fbbf24", "#c9a05a", "#d99a6a", "#f0c68a", "#fff2d0",
 ];
 
-const left = mount({ canvas: document.getElementById("left") });
-const right = mount({ canvas: document.getElementById("right"), palette: amber });
-left.focus();
-
-document.getElementById("stop").addEventListener("click", (event) => {
-    right.dispose();
-    event.target.disabled = true;
-    left.focus();
+// One status pane for two kernels, so a line names the one that spoke.
+const wire = (name) => ({
+    onLog: (text) => console.log(`${name}: ${text}`),
+    onError: (text) => {
+        console.error(`${name}: ${text}`);
+        note(`${name}: ${text}`, "error");
+    },
 });
+
+// Two kernels on a page: one worker, one scheduler and one filesystem each,
+// sharing nothing but the origin's storage. Two *screens* of one kernel are the
+// other arrangement, and web/dual.html is that one. One try for the pair — the
+// browser check that throws is the same for both.
+try {
+    const left = mount({
+        canvas: document.getElementById("left"),
+        keys: document.getElementById("keys-left"),
+        ...wire("left"),
+    });
+    const right = mount({
+        canvas: document.getElementById("right"),
+        keys: document.getElementById("keys-right"),
+        palette: amber,
+        ...wire("right"),
+    });
+
+    // braam.js moves the focus and the ring on a click; this keeps the page's
+    // own flag in step, which is what shows the right key bar on a touch screen.
+    for (const [name, term] of [["left", left], ["right", right]])
+        term.canvas.addEventListener("pointerdown", () => {
+            document.body.dataset.pane = name;
+        });
+
+    stop.addEventListener("click", (event) => {
+        right.dispose();
+        event.target.disabled = true;
+        document.body.dataset.pane = "left";
+        left.focus();
+    });
+
+    left.focus();
+} catch (e) {
+    note(e.message, "error");
+    stop.disabled = true; // nothing mounted, nothing to dispose
+}
 </script>
 </body>
 </html>
