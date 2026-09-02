@@ -18,6 +18,8 @@
 # cmode.cpp is Group B's three decisions that perform no syscall -- the mode
 # string, the kind's st_mode and the path's st_ino -- so that the half which
 # can be tested is.
+#
+# cfmt.cpp holds no float conversion: cfmt.h is the seam.
 add_library(braam_compat_pure STATIC
     calloc.cpp
     cctype.cpp
@@ -51,6 +53,20 @@ target_include_directories(braam_compat_pure INTERFACE
 target_include_directories(braam_compat_pure PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(braam_compat_pure PUBLIC braam_math braam_flags)
 
+# snprintf's float arm, and the stub that stands where it would be: 5 KB every
+# port paid for %d alone, since --gc-sections works at function granularity.
+# Two archives rather than a weak symbol -- a weak reference pulls no member,
+# so naming neither is a link error and not a silent %f. See cfmt.h.
+add_library(braam_compat_float STATIC cfmt_float.cpp)
+add_library(braam_compat_nofloat STATIC cfmt_nofloat.cpp)
+foreach(t braam_compat_float braam_compat_nofloat)
+    target_compile_options(${t} PUBLIC -fno-builtin)
+    target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_link_libraries(${t} PUBLIC braam_flags)
+endforeach()
+# Only the engine names braam_math; the stub must not drag it back in.
+target_link_libraries(braam_compat_float PUBLIC braam_math)
+
 # The half that reaches braam_proc: Group B, which blocks, plus Group A's one
 # member that is not pure -- getenv reads the environment block, which is
 # braam_proc's. Separate so braam_compat_pure stays linkable into tests.wasm,
@@ -65,7 +81,8 @@ target_compile_options(braam_compat_proc PUBLIC -fno-builtin)
 target_include_directories(braam_compat_proc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(braam_compat_proc PUBLIC braam_compat_pure braam_proc)
 
-# The umbrella a program names.
+# The umbrella a program names. Neither float archive is in it: which one goes
+# on the line is braam_add_program's decision, from PORT's NOFLOAT.
 add_library(braam_compat INTERFACE)
 target_link_libraries(braam_compat INTERFACE braam_compat_pure braam_compat_proc)
 

@@ -18,7 +18,6 @@ section rather than renumbering it. Where the detail lives:
 | [Package_Management.md](Package_Management.md) | what a package must prove, and how keys are held |
 | [Package_Formats.md](Package_Formats.md) | the package, index and anchor grammars |
 | [Testing.md](Testing.md) | how the two test suites are organised |
-| [TODO.md](TODO.md) | what is left, and in what order |
 
 ---
 

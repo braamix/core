@@ -31,9 +31,125 @@ first:
 
 ---
 
+## The 5 KB of float a port that formats none no longer pays
+
+TODO.md's P5, the last entry in section P and the last in the file.
+`snprintf`'s float conversions are droppable: `braam_add_program(... PORT
+NOFLOAT)` leaves musl's `fmtfp` out, and `zip`, `zipnote`, `zipsplit`,
+`zipcloak`, `em` and `iconv` each shed about 5,090 bytes. `kernel.wasm`, every
+`src/cmd/` binary and `rootfs.zip` are byte-identical: nothing in this tree
+links the kit.
+
+### Two archives, because a weak reference pulls nothing
+
+The entry named the trap it had to avoid. The obvious split — the float arm in
+a translation unit of its own, reached through a weak reference — **does not
+work**: a weak undefined reference does not pull an archive member, so the
+symbol resolves to null and `%f` prints nothing at all. A wrong answer is worse
+than 5 KB, and that is why the saving had been left on the table for a release.
+
+What works is two archives and a **strong** reference. `compat/cfmt.h` declares
+one function, `compat_fmt_f64`; `cfmt.cpp` calls it unconditionally;
+`braam_compat_float` defines it as musl's engine and `braam_compat_nofloat`
+defines it as a trap. `braam_add_program` puts exactly one on the link line.
+Nothing is weak, nothing is conditional at run time, and a program that somehow
+names neither archive is an **undefined symbol at link**, which is the safest of
+the three failures available.
+
+The default is the engine, so no existing port changed and none had to be
+re-examined. `NOFLOAT` is the thing you ask for, and asking for it wrongly is
+loud: the stub calls `panic` with a message naming the flag. That is the same
+answer the kit already gives `exit()` and `abort()` — a trap is a report, and
+silence is not.
+
+`NOFLOAT` without `PORT` is a configure-time error rather than a no-op.
+
+### What it costs, and who it does not help
+
+The split costs **80 bytes** in a binary that keeps the arm: one call that used
+to be inlined into the format loop and is not any more. `examples/portio` is
+75,101 → 75,181, and 70,075 with `NOFLOAT`.
+
+| | float | NOFLOAT | |
+| --- | --- | --- | --- |
+| `zip` | 418,542 | 413,452 | −5,090 |
+| `zipnote` | 196,147 | 191,049 | −5,098 |
+| `zipsplit` | 201,850 | 196,752 | −5,098 |
+| `zipcloak` | 224,688 | 219,590 | −5,098 |
+| `em` | 290,881 | 285,790 | −5,091 |
+| `iconv` | 219,873 | 214,783 | −5,090 |
+
+Which ports could take it was decided by reading every format string literal in
+`braam-apps`, not by guessing: `le` formats `%.17g` and `%.40lg` in its
+calculator, `duremark` prints five `%.1f` and `%.2f` in its report, and
+`simbesm` has a `%#.2g`, so those three keep the arm. `vi` and `ex` are the
+interesting negative — they are **byte-identical with the flag and without**,
+because `ex_out.cpp` is a `printf` of their own and they never reach `cfmt.cpp`
+at all, so the arm was never in them. They do not carry the flag: a flag that
+buys nothing and can still trap is worse than no flag.
+
+`uemacs`'s README had been carrying the complaint since Group A landed — "very
+nearly all of it is the kit's float conversions, which are one function with the
+integer ones, so a port pays for them even where — as here — it formats nothing
+but integers and strings". That sentence is what P5 existed to delete.
+
+### The suite is a float target
+
+`tests.wasm` links `braam_compat_pure`, and `cfmt.cpp` is in it, so the suite
+needs an answer for `compat_fmt_f64` like any other program. It links
+`braam_compat_float`, which is right on its own terms: `test_compat.cpp`
+asserts four `%f` conversions.
+
+Nothing in this tree links `braam_compat_nofloat`, so it is compile-checked
+here and link-checked by the three ports that name it. That is the same shape
+Group B has — `examples/portio` links it, `vi` runs it.
+
+### Why the syscall table is not the gap
+
+This was TODO.md's standing answer to a question that would otherwise be
+re-derived, and it moves here rather than going with the file.
+
+The table was measured against the generic Unix syscall set. Forty-nine
+operations answer it, and what is left divides four ways:
+
+- **Covered by another mechanism.** `fork` (the spawn model), `dup2` (`Spawn`
+  takes an explicit `fd0/fd1/fd2` triple and *moves* them), `fcntl` (no
+  `O_NONBLOCK` — everything is a coroutine; no `FD_CLOEXEC` — a move is already
+  close-on-spawn), `poll`/`select` (concurrent tasks, `PROC_TASKS` = 8, which is
+  what `/bin/chat` uses), `ioctl` (`Tty` and `KeyClaim`), `getppid`, `uname`,
+  `sysinfo`, `statfs` (`/proc` and `Sys::Storage` — §4.3's fourth rule),
+  `alarm` (`Sleep` in a second task, which is `/bin/timeout`), `setenv`
+  (argued and rejected).
+- **Impossible on the host.** `utime`/`utimensat` — OPFS cannot set a
+  modification time at all. `fsync` — OPFS flushes on every write.
+- **Deliberate.** `bg`/`^Z` with `Wait`'s `WNOHANG`, `chmod`/`access`/`umask`,
+  `link`, CPU metering, per-process root, `Kill` restricted to children. Each is
+  in CLAUDE.md's known gaps with its argument in Release_Notes.md.
+- **Missing, and waiting for a caller.** Nothing, now. `fstat`, `O_EXCL` and
+  `mount` were all here until a caller turned up for each — `/bin/unzip`,
+  `/bin/edit` and `/bin/mount` — and Release_Notes.md has the three arguments.
+  `Sys::Mount` is the one of them that answers `Err(Unsupported)`: it has its
+  caller and not its filesystem, and §5.4 carries what that still wants.
+
+The twelve missing *programs* were checked against the table one by one. None
+was blocked on a syscall, and sections A, B, D and P are all spent: the program
+layer is neither short of coverage nor known to be wrong, nor short of the
+buffered stream D asked whether it wanted, nor of the port kit P built. What
+adding a program costs is [Testing.md](Testing.md) §6.
+
+### Section P is spent, and so is TODO.md
+
+P1 completed Group A, P2 added Group B, P3 and P4 migrated all nine ports onto
+them, and P5 made the one part of the kit that could not be avoided avoidable.
+With A, B and D already spent, TODO.md had no entries left in it at all — so
+**the file is deleted**. It existed to say what was left and in what order, and
+there is nothing left; an empty sequence is not a document. Its one piece of
+standing reasoning is the section above. A future plan starts a new file, or a
+new section of this one.
+
 ## Every port stops keeping a C library, and the `long` that could not reach a file
 
-[TODO.md](TODO.md)'s P4, and with it the port kit's whole reason for existing is
+TODO.md's P4, and with it the port kit's whole reason for existing is
 discharged: `zip`, `uemacs`, `le` and `iconv` are migrated, no package in
 `braam-apps` keeps a stream layer or a header set of its own any more, and
 section P has only P5 left. In this tree the change is `b_fseeko`/`b_ftello`,
@@ -187,7 +303,7 @@ for want of a reference corpus.
 
 ## The two smallest shims, and the 10,697 bytes `duremark` did not spend
 
-[TODO.md](TODO.md)'s P3, in `braam-apps`: `benchmarks/duremark` and
+TODO.md's P3, in `braam-apps`: `benchmarks/duremark` and
 `games/adventure`, the two smallest porting layers, against the kit now that P1
 and P2 have finished it. Nothing in this tree changes but three documents —
 `kernel.wasm`, every `src/cmd/` binary and `rootfs.zip` are byte-identical,
@@ -268,7 +384,7 @@ size worst case" is what the 41% above measures — not what it kept.
 
 ## Group B, and the header that will not include `<stdio.h>`
 
-[TODO.md](TODO.md)'s P2, and with it the port kit is complete: streams,
+TODO.md's P2, and with it the port kit is complete: streams,
 descriptors, directories and `struct stat`, as `compat/cio.h` and the `b_*`
 family. No operation, no `PROC_ABI`, no Concept.md amendment. `kernel.wasm`,
 every binary and `rootfs.zip` are byte-identical, because nothing in the tree
@@ -459,7 +575,7 @@ and `zip`, `le` and `uemacs` are the three still to go.
 
 ## Group A's remainder, and the six names that were a link error
 
-[TODO.md](TODO.md)'s P1, and with it the port kit's Group A is complete: the
+TODO.md's P1, and with it the port kit's Group A is complete: the
 calendar, the wide half, `fnmatch`, `sys/queue.h` and the `strtod` family. No
 operation, no `PROC_ABI`, no Concept.md amendment — the kit is an archive
 nothing links unless it names it, and `src/cmd/` still builds with
@@ -634,7 +750,7 @@ alone would have wrapped.
 
 ## The line reader a `File` would only make bigger
 
-[TODO.md](TODO.md)'s D3. `File::getline` replaced the `LineReader` in `grep` and
+TODO.md's D3. `File::getline` replaced the `LineReader` in `grep` and
 `tail`, and `cp`, `mv`, `less`, `chat` and `sh -s` still hold one, so the entry
 asked for the type gone and one line reader left. It was measured on the best of
 the five and it does not pay. D3 joins D2, D2a and D4 — and it was the last of
@@ -718,7 +834,7 @@ would have to preserve turned up an asymmetry: `cp` and `mv` ask on the same
 
 ## The accumulator a `File` could only make longer
 
-[TODO.md](TODO.md)'s D2a. Three places build every output row into one heap
+TODO.md's D2a. Three places build every output row into one heap
 `String` and write it once — `pkg/query.cpp`'s `emit`, `unzip`'s listing, and
 the sh builtins — and the entry asked whether a `File` should do that without
 the allocation. One was built and measured, the other two are decided on
@@ -809,7 +925,7 @@ case and fails this one.
 
 ## The empty directory a rename would not step into
 
-[TODO.md](TODO.md)'s B4, and the divergence the section below it deferred.
+TODO.md's B4, and the divergence the section below it deferred.
 `rename(2)` replaces a destination directory that is *empty* and answers
 `ENOTEMPTY` for one that is not. `vfs_rename` refused both with `Err(Exists)`,
 so `mv a b` with an empty `b/a` was `mv: a: already exists` where Unix moves.
@@ -876,7 +992,7 @@ directory onto one is `Err(NotDir)` and the new branch is never reached.
 
 ## The merge `cp -r` was deleting its way around
 
-[TODO.md](TODO.md)'s B2 said `copy_tree`'s destination must not exist, so
+TODO.md's B2 said `copy_tree`'s destination must not exist, so
 `cp -r a b` with `b/a` already there "fails rather than merging". The mechanism
 it named was exactly right and the symptom was not. `cp` does not fail: it
 **removes `b/a` and everything under it** and copies `a` in its place
@@ -1212,7 +1328,7 @@ assertion: the same strings, over a directory that now holds two more entries.
 
 ## `cmp` and `diff`, and an algorithm that is not FreeBSD's
 
-[TODO.md](TODO.md)'s **A8**, and section A is spent with it: every program that
+TODO.md's **A8**, and section A is spent with it: every program that
 section named is now in `/bin`. Neither needs an operation the kernel did not
 have, so `PROC_ABI` does not move. Ported from FreeBSD's `usr.bin/cmp` and
 `usr.bin/diff` — the semantics, the option letters and the output strings,
@@ -1400,7 +1516,7 @@ and a dangling-state check after the last read. None of the three arises. Words
 stay ASCII-blank delimited, which is what BSD's own non-`-m` path does: a
 continuation byte is never `iswspace`, so the two agree on every input either
 can decode. What is given up is `iswspace`'s U+00A0 and U+2028, and that is
-[TODO.md](TODO.md)'s **P1** rather than something to half-do here.
+TODO.md's **P1** rather than something to half-do here.
 
 **`-L` fixes an upstream bug rather than reproducing it.** `wc.c` folds the
 running length into the maximum only when it sees a `'\n'`, and never at the
@@ -1492,7 +1608,7 @@ in.
 
 ## `xargs`, and the stdin a child must not share
 
-[TODO.md](TODO.md)'s **A7**, ported from FreeBSD's `usr.bin/xargs`. It needed
+TODO.md's **A7**, ported from FreeBSD's `usr.bin/xargs`. It needed
 no operation the kernel did not have — `spawn`, `wait_child` and `kill_child`
 were already in `proc/io.h` with three callers in `src/cmd/` — so `PROC_ABI`
 does not move. It is also what `find` was left without: `-exec` and `-ok` were
@@ -1570,7 +1686,7 @@ front, so `echo aa bbb | xargs -s 15` is two runs and not an error.
 
 ## Four filters, and the two libraries that had no caller
 
-[TODO.md](TODO.md)'s **A6** — `tee`, `cut`, `tr` and `seq` — and with `tr`, its
+TODO.md's **A6** — `tee`, `cut`, `tr` and `seq` — and with `tr`, its
 **D1**. The ports read against are v7's `tee` and `tr` by way of `v7besm/cmd/`,
 LiteBSD's `cut` and FreeBSD's `seq`. None needed an operation the kernel did not
 have, which is what A6's own entry predicted: the gap is the program layer.
@@ -1903,7 +2019,7 @@ mode, and none of that is wanted for one `path:`.
 
 ## `find`, and the walk lifted out of `copy_tree`
 
-`/bin/find` is [TODO.md](TODO.md)'s A3, and the port it was read against is
+`/bin/find` is TODO.md's A3, and the port it was read against is
 v7's, by way of `v7besm/cmd/find/`. Two of that port's three headline findings
 do not survive the move, and saying which is most of what is worth recording.
 
@@ -1988,7 +2104,7 @@ reference resolves to one matches everything. The help line says so.
 
 ## `sort` and `uniq`, and the memory that bounds one
 
-[TODO.md](TODO.md)'s A4, read against v7 by way of `v7besm/cmd/sort/` and
+TODO.md's A4, read against v7 by way of `v7besm/cmd/sort/` and
 `v7besm/cmd/uniq/`. Almost none of v7's `sort` survives the move, and naming
 what does not is most of what is worth recording: the `brk()` arena, the
 back-off in 512-byte clicks, the stdio buffers reserved by allocating and
@@ -2016,7 +2132,7 @@ and `FileWrite` are awaiters with an `await_ready` that answers from the buffer
 **without entering a coroutine at all**, which is why nothing else in the tree
 had shown it — and `grep`, whose loop writes, unwinds on the flush. `grep zzz`
 over 65,536 short lines traps like the first `sort` did. That is
-[TODO.md](TODO.md)'s new B3, since the fix belongs in `getline` rather than in
+TODO.md's new B3, since the fix belongs in `getline` rather than in
 its callers; what is here is the avoidance — both programs read a chunk at a
 time through `Input` and split it themselves, so the only coroutine in the loop
 is the one syscall that always suspends. Both write in 4 KB batches for the same
@@ -2121,7 +2237,7 @@ far past the depth the first version died at.
 
 ## `du`, and a post-order over a pre-order walk
 
-`/bin/du` is [TODO.md](TODO.md)'s A5 and `TreeWalk`'s third caller, which is
+`/bin/du` is TODO.md's A5 and `TreeWalk`'s third caller, which is
 what its own entry said it would be. The port it was read against is v7's, by
 way of `v7besm/cmd/du/`, and most of that file is machinery this system does not
 have: a `chdir(2)` per level and a `chdir("..")` back out, a `PATHSIZ` buffer

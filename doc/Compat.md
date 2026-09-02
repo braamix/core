@@ -23,6 +23,12 @@ replacing the 26-, 30-, 40- and 45-entry `-fno-builtin-<name>` lists four
 packages carry. It also links `braam::portflags`, which silences the seven
 warnings upstream code trips that this tree's own code does not.
 
+`PORT NOFLOAT` is the one modifier: it drops `snprintf`'s float conversions,
+about 5 KB a port that formats only integers and strings would otherwise pay.
+`%f` in such a program **traps** with a message naming the flag — it does not
+print nothing. `zip`, `uemacs` and `iconv` are built that way; `le`, `duremark`
+and `simbesm` format floats and are not. §5 has the numbers.
+
 Without `PORT`, `#include <string.h>` is still "file not found". That is the
 guard, and it is tested.
 
@@ -77,7 +83,7 @@ answers at the call site.
 
 **Group C — absent.** `setjmp`/`longjmp` (no restorable value stack; `vi`'s
 `error()` unwinding one frame at a time is the recipe), `fork`, `setenv`
-(argued and rejected — doc/TODO.md, and its absence is what lets `getenv`
+(argued and rejected — Release_Notes.md, and its absence is what lets `getenv`
 intern an answer once and never revisit it), `pthread_create`, `dlopen` (a
 static module table: `iconv`'s `citrus_module.cpp`), `mmap` (read into a heap
 block: `citrus_mmap.cpp`), signal handlers, `utime`, `chmod`, µs and CPU clocks.
@@ -247,13 +253,33 @@ Measured, `MinSizeRel`, against `examples/hello` at 7,769 bytes:
 | `snprintf`, integers and strings only | 11,255 | +3,486 |
 | `snprintf` including the float conversions | 16,622 | +8,853 |
 
-The float arm is **5,367 of those bytes**, and a port pays it even for `%d`
-alone, because the engine is one function and `--gc-sections` works at function
-granularity. Splitting it into a translation unit of its own is the obvious
-saving and is **not done**: a weak reference does not pull an archive member, so
-the split would make `%f` silently print nothing in a port that forgot to ask
-for it. A wrong answer is worse than 5 KB. `doc/TODO.md` P5 carries the shape a
-fix would need.
+The float arm is **5,367 of those bytes**, and a port used to pay it even for
+`%d` alone, because the engine was called from the same function as the
+integers and `--gc-sections` works at function granularity. `PORT NOFLOAT`
+drops it. The split is two archives rather than one translation unit behind a
+weak reference: a weak reference pulls no archive member, so that shape would
+make `%f` silently print nothing in a port that forgot to ask, and a wrong
+answer is worse than 5 KB. `compat/cfmt.h` is the seam, `braam_compat_float`
+is musl's engine and `braam_compat_nofloat` traps, and a program naming neither
+is a link error.
+
+Measured over the three ports that took it, and `portio` built both ways:
+
+| | float | NOFLOAT |
+| --- | --- | --- |
+| `zip` | 418,542 | 413,452 |
+| `zipnote` | 196,147 | 191,049 |
+| `zipsplit` | 201,850 | 196,752 |
+| `zipcloak` | 224,688 | 219,590 |
+| `em` | 290,881 | 285,790 |
+| `iconv` | 219,873 | 214,783 |
+| `examples/portio` | 75,181 | 70,075 |
+
+The split costs **80 bytes** where the arm is kept — one call that was inlined
+and is not any more. A binary that never names `snprintf` at all pays nothing
+either way and gains nothing from the flag: `vi` and `ex` have a `printf` of
+their own and are byte-identical with it and without, which is why they do not
+carry it.
 
 Group A's remainder, measured the same way but as a delta over a program that
 does nothing else, at 7,353 bytes — each of these is what naming *only* that
@@ -288,7 +314,7 @@ with it:
 | `b_printf` | +20,199 |
 | the `FILE` family without `b_printf` | +30,817 |
 
-`examples/portio`, which names all of it, is **75,101**. `b_printf` is the
+`examples/portio`, which names all of it, is **75,181**. `b_printf` is the
 `snprintf` engine above with a stream under it, so a port that has both pays
 for the engine once — measured on `duremark`, which already had the engine,
 `b_printf` in place of a buffer it writes itself is +10,697 rather than

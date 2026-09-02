@@ -36,16 +36,17 @@ and the three passing CTest cases.
   mechanism (§4.3 is normative). Changes to `src/proc/`, `src/user/`,
   [src/kernel/sysabi.h](src/kernel/sysabi.h) or [web/proc.js](web/proc.js) must
   keep it true.
-- **[doc/TODO.md](doc/TODO.md) is the sequence** — what is left and in what
-  order, each entry naming the caller that satisfies §4.3's first rule and
-  whether it moves `PROC_ABI`. It also records why the syscall table is *not*
-  the gap, so that question is not re-derived.
 - **[doc/Compat.md](doc/Compat.md)** is the opt-in port kit `braam::compat` —
   what a *ported* Unix program may link, the A/B/C split, and what it costs.
   Groups A and B are complete: §4 is the `b_*` family, `compat/cio.h` its one
   header, and `examples/portlet` and `examples/portio` the two in-tree callers
-  that keep it building. The system itself still has no libc, and `PORT` is the
-  whole of the opt-in.
+  that keep it building. The system itself still has no libc, and
+  `PORT [NOFLOAT]` is the whole of the opt-in.
+- **There is no `doc/TODO.md`.** It held the sequence of what was left and is
+  deleted, because nothing is: sections A, B, D and P are all spent. Its one
+  standing argument — why the syscall table is *not* the gap — is in
+  Release_Notes.md, so that question is not re-derived. A new plan starts a
+  file or a section of its own.
 - **[doc/Testing.md](doc/Testing.md)** is how the two suites are organised, what
   can be tested in which, and the rules the system suite's one cumulative
   session runs by. Read it before adding a case or moving one.

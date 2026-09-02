@@ -1,10 +1,12 @@
 # How a Braam program is built. Used by src/cmd/ and installed with the SDK, so
 # an out-of-tree program is built the way the system's own are.
 #
-#   braam_add_program(NAME hello SOURCES hello.cpp [LIBS ...] [PORT])
+#   braam_add_program(NAME hello SOURCES hello.cpp [LIBS ...] [PORT [NOFLOAT]])
 #
 # PORT links the opt-in port kit (doc/Compat.md) and puts its system header
 # names on this target's include path. Without it there is no libc, as before.
+# NOFLOAT drops snprintf's float conversions, ~5 KB a port that formats only
+# integers would otherwise pay; a %f in one traps rather than printing nothing.
 #
 # BRAAM_STAMP names tools/stamp.py, BRAAM_SYSABI the kernel/sysabi.h it reads
 # PROC_ABI from; the includer sets both.
@@ -14,7 +16,7 @@ set(BRAAM_BIN_MAX_PAGES 256)
 math(EXPR BRAAM_BIN_INITIAL_BYTES "${BRAAM_BIN_INITIAL_PAGES} * 65536")
 
 function(braam_add_program)
-    cmake_parse_arguments(P "PORT" "NAME" "SOURCES;LIBS" ${ARGN})
+    cmake_parse_arguments(P "PORT;NOFLOAT" "NAME" "SOURCES;LIBS" ${ARGN})
     # Compared as strings: one of the programs is named `false`, which
     # if(NOT P_NAME) would dereference to exactly that.
     if("${P_NAME}" STREQUAL "" OR "${P_SOURCES}" STREQUAL "")
@@ -35,6 +37,14 @@ function(braam_add_program)
         target_include_directories(bin_${P_NAME} BEFORE PRIVATE
                                    ${BRAAM_COMPAT_INCLUDE_DIR})
         target_link_libraries(bin_${P_NAME} PRIVATE braam::compat braam::portflags)
+        # Exactly one answers cfmt.cpp's compat_fmt_f64.
+        if(P_NOFLOAT)
+            target_link_libraries(bin_${P_NAME} PRIVATE braam::compat_nofloat)
+        else()
+            target_link_libraries(bin_${P_NAME} PRIVATE braam::compat_float)
+        endif()
+    elseif(P_NOFLOAT)
+        message(FATAL_ERROR "braam_add_program: NOFLOAT is meaningless without PORT")
     endif()
 
     # --import-memory makes the 16 MB cap the kernel's decision rather than the

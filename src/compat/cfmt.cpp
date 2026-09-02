@@ -5,7 +5,7 @@
 // C99's — the count that would have been written (zip returned what it wrote).
 #define BRAAM_COMPAT_BUILDING 1
 
-#include "math/ftoa.h"
+#include "cfmt.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -276,16 +276,16 @@ extern "C" int vsnprintf(char *buf, size_t cap, const char *fmt, va_list ap)
         case 'G':
         case 'a':
         case 'A': {
-            // fmt_f64 is musl's engine with printf's precision convention, so
-            // style and precision come across unchanged.
+            // musl's engine with printf's precision convention, so style and
+            // precision come across unchanged; a separate archive, see cfmt.h.
             double v = va_arg(ap, double);
             char fbuf[512];
-            Str t    = fmt_f64(fbuf, sizeof(fbuf), v, i32(sp.prec), conv);
+            Str t    = compat_fmt_f64(fbuf, sizeof(fbuf), v, i32(sp.prec), conv);
             bool neg = t.size() && t[0] == '-';
             const char *d = t.data() + (neg ? 1 : 0);
             size_t n      = t.size() - (neg ? 1 : 0);
             Spec fs       = sp;
-            fs.prec       = -1; // already applied by fmt_f64
+            fs.prec       = -1; // already applied by compat_fmt_f64
             emit_number(s, fs, neg, "", 0, d, n);
             break;
         }
