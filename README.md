@@ -11,7 +11,7 @@ downloads a kernel and gives you a prompt. Your files stay in the browser and
 are still there tomorrow. It works on a phone.
 
 Braam is a small command-line system: a kernel, a filesystem, a terminal, a
-shell, forty-five programs and a package manager. It is written from scratch in
+shell, fifty-six programs and a package manager. It is written from scratch in
 C++20 and compiled to WebAssembly, which browsers run at close to native speed.
 There is no server side. The whole system is a few static files, so any web host
 can serve it.
@@ -52,8 +52,13 @@ callback, which keeps the boundary small enough to check by eye.
 
 **A shell.** A Bourne shell after v7: variables, functions, `if`, loops, `case`,
 globbing, command substitution, pipes, redirection, background jobs, and line
-editing with history. `^C` stops whatever is running and gives the prompt back.
-[doc/Shell.md](doc/Shell.md) is the manual.
+editing with history. Tab completes a file, a command or a variable, and a
+second Tab lists the choices. `^C` stops whatever is running and gives the
+prompt back. [doc/Shell.md](doc/Shell.md) is the manual.
+
+**The usual toolbox.** `grep`, `find`, `sort`, `uniq`, `wc`, `head`, `tail`,
+`cut`, `tr`, `tee`, `xargs`, `seq`, `du`, `df`, `cmp` and `diff`, so a pipeline
+can be written here rather than somewhere else and pasted in.
 
 **A filesystem.** Everything lives in the browser's private storage and survives
 a reload; `/tmp` is emptied at boot. `/bin` and `/etc` come from an archive
@@ -67,7 +72,9 @@ stops.
 the clipboard.
 
 **Full-screen programs.** `less` and `edit` draw into a grid of their own and
-send only the part that changed. `^C` still reaches them.
+send only the part that changed. `^C` still reaches them. A program can also
+open one of the page's other terminals and paint there — `edit -S` starts on one
+screen and edits on another.
 
 **A usage block in every program.** `-h` asks one what it takes, and asking is
 not a mistake: the block goes to the screen and the status is 0.
@@ -174,7 +181,7 @@ is the guide and [examples/hello/](examples/hello/) is the worked example.
 
 ## Status
 
-Version 0.8. Everything above works and the tests pass. A tablet works too: tap
+Version 0.9. Everything above works and the tests pass. A tablet works too: tap
 to type, drag to select, with a row of buttons for the keys a touch keyboard
 does not have.
 
