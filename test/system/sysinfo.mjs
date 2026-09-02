@@ -30,6 +30,18 @@ export function check() {
     if (!dfh.some((line) => /^opfs +10G +\d/.test(line)))
         fail(`df -h did not scale the quota: ${JSON.stringify(dfh)}`);
 
+    // A column is as wide as its widest value: nine figures fill BSD's Avail
+    // and would otherwise run into Used. The quota is put back for the cases
+    // after this one.
+    const quota = store.quota;
+    store.quota = 900 * 1024 * 1024 * 1024;
+    s = submit("clear", 1181.3);
+    s = submit("df", 1181.4);
+    store.quota = quota;
+    const wide = rows(s).find((line) => line.startsWith("opfs "));
+    if (!wide || !/^opfs +\d+ +\d+ +\d{9} +\d+%    \/$/.test(wide))
+        fail(`df ran its columns together: ${JSON.stringify(wide)}`);
+
     // /proc/host is what the kernel knows about itself and what the host said
     // about the browser at boot, and `uname` reformats it — the arrangement
     // `mount` has over /proc/mounts. The host half comes from the fake's fixed

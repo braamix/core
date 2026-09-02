@@ -2307,3 +2307,28 @@ no cycle guard is needed. `-d` is GNU's, and `-s` plus a path is the whole of
 what it buys at this size.
 
 `/bin/du` is 34,284 bytes and `rootfs/` is 1,497,212 of the 2 MB budget.
+
+## `df`'s columns are as wide as their widest value
+
+BSD's widths put a row in sixty columns, and this program took them literally: a
+nine-figure `Avail` filled its nine-wide field exactly, and `put_right` writes
+something that will not fit whole rather than truncating it, so the number ran
+into `Used` and the two read as one. Nine figures is 99 GiB in `1K-blocks`,
+which is not a hypothetical quota — the fake's ten gibibytes were simply under
+it, which is why three passing suites never saw this.
+
+**The widths are now a floor, not a size.** A first pass over `/proc/mounts`
+formats every cell and takes the widest of each column plus one space; a second
+pass prints against those. BSD's numbers stay the minimum, so a table that fit
+before is byte-identical, and the arithmetic is the same figures either way —
+the cost is parsing the mount table twice, which is a `String` already in
+memory and half a dozen lines long.
+
+Two passes rather than a `Vec` of rows because a row holds four `Buf<32>`s and
+the mounts are text that is already there: the second pass rebuilds each row
+from the line for the price of a division. The row lives in a nested scope so
+it stays off the coroutine frame, which is §8.2's 512 bytes.
+
+`Used` and `Avail` widen independently. They are one width in BSD because the
+figures are of a kind, but the header of each is its own word and a column that
+does not need the room should not take it.
