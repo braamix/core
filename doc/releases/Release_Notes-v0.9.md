@@ -110,6 +110,17 @@ this reaches the system: `kernel.wasm`, every `src/cmd/` binary and `rootfs.zip`
 are byte-identical across the whole of it, because nothing in this tree links
 the kit.
 
+**Two ceilings moved, and a package is why.** `Sys::Inflate` stages its input
+through `SYS_STAGE_MAX`, which was a megabyte — a bound on the *compressed* half
+of one file, and one no packager could work around: a BESM-6 disk pack
+compresses to 1,467,064 bytes, so `pkg install simbesm` could not read the entry
+at all. It is 100 MB now, and `PROC_MAX_PAGES` moves with it, 256 pages to 1600,
+because raising the stage cap alone would have bought nothing — a staged payload
+costs its size in the process *and* in the kernel. Neither is an ABI change and
+`PROC_ABI` stays 20: `exec` only ever clamps a stamped claim *down*, so both
+directions degrade cleanly. What it costs is that wasm memory never shrinks, so
+one 100 MB stage grows the kernel's memory for the life of the page.
+
 **`doc/TODO.md` is deleted.** It held the sequence of what was left, and
 sections A, B, D and P are all spent: A's twelve programs are all in `/bin`, B's
 four defects are fixed, D asked four questions about a buffered stream and
@@ -130,6 +141,7 @@ rather than moving the toolchain floor for every consumer of the SDK to clang
 cases bring that suite to 66; the kernel imports nothing new and grew one
 operation and one export argument, and everything else in the release is a
 program, a shell, or a library beside the system.
+
 ## The 5 KB of float a port that formats none no longer pays
 
 TODO.md's P5, the last entry in section P and the last in the file.
