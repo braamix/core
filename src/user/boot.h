@@ -9,10 +9,15 @@
 #include "kernel/task.h"
 #include "kernel/types.h"
 
-// The one program init runs. There is no getty and nothing configures this:
-// init starts another when this one *dies*, and the terminal is done when it
-// exits.
+// The program init runs when the boot archive names no other, and what every
+// terminal after the first runs whatever it names. There is no getty: init
+// starts another when this one *dies*, and the terminal is done when it exits.
 constexpr Str SHELL = "/bin/sh";
+
+// What an archive puts in place of that shell on terminal 0 (Concept.md §4):
+// one line, the path of the program to run. Absent, empty or unreadable all
+// mean SHELL, so an archive without the file boots as it always did.
+constexpr Str INIT = "/etc/init";
 
 // Printed on the grid before that first prompt, and absent is not an error: a
 // boot archive without a greeting is not a broken one.

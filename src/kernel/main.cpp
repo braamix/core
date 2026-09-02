@@ -26,8 +26,8 @@ extern "C" void __wasm_call_ctors();
 
 namespace {
 
-// The shell's pid, which is init's: /bin/sh is a process inside init's task
-// rather than a job of its own. Written once sched_spawn has said what it is
+// The pid of what init runs, which is init's: that program is a process inside
+// init's task rather than a job of its own. Written once sched_spawn has said what it is
 // and read a tick later, when the body first runs — a Task is lazy, so nothing
 // has looked yet. Zero is what sched_spawn returns when it fails and what the
 // terminal claims mean by "nobody", so a process must not answer to it.
@@ -71,8 +71,9 @@ BRAAM_EXPORT("init") void init(u32 heap_base)
     if (!sched_spawn(console_pump(*t0), "tty"))
         panic("braam: the console would not start");
 
-    // The mounts, and then /bin/sh — a program like any other, with no shell
-    // left in here to be the exception (Concept.md §4).
+    // The mounts, and then whatever init runs — /bin/sh, or what /etc/init
+    // names — a program like any other, with no shell left in here to be the
+    // exception (Concept.md §4).
     Task<i32> t = init_task(g_init_pid);
     g_init_pid  = sched_spawn(move(t), "init");
     if (!g_init_pid)

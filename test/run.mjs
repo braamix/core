@@ -27,6 +27,7 @@ import * as glob from "./system/glob.mjs";
 import * as grep from "./system/grep.mjs";
 import * as head from "./system/head.mjs";
 import * as help from "./system/help.mjs";
+import * as initprog from "./system/initprog.mjs";
 import * as interrupt from "./system/interrupt.mjs";
 import * as jobs from "./system/jobs.mjs";
 import * as language from "./system/language.mjs";
@@ -108,6 +109,7 @@ const CASES = [
     ["procfs",     procfs.check],
     ["interrupt",  interrupt.check],
     ["persist",    persist.check],    // reloads the kernel and resets the store
+    ["initprog",   initprog.check,   ARCHIVE], // after persist: it reboots too, and hands back a prompt
     ["net",        net.check],        // after persist: a working store again
     ["fullscreen", fullscreen.check],
     ["jobs",       jobs.check],

@@ -29,6 +29,10 @@ constexpr f64 RESPAWN_FLOOR_MS = 1000;
 // String, because a namespace-scope global must be trivially destructible.
 String *g_host = nullptr;
 
+// The program init runs on terminal 0, read once out of INIT. A pointer for
+// the reason g_host is one. Null is an archive that named none, which is SHELL.
+String *g_init = nullptr;
+
 // On a row of its own: a shell that died left its prompt on this one.
 void say(Term &term, Str s)
 {
@@ -196,6 +200,48 @@ Task<void> show_motd(Term &term)
     screen_style(term, COLOR_WHITE, COLOR_BLACK, 0);
 }
 
+// INIT's first line, trimmed. Read once, on the boot path. Missing, empty or
+// unreadable all leave g_init null, which is SHELL. The shape of the path is
+// exec_resolve's business, not this one's.
+Task<void> learn_init_prog()
+{
+    // Cleared first, so a second boot in one instance answers the store it has
+    // now rather than the one it had.
+    heap_delete(g_init);
+    g_init = nullptr;
+
+    Task<Result<String>> t = read_file(INIT);
+    if (!t)
+        co_return;
+    Result<String> r = co_await t;
+    if (r.is_err())
+        co_return;
+
+    String line = move(r.value());
+    usize nl    = line.str().find('\n');
+    if (nl != Str::npos)
+        line.truncate(nl);
+    while (!line.empty() && (line[line.size() - 1] == ' ' || line[line.size() - 1] == '\t' ||
+                             line[line.size() - 1] == '\r'))
+        line.pop();
+    usize at = 0;
+    while (at < line.size() && (line[at] == ' ' || line[at] == '\t'))
+        at++;
+    line.erase(0, at);
+    if (line.empty())
+        co_return;
+
+    if (String *held = heap_new<String>(move(line)))
+        g_init = held;
+}
+
+// What to call it on the grid: "the shell" for SHELL, which is what every line
+// about it has said and what the system suite reads back; a path otherwise.
+Str called(Str prog)
+{
+    return prog == SHELL ? Str("the shell") : prog;
+}
+
 // The half of the description above the blank line: the fields short enough to
 // put on the boot grid. The rest — the locale and the agent string, which wraps
 // a row on its own — waits in /proc/host for anyone who asks.
@@ -285,13 +331,13 @@ Task<void> show_host(Term &term, const StorageBackend &b)
     say(term, line.str());
 }
 
-// Why /bin/sh would not resolve, on one line. Three different repairs hide
-// behind one Result: a store with no shell in it, one built against another
-// kernel, and one whose bytes are damaged.
-void no_shell(Term &term, Error e)
+// Why the program init runs would not resolve, on one line. Three different
+// repairs hide behind one Result: a store without the program in it, one built
+// against another kernel, and one whose bytes are damaged.
+void no_program(Term &term, Str prog, Error e)
 {
     Buf<160> line;
-    line.put(SHELL).put(": ");
+    line.put(prog).put(": ");
     switch (e) {
     case Error::NotFound:
         line.put("not in the store");
@@ -389,6 +435,8 @@ bool base_env(String &out)
     static_assert(PATH_WORD.substr(5) == SYS_PATH_DEFAULT,
                   "init's PATH and the kernel's default must name the same list");
 
+    // SHELL is the shell, not whatever INIT named: /bin/sh is still what a
+    // script and an `sh -c` get.
     constexpr Str WORDS[] = { PATH_WORD, "HOME=/home", "SHELL=/bin/sh" };
     constexpr usize N     = sizeof(WORDS) / sizeof(WORDS[0]);
 
@@ -403,9 +451,10 @@ bool base_env(String &out)
 
 namespace {
 
-// One terminal's session: a shell, and another when that one dies. `greet` is
-// terminal 0's — the motd is the system's, not the terminal's.
-Task<i32> shell_session(Term &term, const u32 &pid, bool greet)
+// One terminal's session: `prog`, and another when that one dies. `greet` is
+// terminal 0's — the motd is the system's, not the terminal's. `prog` lives in
+// this frame, so &prog is stable for the session, which Args below needs.
+Task<i32> shell_session(Term &term, Str prog, const u32 &pid, bool greet)
 {
     bool restored = false;
     u32 tries     = 0;
@@ -421,21 +470,23 @@ Task<i32> shell_session(Term &term, const u32 &pid, bool greet)
         // the Executable cannot be reused.
         Executable exe;
         Result<void> found = Err(Error::NoMemory);
-        if (Task<Result<void>> t = exec_resolve(SHELL, exe))
+        if (Task<Result<void>> t = exec_resolve(prog, exe))
             found = co_await t;
         if (found.is_err()) {
             // Said on the grid rather than through a Stream, because there is
-            // nobody left to print it: a store that will not give up /bin/sh
-            // is a system with no prompt, and the reason has to reach the
-            // screen.
-            no_shell(term, found.error());
+            // nobody left to print it: a store that will not give up this
+            // program is a system with nothing running, and the reason has to
+            // reach the screen.
+            no_program(term, prog, found.error());
 
             // /bin is writable now, so `rm /bin/sh` is reachable from the
             // prompt — and the stamp would still match, so nothing would ever
             // put it back. This offer is what keeps the archive the thing the
-            // store can be recovered from. Once: a second failure after a
-            // fresh unpack is not something another unpack fixes.
-            if (!restored) {
+            // store can be recovered from. Only for the shell: the archive is
+            // /bin and /etc, so an unpack is no repair for a program INIT
+            // named. Once: a second failure after a fresh unpack is not
+            // something another unpack fixes.
+            if (prog == SHELL && !restored) {
                 restored = true;
                 bool yes = false;
                 if (Task<bool> t = ask(term, "restore /bin and /etc from the archive?", pid))
@@ -449,7 +500,9 @@ Task<i32> shell_session(Term &term, const u32 &pid, bool greet)
                     say(term, "the root archive would not unpack");
                 }
             }
-            say(term, "there is no prompt — reload once the store is repaired");
+            say(term, prog == SHELL
+                          ? Str("there is no prompt — reload once the store is repaired")
+                          : Str("there is nothing to run — reload once the store has it"));
             co_return 1;
         }
         // Init's own, and every replacement takes it again: the record under it
@@ -469,7 +522,7 @@ Task<i32> shell_session(Term &term, const u32 &pid, bool greet)
 
         f64 started = sched_now();
         bool died   = true;
-        Args args{ Span<const Str>(&SHELL, 1) };
+        Args args{ Span<const Str>(&prog, 1) };
 
         // Scoped, so this shell's record — removed by a destructor in there —
         // is gone before the next one, which answers to the same pid.
@@ -477,7 +530,9 @@ Task<i32> shell_session(Term &term, const u32 &pid, bool greet)
             Task<i32> t =
                 exec_process(exe, args, stdio_console(term), term, Str(), env.str(), &died);
             if (!t) {
-                say(term, "/bin/sh would not start");
+                Buf<160> why;
+                why.put(prog).put(" would not start");
+                say(term, why.str());
                 co_return 1;
             }
             status = co_await t;
@@ -494,7 +549,9 @@ Task<i32> shell_session(Term &term, const u32 &pid, bool greet)
         // spawn waits for one rather than returning.
         tries = sched_now() - started >= RESPAWN_FLOOR_MS ? 1 : tries + 1;
         if (tries >= RESPAWN_TRIES) {
-            say(term, "the shell will not stay up — reload to start again");
+            Buf<160> why;
+            why.put(called(prog)).put(" will not stay up — reload to start again");
+            say(term, why.str());
             co_return status;
         }
 
@@ -503,15 +560,15 @@ Task<i32> shell_session(Term &term, const u32 &pid, bool greet)
         // nothing: ~Proc drops both.
         console_fg_clear(term);
 
-        Buf<96> line;
-        line.put("the shell died (status ").put(status).put(") — starting another");
+        Buf<160> line;
+        line.put(called(prog)).put(" died (status ").put(status).put(") — starting another");
         say(term, line.str());
     }
 
     // The user's own `exit`, and there is no getty to start another. Say so
     // rather than leave a prompt that never comes back, and carry the status.
-    Buf<96> line;
-    line.put("the shell exited (status ").put(status).put(") — reload to start again");
+    Buf<160> line;
+    line.put(called(prog)).put(" exited (status ").put(status).put(") — reload to start again");
     say(term, line.str());
     co_return status;
 }
@@ -542,7 +599,8 @@ Task<i32> term_watch()
             continue;
 
         banner(*t);
-        if (Task<i32> s = shell_session(*t, g_sh_pid[id], false))
+        // The shell, not INIT's program: that one is terminal 0's alone.
+        if (Task<i32> s = shell_session(*t, SHELL, g_sh_pid[id], false))
             g_sh_pid[id] = sched_spawn(move(s), "sh");
     }
 }
@@ -576,7 +634,11 @@ Task<i32> init_task(const u32 &pid)
     if (Task<i32> t = term_watch())
         sched_spawn(move(t), "getty");
 
-    if (Task<i32> t = shell_session(*t0, pid, true))
+    // After the store: INIT is a file in it.
+    if (Task<void> t = learn_init_prog())
+        co_await t;
+
+    if (Task<i32> t = shell_session(*t0, g_init ? g_init->str() : SHELL, pid, true))
         co_return co_await t;
     co_return 1;
 }

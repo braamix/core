@@ -98,7 +98,8 @@ your own.
 `web/dual.html` splits a window between two screens of one kernel —
 `mount({ screens: [ … ] })`, a shell and a `^C` of its own on each, over one
 filesystem. `web/quad.html` is the same in a 2×2 of four, which is as many
-terminals as there can be.
+terminals as there can be. A site that boots into one program rather than a
+prompt puts its path in `/etc/init`, one line in its own boot archive.
 
 ## Building
 

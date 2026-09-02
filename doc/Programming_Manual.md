@@ -213,6 +213,27 @@ and `--version` must rise at every publication or a client refuses the index as
 a rollback. `C`, `S` and the `cmd:` provides are read out of the zips, so the
 index is never hand-written.
 
+### 3.2 Running it as the whole session
+
+A page whose point is one program — an emulator, a game, a kiosk — does not want
+a prompt in front of it. **`/etc/init` in the boot archive is one line, the path
+of the program init runs on terminal 0** in place of `/bin/sh`. No file, an
+empty one or an unreadable one means the shell, so this costs an archive that
+does not carry it nothing.
+
+```
+$ cat rootfs/etc/init
+/bin/besm6
+```
+
+Two things the author of such a program has to know. It is **respawned when it
+dies and ends the session when it exits** — the same rule the shell has always
+run under (`RESPAWN_TRIES` in `src/user/boot.cpp`), so a clean exit leaves the
+terminal saying *reload to start again* and nothing else running. And it is
+**terminal 0's alone**: a second screen is still the program's to declare in
+`mount({screens: […]})` — marked `shell: false` — and to open with
+`Sys::TermOpen`.
+
 ---
 
 ## 4. Writing a script
