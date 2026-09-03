@@ -1454,6 +1454,7 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
                 status = -i32(Error::Perm);
                 break;
             }
+            screen_ansi_reset(*term); // `clear` is also the reset there is
             screen_clear(*term);
             status = 0;
             break;

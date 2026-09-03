@@ -1,10 +1,12 @@
 // The screen: a grid of cells in linear memory, which the renderer reads
-// directly (Concept.md §2.3, §3.5). There is no byte stream and no escape
-// sequence — colours are fields and cursor addressing is indexing.
+// directly (Concept.md §2.3, §3.5). Colours are fields and cursor addressing is
+// indexing; an escape sequence is one encoding into that grid rather than the
+// model, parsed by ansi.h on the way in (doc/ANSI_Escape_Codes.md).
 //
 // A Term is one grid and everything sticky about it: the style, the damage
-// rectangle, the scrollback ring and the view over it. There is one per
-// terminal, and every call below names the one it acts on.
+// rectangle, the scrolling region, the scrollback ring and the view over it,
+// and the parser's state. There is one per terminal, and every call below names
+// the one it acts on.
 #pragma once
 
 #include "str.h"
@@ -109,6 +111,9 @@ u32 screen_view_scroll(Term &t, i32 delta);
 // Back to the live screen, and nothing when already there.
 void screen_view_home(Term &t);
 
+// Forgets the scrollback, bringing a view down first.
+void screen_history_drop(Term &t);
+
 // Rows the view sits above the live screen, and rows there are to page over.
 u32 screen_view(const Term &t);
 u32 screen_history(const Term &t);
@@ -132,6 +137,55 @@ void screen_cursor(Term &t, bool on);
 
 void screen_clear(Term &t);
 
+// Performs the deferred wrap if one is pending.
+void screen_wrap(Term &t);
+
+// The style the next put paints with.
+void screen_style_get(const Term &t, u8 &fg, u8 &bg, u8 &attrs);
+
+// ------------------------------------------------------- the scrolling region
+//
+// Rows top..bot, 0-origin and inclusive. Everything that scrolls moves rows
+// inside it and leaves the rest of the grid alone. Inverted or out-of-range
+// margins are refused, and a resize puts the whole screen back.
+
+void screen_region(Term &t, u32 top, u32 bot);
+u32 screen_region_top(const Term &t);
+u32 screen_region_bot(const Term &t);
+
+// Down one row, scrolling the region up at the bottom margin; up one row,
+// scrolling it down at the top. The column is unchanged.
+void screen_index(Term &t);
+void screen_reverse_index(Term &t);
+
+// The region's rows, n at a time. Rows leaving the top of a whole-screen region
+// become scrollback and count in screen_scrolled(); a partial region's do
+// neither. The cursor does not move.
+void screen_scroll_up(Term &t, u32 n);
+void screen_scroll_down(Term &t, u32 n);
+
+// Rows at the cursor, within the region; nothing when the cursor is outside it.
+void screen_insert_rows(Term &t, u32 n);
+void screen_delete_rows(Term &t, u32 n);
+
+// ------------------------------------------------------- cells and rows
+//
+// Every one of these writes blanks in the current background colour.
+
+// Cells at the cursor, within its row; the row's tail falls off the end.
+void screen_insert_cells(Term &t, u32 n);
+void screen_delete_cells(Term &t, u32 n);
+
+// n cells blank from the cursor, moving nothing.
+void screen_erase_cells(Term &t, u32 n);
+
+// 0 to the end of the row, 1 from its start, 2 the whole row.
+void screen_erase_line(Term &t, u32 mode);
+
+// 0 to the end of the screen, 1 from its start, 2 all of it. The cursor stays
+// where it is, which is what tells this from screen_clear.
+void screen_erase_display(Term &t, u32 mode);
+
 struct Rect {
     u32 x, y, w, h;
 };
@@ -147,6 +201,11 @@ void screen_touch(Term &t, u32 x, u32 y, u32 w, u32 h);
 // Sends every terminal's accumulated damage to the host, once each, and forgets
 // it. One call at the end of a tick.
 void screen_flush();
+
+// Margins, modes, tab stops and the saved cursor, as ESC c leaves them; the
+// grid and the style are untouched. A FullScreen claim takes it at both ends,
+// and Sys::ScreenClear with it.
+void screen_ansi_reset(Term &t);
 
 // Drops the grid. For tests, so a case starts from nothing.
 void screen_reset(Term &t);

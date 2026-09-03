@@ -40,7 +40,10 @@ Three things are deliberately not goals:
   the kernel or in `src/cmd/`, and no aim to run third-party C *unmodified*.
   That costs the ability to drop in existing C programs, and buys a system an
   order of magnitude smaller.
-- **A VT100 emulator.** No ANSI escapes, no `xterm.js`.
+- **A VT100 emulator.** No `xterm.js`, and nothing native speaks escapes. The
+  grid parses the sequences in [ANSI_Escape_Codes.md](ANSI_Escape_Codes.md) §4
+  so that a guest can drive it, which is an encoding into the grid rather than a
+  terminal to emulate.
 - **A general-purpose libc *under* the system.** Only the foundation our own
   code needs.
 
@@ -86,9 +89,18 @@ and `sys`/`sys_async` (§4.3).
 ### 2.3 The terminal is a cell grid, not a byte stream
 
 The kernel owns a buffer of cells in linear memory and the renderer draws it.
-There is no stream of bytes carrying control codes, because there are no control
-codes. Colours are struct fields, cursor addressing is array indexing, and a
-`curses`-style layout layer is trivial rather than a parser.
+Colours are struct fields, cursor addressing is array indexing, and a
+`curses`-style layout layer is trivial rather than a parser. Nothing native
+sends a control code: `sh`'s line editor, `less`, `edit` and `clear` all fill
+cells and set style through syscalls of their own.
+
+**An escape sequence is one encoding into that grid**, and the grid is still the
+model. `screen_write` understands the sequences of
+[ANSI_Escape_Codes.md](ANSI_Escape_Codes.md) §4 and swallows the rest, so a
+guest that was not written for Braam — a Unix under an emulator, a remote host
+over `ssh` — can drive the screen it already knows how to drive. The other half
+of a terminal is not the kernel's: a key reaches a program as `Key{code, mods}`,
+and a program that must feed a guest encodes it itself.
 
 **A cell's character is always a codepoint the host can draw**, an invariant
 held where cells are written rather than where they are drawn. Malformed UTF-8

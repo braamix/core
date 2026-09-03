@@ -1,6 +1,7 @@
 #include "screen.h"
 
 #include "alloc.h"
+#include "ansi.h"
 #include "host.h"
 #include "text.h"
 #include "traits.h"
@@ -16,6 +17,12 @@ struct Term {
     u8 fg = COLOR_WHITE;
     u8 bg = COLOR_BLACK;
     u8 attrs;
+
+    // The scrolling region, inclusive; 0 .. rows-1 is the whole screen.
+    u32 rtop, rbot;
+
+    // The parser a write goes through (doc/ANSI_Escape_Codes.md).
+    Ansi ansi;
 
     // One damage rectangle, half-open, valid only while dirty (Concept.md §3.5).
     u32 x0, y0, x1, y1;
@@ -89,11 +96,51 @@ void damage_all(Term &t)
     t.dirty = true;
 }
 
+// Rows y0..y1 inclusive, full width: what a partial region's scroll moved.
+void damage_rows(Term &t, u32 y0, u32 y1)
+{
+    if (!sized(t))
+        return;
+    damage(t, 0, y0);
+    damage(t, t.g.cols - 1, y1);
+}
+
+// The region, clamped to a grid that may have shrunk under it.
+u32 region_top(const Term &t)
+{
+    return min(t.rtop, t.g.rows ? t.g.rows - 1 : 0);
+}
+
+u32 region_bot(const Term &t)
+{
+    return min(max(t.rbot, region_top(t)), t.g.rows ? t.g.rows - 1 : 0);
+}
+
+bool region_whole(const Term &t)
+{
+    return region_top(t) == 0 && t.g.rows && region_bot(t) == t.g.rows - 1;
+}
+
+// The cursor's column, never the one a deferred wrap parks past the last.
+u32 cursor_col(const Term &t)
+{
+    return min(t.g.cursor_x, t.g.cols - 1);
+}
+
 void clear_row(const Term &t, Cell *cells, u32 cols, u32 y)
 {
     Cell b = blank(t);
     for (u32 x = 0; x < cols; x++)
         cells[y * cols + x] = b;
+}
+
+// x0..x1 of one row, half-open.
+void erase_span(Term &t, u32 y, u32 x0, u32 x1)
+{
+    Cell *row = t.cells + usize(y) * t.g.cols;
+    Cell b    = blank(t);
+    for (u32 i = x0; i < x1; i++)
+        row[i] = b;
 }
 
 void hist_drop(Term &t)
@@ -187,35 +234,73 @@ bool view_open(Term &t)
     return true;
 }
 
-void scroll(Term &t)
+// Rows top..bot, n at a time. `whole` sends what leaves the top to the
+// scrollback and counts it: only a whole-screen scroll upwards does.
+void scroll_span(Term &t, u32 top, u32 bot, u32 n, bool down, bool whole)
 {
-    hist_push(t, t.cells); // the row about to be overwritten
-    for (u32 y = 1; y < t.g.rows; y++)
-        __builtin_memcpy(t.cells + (y - 1) * t.g.cols, t.cells + y * t.g.cols,
-                         t.g.cols * sizeof(Cell));
-    clear_row(t, t.cells, t.g.cols, t.g.rows - 1);
-    if (t.drawn_y)
-        t.drawn_y--;
-    t.scrolled++;
+    if (!sized(t) || !n || top > bot || bot >= t.g.rows)
+        return;
+    n = min(n, bot - top + 1);
+
+    if (down) {
+        for (u32 y = bot + 1; y-- > top + n;)
+            __builtin_memcpy(t.cells + usize(y) * t.g.cols, t.cells + usize(y - n) * t.g.cols,
+                             t.g.cols * sizeof(Cell));
+        for (u32 y = top; y < top + n; y++)
+            clear_row(t, t.cells, t.g.cols, y);
+    } else {
+        if (whole)
+            for (u32 i = 0; i < n; i++)
+                hist_push(t, t.cells + usize(i) * t.g.cols); // the rows about to go
+        for (u32 y = top; y + n <= bot; y++)
+            __builtin_memcpy(t.cells + usize(y) * t.g.cols, t.cells + usize(y + n) * t.g.cols,
+                             t.g.cols * sizeof(Cell));
+        for (u32 y = bot + 1 - n; y <= bot; y++)
+            clear_row(t, t.cells, t.g.cols, y);
+    }
+
+    if (!whole) {
+        if (t.view)
+            t.view_dirty = true; // the live rows under it moved
+        damage_rows(t, top, bot);
+        return;
+    }
+
+    t.drawn_y -= min(t.drawn_y, n);
+    t.scrolled += n;
 
     // A view stays put: the offset grows with the live top, until the ring is
     // full and the clamp lets it drift. Composing is the flush's, since this
     // runs once per output line.
     if (t.view) {
-        if (t.view < t.hist_count)
+        for (u32 i = 0; i < n && t.view < t.hist_count; i++)
             t.view++;
         t.view_dirty = true;
     }
     damage_all(t);
 }
 
-// Down one row, scrolling when there is no row left.
+void scroll_rows(Term &t, u32 n, bool down)
+{
+    scroll_span(t, region_top(t), region_bot(t), n, down, region_whole(t) && !down);
+}
+
+// Down one row, scrolling the region when there is no row left inside it.
 void next_row(Term &t)
 {
-    if (t.g.cursor_y + 1 < t.g.rows)
+    if (t.g.cursor_y == region_bot(t))
+        scroll_rows(t, 1, false);
+    else if (t.g.cursor_y + 1 < t.g.rows)
         t.g.cursor_y++;
-    else
-        scroll(t);
+}
+
+// Up one row, scrolling the region down at its top margin.
+void prev_row(Term &t)
+{
+    if (t.g.cursor_y == region_top(t))
+        scroll_rows(t, 1, true);
+    else if (t.g.cursor_y)
+        t.g.cursor_y--;
 }
 
 // The wrap is deferred: cursor_x sits at cols until the next character is
@@ -261,8 +346,11 @@ Term *term_open(u32 id)
 {
     if (id >= TERM_MAX)
         return nullptr;
-    g_terms[id].id   = id;
-    g_terms[id].made = true;
+    if (!g_terms[id].made) { // every resize calls this; the parser is made once
+        g_terms[id].id   = id;
+        g_terms[id].made = true;
+        ansi_reset(g_terms[id].ansi);
+    }
     return &g_terms[id];
 }
 
@@ -316,6 +404,8 @@ u32 screen_resize(Term &t, u32 cols, u32 rows)
     t.g.cells = u32(reinterpret_cast<usize>(next));
     t.drawn_x = t.g.cursor_x;
     t.drawn_y = t.g.cursor_y;
+    t.rtop    = 0; // margins a shrunk grid cannot hold
+    t.rbot    = rows - 1;
     damage_all(t);
     return u32(reinterpret_cast<usize>(&t.g));
 }
@@ -354,29 +444,7 @@ void screen_put(Term &t, char32_t ch)
 
 void screen_write(Term &t, Str utf8)
 {
-    usize i = 0;
-    while (i < utf8.size()) {
-        char32_t ch;
-        usize len = utf8_decode(utf8, i, ch);
-        if (!len)
-            return; // a truncated sequence at the end
-        i += len;
-
-        // The cursor motions a byte stream carries; everything else is a glyph.
-        switch (ch) {
-        case '\n':
-            screen_newline(t);
-            break;
-        case '\r':
-            screen_return(t);
-            break;
-        case '\b':
-            screen_left(t);
-            break;
-        default:
-            screen_put(t, ch);
-        }
-    }
+    ansi_write(t, t.ansi, utf8);
 }
 
 void screen_newline(Term &t)
@@ -446,6 +514,152 @@ void screen_clear(Term &t)
         clear_row(t, t.cells, t.g.cols, y);
     t.g.cursor_x = t.g.cursor_y = 0;
     damage_all(t);
+}
+
+void screen_wrap(Term &t)
+{
+    if (sized(t))
+        wrap_pending(t);
+}
+
+void screen_style_get(const Term &t, u8 &fg, u8 &bg, u8 &attrs)
+{
+    fg    = t.fg;
+    bg    = t.bg;
+    attrs = t.attrs;
+}
+
+void screen_region(Term &t, u32 top, u32 bot)
+{
+    if (!sized(t) || top > bot || bot >= t.g.rows)
+        return;
+    t.rtop = top;
+    t.rbot = bot;
+}
+
+u32 screen_region_top(const Term &t)
+{
+    return region_top(t);
+}
+
+u32 screen_region_bot(const Term &t)
+{
+    return region_bot(t);
+}
+
+void screen_index(Term &t)
+{
+    if (sized(t))
+        next_row(t);
+}
+
+void screen_reverse_index(Term &t)
+{
+    if (sized(t))
+        prev_row(t);
+}
+
+void screen_scroll_up(Term &t, u32 n)
+{
+    scroll_rows(t, n, false);
+}
+
+void screen_scroll_down(Term &t, u32 n)
+{
+    scroll_rows(t, n, true);
+}
+
+void screen_insert_rows(Term &t, u32 n)
+{
+    if (sized(t) && t.g.cursor_y >= region_top(t) && t.g.cursor_y <= region_bot(t))
+        scroll_span(t, t.g.cursor_y, region_bot(t), n, true, false);
+}
+
+void screen_delete_rows(Term &t, u32 n)
+{
+    if (sized(t) && t.g.cursor_y >= region_top(t) && t.g.cursor_y <= region_bot(t))
+        scroll_span(t, t.g.cursor_y, region_bot(t), n, false, false);
+}
+
+void screen_insert_cells(Term &t, u32 n)
+{
+    if (!sized(t) || !n)
+        return;
+    u32 x = cursor_col(t), y = t.g.cursor_y;
+    n         = min(n, t.g.cols - x);
+    Cell *row = t.cells + usize(y) * t.g.cols;
+    for (u32 i = t.g.cols; i-- > x + n;)
+        row[i] = row[i - n];
+    Cell b = blank(t);
+    for (u32 i = x; i < x + n; i++)
+        row[i] = b;
+    damage_rows(t, y, y);
+}
+
+void screen_delete_cells(Term &t, u32 n)
+{
+    if (!sized(t) || !n)
+        return;
+    u32 x = cursor_col(t), y = t.g.cursor_y;
+    n         = min(n, t.g.cols - x);
+    Cell *row = t.cells + usize(y) * t.g.cols;
+    for (u32 i = x; i + n < t.g.cols; i++)
+        row[i] = row[i + n];
+    Cell b = blank(t);
+    for (u32 i = t.g.cols - n; i < t.g.cols; i++)
+        row[i] = b;
+    damage_rows(t, y, y);
+}
+
+void screen_erase_cells(Term &t, u32 n)
+{
+    if (!sized(t) || !n)
+        return;
+    u32 x = cursor_col(t);
+    erase_span(t, t.g.cursor_y, x, x + min(n, t.g.cols - x));
+    damage_rows(t, t.g.cursor_y, t.g.cursor_y);
+}
+
+void screen_erase_line(Term &t, u32 mode)
+{
+    if (!sized(t))
+        return;
+    u32 x = cursor_col(t), y = t.g.cursor_y;
+    erase_span(t, y, mode == 0 ? x : 0, mode == 1 ? x + 1 : t.g.cols);
+    damage_rows(t, y, y);
+}
+
+void screen_erase_display(Term &t, u32 mode)
+{
+    if (!sized(t))
+        return;
+    u32 x = cursor_col(t), y = t.g.cursor_y;
+    if (mode == 0) {
+        erase_span(t, y, x, t.g.cols);
+        for (u32 i = y + 1; i < t.g.rows; i++)
+            clear_row(t, t.cells, t.g.cols, i);
+    } else if (mode == 1) {
+        for (u32 i = 0; i < y; i++)
+            clear_row(t, t.cells, t.g.cols, i);
+        erase_span(t, y, 0, x + 1);
+    } else {
+        for (u32 i = 0; i < t.g.rows; i++)
+            clear_row(t, t.cells, t.g.cols, i);
+    }
+    damage_all(t);
+}
+
+void screen_history_drop(Term &t)
+{
+    screen_view_home(t);
+    hist_drop(t);
+}
+
+void screen_ansi_reset(Term &t)
+{
+    ansi_reset(t.ansi);
+    t.rtop = 0;
+    t.rbot = t.g.rows ? t.g.rows - 1 : 0;
 }
 
 Rect screen_damage(const Term &t)
@@ -551,6 +765,8 @@ void screen_reset(Term &t)
     t.cursor_live = false;
     t.drawn_x = t.drawn_y = 0;
     t.scrolled            = 0;
-    t.id                  = id;
-    t.made                = true;
+    t.rtop = t.rbot = 0;
+    t.id            = id;
+    t.made          = true;
+    ansi_reset(t.ansi);
 }

@@ -9,6 +9,97 @@ The release after 0.9 is being written, and starts below. New sections are
 appended under it, and the whole moves to [releases/](releases/) when the
 release is cut.
 
+## The screen parses, and the grid is still the model
+
+[ANSI_Escape_Codes.md](ANSI_Escape_Codes.md) was written as a specification with
+nothing behind it. Its §4 is now [src/kernel/ansi.cpp](../src/kernel/ansi.cpp);
+its §5 — what a program sends for a key — is still nobody's but the program's.
+
+**The invariant that changed is smaller than it looks.** "No ANSI escapes, no
+VT100" said two things at once: that the terminal is a grid rather than a byte
+stream, and that no byte stream may reach it. The first is untouched and is the
+whole point — colours are still struct fields, `Sys::ScreenBlit` still blits,
+and `sh`'s line editor, `less`, `edit` and `clear` still paint cells without a
+parser between them and the grid. Only the second gave way, and only for guests:
+`simbesm`'s BESM-6 speaks escapes to its console because Unix v7 does, and an
+`ssh` client after it will have the same problem. Writing a *second* encoding
+into the grid is cheaper than teaching every guest ours.
+
+**The parser sits beside the grid, not inside it.** `ansi.cpp` reaches the
+screen through the public `screen_*` calls and never sees `Term`'s fields, so
+there is exactly one writer to the cells and the operations §4 maps onto are the
+same ones a native program gets. The alternative — a state machine folded into
+`screen_write` — would have doubled `screen.cpp` and given the parser a private
+door to the cells, which is the door the invariant exists to keep shut.
+
+**The scrolling region is the grid's, the modes are the parser's.** `LNM`,
+`IRM` and `DECAWM` change what a byte *means* and never outlive the parser, so
+they live in `Ansi`. The margins are different: `screen_newline` is called
+directly by the console pump and by `boot.cpp`, and a newline at the bottom
+margin has to scroll the region for everyone, not only for a writer who came
+through the parser. So `Term` holds them, and `scroll_span` is the one place
+rows move.
+
+**A partial region is not the grid moving up.** `screen_scrolled()` counts rows
+the whole grid lost, and `Sys::Echo` subtracts it from an anchor row the line
+editor is holding. Rows above a region's top margin do not move, so counting a
+region's scroll would walk that anchor in the wrong direction — and a region
+scroll fills no scrollback either, since nothing left the top of the screen. On
+the default region, which is the whole screen, every path is what it was.
+
+**Italic is cyan because the grid has three attribute bits and none of them is
+italic.** A manual page's italic would otherwise be lost entirely. The rule that
+makes it survive nesting is that `ESC [ 3 m` remembers the foreground only if
+italic was off, so a second one does not overwrite the shadow with cyan, and any
+explicit colour forgets it.
+
+**Nothing answers `ESC [ 6 n` or `ESC [ c`, and nothing will.** There is no path
+from the screen back toward a process's input: the grid is what a program writes
+into and the keyboard is a separate channel with its own claim. A guest that
+waits for a reply hangs, and that is the guest's problem — inventing a reply
+path would put a byte stream into the ABI, which is the thing this whole design
+does not have.
+
+**The alternate screen is swallowed, for now.** `? 47`, `? 1047` and `? 1049`
+ask for exactly what `FullScreen` ([src/user/tty.h](../src/user/tty.h)) already
+does: snapshot the grid, blank it, put it back. Doing it a second time at the
+byte level means a second heap block of cells and a second lifetime to get
+wrong, and a program that wants the screen can ask for it. If a guest turns out
+to need the sequence itself, `screen_alt` is a small addition; until one does,
+§4.5's row says swallowed.
+
+**Sticky state must not outlive the program that set it.** Margins, insert mode,
+autowrap and a hidden cursor are the `Term`'s, and a guest that dies without
+`ESC c` would leave the shell painting into a three-row window. Three recovery
+points close it: a `FullScreen` claim resets the parser at both ends, so a
+program starts from a known terminal and hands one back; and `Sys::ScreenClear`
+resets it too, which makes `/bin/clear` the `reset` this system does not
+otherwise have. That is a small widening of what `clear` means, and it is worth
+it — the alternative is a wedged terminal with no way out but a resize.
+
+**A rune split across two writes is now carried.** `screen_write` used to drop a
+truncated UTF-8 tail and start the next call mid-sequence, showing U+FFFD. §3's
+first rule already required the parser's state to survive a buffer boundary; the
+four bytes that carry a partial rune are the same rule applied one level down,
+and a guest streaming through an eight-slot pipe splits runes routinely.
+
+**Two behaviour changes fall out of §4.1.** A tab now moves to a stop instead of
+painting a cell, so `cat` of a tabbed file lays out in columns. And `cat` of a
+binary file now interprets whatever escapes it contains, which is the feature
+and also how a user wedges their terminal — see the paragraph above for the way
+out.
+
+**The authorisation surface widened, deliberately.** `Sys::Cursor`, `Sys::Style`
+and `Sys::ScreenClear` are refused to a process that does not hold the screen
+claim; `Sys::Write` is not claim-checked, and now carries `ESC [ H`,
+`ESC [ 3 1 m` and `ESC [ 2 J`. So a writer without the claim can reach all three
+through its own stdout. This cannot be gated — `screen_write` has no pid to
+check against — and it is not much of a loss: a writer could already scribble
+anywhere by writing enough text, and the claims are there to stop two programs
+interleaving on one screen, not to confine one to its own rows.
+
+`kernel.wasm` went from 195,260 to 204,369 bytes against a 262,144 budget.
+
 ## `/etc/init`: the program a site boots into
 
 0.9 gave a program a second screen ([`Sys::TermOpen`](System_Calls.md)), and

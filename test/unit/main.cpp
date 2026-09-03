@@ -22,6 +22,7 @@ void test_fmt();
 void test_channel();
 void test_io();
 void test_screen();
+void test_ansi();
 void test_tty();
 void test_cond();
 void test_console();
@@ -105,6 +106,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_channel();
     test_io();
     test_screen();
+    test_ansi();    // after screen: it drives the grid through the same calls
     test_text();    // after screen: it round-trips through the grid
     test_filebuf(); // after text: every rune in it goes through utf8_decode
     test_tty();     // after screen: FullScreen snapshots the grid

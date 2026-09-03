@@ -36,6 +36,11 @@ and the three passing CTest cases.
   mechanism (§4.3 is normative). Changes to `src/proc/`, `src/user/`,
   [src/kernel/sysabi.h](src/kernel/sysabi.h) or [web/proc.js](web/proc.js) must
   keep it true.
+- **[doc/ANSI_Escape_Codes.md](doc/ANSI_Escape_Codes.md)** is the two tables of
+  the escape half. §4 is what `screen_write` understands and is implemented
+  ([src/kernel/ansi.cpp](src/kernel/ansi.cpp)); §5 is what a *program* sends for
+  a key, is nobody's but the program's, and is **not written**. §6's five traps
+  are the ones to read before touching either.
 - **[doc/Compat.md](doc/Compat.md)** is the opt-in port kit `braam::compat` —
   what a *ported* Unix program may link, the A/B/C split, and what it costs.
   Groups A and B are complete: §4 is the `b_*` family, `compat/cio.h` its one
@@ -196,10 +201,14 @@ Concept.md first, not a patch.
    written justification in Concept.md. Storage and host services are
    multiplexed — one import per calling convention — so a new operation is an
    enum value on each side, never a new import.
-3. **The terminal is a cell grid in linear memory, not a byte stream.** No ANSI
-   escapes, no VT100. Colours are struct fields, cursor addressing is indexing.
-   Mouse selection lives on the page and in `web/render.js`; there is no mouse
-   anywhere in the ABI (§3.5).
+3. **The terminal is a cell grid in linear memory, not a byte stream.** Colours
+   are struct fields, cursor addressing is indexing, and nothing native paints
+   through a parser. ANSI is **one encoding into that grid, not the model**:
+   `screen_write` understands the sequences in
+   [doc/ANSI_Escape_Codes.md](doc/ANSI_Escape_Codes.md) §4 and swallows the
+   rest, for guests that were not written for Braam. Mouse selection lives on
+   the page and in `web/render.js`; there is no mouse anywhere in the ABI
+   (§3.5).
 
 Further constraints, easy to violate by habit:
 

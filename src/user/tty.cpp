@@ -185,6 +185,7 @@ FullScreen::FullScreen(Term &t, u32 pid) : term_(&t)
     c.alt     = this;
     c.alt_pid = pid;
 
+    screen_ansi_reset(t); // a known parser to start from
     screen_cursor(t, false);
     screen_clear(t);
 }
@@ -202,6 +203,8 @@ FullScreen::~FullScreen()
     }
 
     const Screen &s = screen(t);
+
+    screen_ansi_reset(t); // margins and modes the program left behind
 
     // A resize while the program ran leaves the snapshot describing a grid that
     // no longer exists. Blanking is the honest answer: the shell repaints its

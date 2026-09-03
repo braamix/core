@@ -51,11 +51,10 @@ today `screen_write` handles `\n`, `\r` and `\b` and paints everything else,
 including ESC and every other control byte. After this, ESC begins a sequence
 and the other control bytes are ignored rather than drawn.
 
-This amends a stated invariant — "no ANSI escapes, no VT100" in
-[CLAUDE.md](../CLAUDE.md), [doc/Concept.md](Concept.md) §3.5 and
+This amended a stated invariant — "no ANSI escapes, no VT100" in
+[CLAUDE.md](../CLAUDE.md), [doc/Concept.md](Concept.md) §1 and §2.3, and
 [README.md](../README.md). The amendment is that the *grid* is the model and
-ANSI is an encoding into it, not that the grid is a stream. It lands in the
-implementation commit, not with this document.
+ANSI is an encoding into it, not that the grid is a stream.
 
 **The key half is nobody's but the program's.** The console pump
 ([src/user/console.cpp](../src/user/console.cpp)) is unchanged: it still cooks
@@ -240,7 +239,7 @@ to that colour.
 | `20` | LNM | LF is a full new line. **Set at boot** — see trap 1 |
 | `? 7` | DECAWM | autowrap. Set at boot; reset makes a glyph at the last column overwrite it |
 | `? 25` | DECTCEM | cursor visible (`screen_cursor`) |
-| `? 47`, `? 1047`, `? 1049` | — | alternate screen: `h` saves the grid, cursor and style and clears; `l` puts them back. `? 1049` also saves and restores the cursor by itself |
+| `? 47`, `? 1047`, `? 1049` | — | alternate screen: **swallowed**. `FullScreen` ([src/user/tty.h](../src/user/tty.h)) already saves and restores the grid, at the claim rather than at the byte — a program takes the screen by asking for it |
 | `? 1` | DECCKM | cursor-key application mode: **swallowed** (§5) |
 | `? 12` | — | cursor blink: swallowed |
 | `? 1000`–`? 1006` | — | mouse reporting: swallowed, permanently (§2) |
@@ -367,29 +366,31 @@ guest's, and always was.
 
 ## 7. Where it lands
 
-Not a design, just the shape of the work.
+**§4 has landed. §5 has not** — it is a program's, and nothing links it yet.
 
-- **The parser** is state on the `Term`, plus a dispatch that calls the
-  `screen_*` operations ([src/kernel/screen.cpp](../src/kernel/screen.cpp)).
-  It has no syscall in it, so it belongs in the in-wasm suite: a case in
-  [test/unit/](../test/unit/), a line in
-  [test/CMakeLists.txt](../test/CMakeLists.txt) and a call in
-  [test/unit/main.cpp](../test/unit/main.cpp) ([doc/Testing.md](Testing.md)).
-- **New grid primitives** `screen.cpp` needs and does not have: erase over a
-  range, insert and delete rows and characters, a scroll region, reverse scroll,
-  scroll up and down by `<n>`, save and restore, and a tab-stop bitmap.
+- **The parser** is [src/kernel/ansi.cpp](../src/kernel/ansi.cpp) over an
+  `Ansi` ([src/kernel/ansi.h](../src/kernel/ansi.h)) held by the `Term`, and it
+  drives the grid through the `screen_*` calls and nothing else. `screen_write`
+  is its entry.
+- **The grid primitives** it needed are in
+  [src/kernel/screen.h](../src/kernel/screen.h): a scrolling region, index and
+  reverse index, scroll by `<n>` either way, insert and delete rows and cells,
+  erase over a range, a line and a display, and the style read back. The tab
+  stops are the parser's, since nothing below it has one.
+- **Sticky state does not outlive a program**: a `FullScreen` claim resets the
+  parser at both ends, and so does `Sys::ScreenClear`, which makes `clear` the
+  `reset` there is.
 - **No ABI change.** `Cell` keeps its three attribute bits and its 8-byte
   stride, [web/render.js](../web/render.js) is untouched, and there is no new
-  import or export — so [test/system/abi.mjs](../test/system/abi.mjs) does not
+  import or export — so [test/system/abi.mjs](../test/system/abi.mjs) did not
   move.
-- **The key encoder** is a program-side helper under `src/proc/`, linked by
-  `simbesm` and by whatever needs it next. It is a pure function of
-  `Key{code, mods}`, so it too is testable in `test/unit/`.
-- **One `test/system/` case** for the whole path: write escapes at a terminal
-  and read the grid back.
-- **The invariant** in [CLAUDE.md](../CLAUDE.md), [doc/Concept.md](Concept.md)
-  §3.5 and [README.md](../README.md) is amended in the same commit as the code,
-  and [doc/Release_Notes.md](Release_Notes.md) gets the reasoning.
+- **Two cases**: [test/unit/test_ansi.cpp](../test/unit/test_ansi.cpp) for the
+  grammar and the table, and [test/system/escape.mjs](../test/system/escape.mjs)
+  for the path from a program's write to the cells, where `tr` supplies the ESC
+  byte a prompt cannot type (§6.5).
+- **The key encoder** is still to write: a program-side helper under
+  `src/proc/`, a pure function of `Key{code, mods}`, linked by `simbesm` and by
+  whatever needs it next.
 
 ---
 

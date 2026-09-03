@@ -66,6 +66,7 @@ import * as term from "./system/term.mjs";
 import * as tail from "./system/tail.mjs";
 import * as tee from "./system/tee.mjs";
 import * as tr from "./system/tr.mjs";
+import * as escape from "./system/escape.mjs";
 import * as truncate from "./system/truncate.mjs";
 import * as chunk from "./system/chunk.mjs";
 import * as cp from "./system/cp.mjs";
@@ -139,6 +140,7 @@ const CASES = [
     ["tee",        tee.check],
     ["cut",        cut.check],
     ["tr",         tr.check],
+    ["escape",     escape.check],  // after tr: the only thing here that writes an ESC byte
     ["seq",        seq.check],
     ["wc",         wc.check],
     ["head",       head.check],       // after wc: it counts what head printed

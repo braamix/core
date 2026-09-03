@@ -3,6 +3,7 @@ add_executable(tests
     unit/harness.cpp
     unit/fakehost.cpp
     unit/test_alloc.cpp
+    unit/test_ansi.cpp
     unit/test_chacha.cpp
     unit/test_channel.cpp
     unit/test_complete.cpp

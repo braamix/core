@@ -31,8 +31,11 @@ $ spin &                             # a program that loops forever
 $ kill %1                            # killed anyway
 ```
 
-It is not a Unix clone: no POSIX layer, no `fork`, no VT100 escape codes, and no
-C library under the system. Giving that up makes the system far smaller and lets
+It is not a Unix clone: no POSIX layer, no `fork`, no VT100 to emulate, and no
+C library under the system. The terminal is a grid of cells a program fills
+directly; it also parses the escape sequences a guest sends it
+([doc/ANSI_Escape_Codes.md](doc/ANSI_Escape_Codes.md)), but nothing native uses
+them. Giving that up makes the system far smaller and lets
 every part use what the browser already provides. A program *ported* from
 elsewhere may opt into one — [doc/Compat.md](doc/Compat.md) is the kit — but a
 port is still a rewrite, and nothing in this tree links it.
