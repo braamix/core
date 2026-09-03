@@ -59,9 +59,41 @@ about the program is the shell's with the name swapped in, and `called()` keeps
 `/bin/sh` reading as "the shell" so the system suite's existing assertions hold
 byte for byte.
 
+**And boot stops reporting itself.** The BESM-6 page put a simulator on the
+screen and got seven lines of ours in front of it: the version, then what
+browser, machine and store this is, then `unpacked N files` on the first visit.
+The first line is the record that braam booted and handed the grid over, and it
+stays. The rest is braam talking about itself in front of somebody else's
+machine — and it was never the only copy, `/proc/host` holding the same facts
+for `uname` and anyone else who asks.
+
+**The archive file doubles as the switch**, rather than an `/etc/quiet` beside
+it. A marker file would be orthogonal — a site could have its own init *and* the
+banner — but nobody wants that pair, and the cost of the option is a second
+concept in the boot format and a second `read_file` on the path. The rule reads
+as one sentence instead: *an archive that names its own program owns the grid
+from the version line down.* A mount option was out for the reason the init path
+was: §3.4's boundary.
+
+**The cost is that the decision moved below the unpack.** `/etc/init` is a file
+in the store, and on a first visit the store has nothing in it until the archive
+is unpacked — so boot cannot know whose grid it is until after that. The rows
+therefore print after the mounts rather than before them, and `unpack_if_stale`
+hands its count back for the caller to announce instead of announcing it. Asking
+the host still happens early, where it was: it is a round trip, `learn_host`
+caches it for `/proc/host` either way, and only the printing waits. A plain boot
+prints what it always did, in the same order, except that what happens between
+the mounts and the unpack now comes above the rows rather than below them: the
+upgrade question, a `/proc` or `/dev` that would not mount, an archive that
+would not unpack. That reads at least as well. A root mount that fails prints no
+rows at all now, having returned before the decision point — a fatal wants its
+own line and not a description of the machine it happened on. Errors and the
+question themselves are never withheld: they are interaction and not news.
+
 Covered by [test/system/initprog.mjs](../test/system/initprog.mjs): a named
 program runs and no prompt appears, the line is trimmed, a missing one says so
-and is not offered an unpack, and an empty file is the shell.
+and is not offered an unpack, an empty file is the shell — and the host rows are
+absent with a program named and present without one.
 
 ## The page that failed silently
 

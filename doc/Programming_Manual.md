@@ -226,13 +226,16 @@ $ cat rootfs/etc/init
 /bin/besm6
 ```
 
-Two things the author of such a program has to know. It is **respawned when it
+Three things the author of such a program has to know. It is **respawned when it
 dies and ends the session when it exits** — the same rule the shell has always
 run under (`RESPAWN_TRIES` in `src/user/boot.cpp`), so a clean exit leaves the
-terminal saying *reload to start again* and nothing else running. And it is
+terminal saying *reload to start again* and nothing else running. It is
 **terminal 0's alone**: a second screen is still the program's to declare in
 `mount({screens: […]})` — marked `shell: false` — and to open with
-`Sys::TermOpen`.
+`Sys::TermOpen`. And **the grid is the program's from the version line down**:
+naming a program withholds boot's own report of the browser, the machine and the
+store, and the `unpacked N files` the first visit would say. One line is left
+above it, that braam booted at all, and `/proc/host` still answers the rest.
 
 ---
 

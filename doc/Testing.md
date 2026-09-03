@@ -120,10 +120,11 @@ It is **one cumulative session**, not a set of independent tests. That is what
 makes it worth having — a shell that has been running for four thousand
 keystrokes is the thing under test — and it is what the rules are about.
 
-1. **One boot.** The kernel is instantiated once and driven forward. The seven
-   further instantiations are the point of the cases that make them — six in
-   `persist`, which is about surviving a reload, and one in `pkg-crash`, which
-   is about a tab dying mid-transaction.
+1. **One boot.** The kernel is instantiated once and driven forward. The
+   thirteen further instantiations are the point of the cases that make them —
+   six in `persist`, which is about surviving a reload, six in `initprog`, which
+   is about what the boot archive names, and one in `pkg-crash`, which is about
+   a tab dying mid-transaction.
 2. **`language` is last.** It runs `exit 7`, which ends the shell for good.
    `dual` and `quad` are the two cases before it, and the pair is one story:
    `dual` makes terminal 1 and **leaves its shell running**, `quad` makes

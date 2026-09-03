@@ -413,9 +413,14 @@ empty or unreadable means `/bin/sh`, which is also what every terminal after the
 first runs either way. Nothing else about the arrangement moves: the program is
 resolved, entered and respawned by the rules above, it answers to init's own
 pid, it is replaced when it *dies*, and the session is over when it *exits*.
-The one difference is that the offer to restore `/bin` and `/etc` from the
-archive is the shell's alone — the archive is those two directories, so it is no
-repair for a program named from outside them. It is a file rather than a mount
+Two things do differ. The offer to restore `/bin` and `/etc` from the archive is
+the shell's alone — the archive is those two directories, so it is no repair for
+a program named from outside them. And **boot stops reporting itself**: the rows
+saying what browser, machine and store this is, and the count the unpack came
+back with, are braam's own news, and a site that named a program came for the
+program. The version line stays, being the record that braam booted at all, and
+`/proc/host` answers the rest to anyone who asks. Errors and the upgrade
+question are not news and are never withheld. It is a file rather than a mount
 option because the JS boundary is fixed (§3.4) and a path is not an enum value.
 
 **A host with no worker to give is waited out, not worked around.** The spawn is

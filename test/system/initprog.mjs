@@ -3,7 +3,7 @@
 // doc/Testing.md has the rules they run by.
 
 import {
-    fail, instantiate, kernel, prompt, resize, row, rows, run, screen, store,
+    fail, instantiate, kernel, prompt, resize, row, rows, run, screen, store, submit,
 } from "./harness.mjs";
 
 // A boot with whatever /etc/init now says, on a fresh instance over the same
@@ -35,6 +35,11 @@ export function check() {
     if (rows(s).some((line) => line.includes("$")))
         fail(`/etc/init was named and a shell came up anyway: ${shown(s)}`);
 
+    // And the grid is that program's from the version line down: what the host
+    // is, and what the unpack did, are braam's own news.
+    if (rows(s).some((line) => line.startsWith("browser:") || line.startsWith("store:")))
+        fail(`/etc/init was named and boot reported the host anyway: ${shown(s)}`);
+
     // Leading and trailing blanks are not part of the path, and only the first
     // line is read.
     store.files.set("/etc/init", new TextEncoder().encode("  /bin/uname  \nignored\n"));
@@ -60,9 +65,22 @@ export function check() {
     if (row(s, s.cursor_y) !== prompt())
         fail(`an empty /etc/init left ${row(s, s.cursor_y)}, expected a prompt`);
 
+    // Withheld from the grid is not unasked: boot caches the answer either way,
+    // and /proc/host is where it stays. Naming the shell is what makes this
+    // checkable -- g_init is set, so the rows go, and a prompt comes up anyway.
+    named("/bin/sh");
+    reboot(4340);
+    submit("clear", 4350);
+    s = submit("cat /proc/host", 4360);
+    if (!rows(s).some((line) => line.startsWith("browser  ")))
+        fail(`/proc/host lost the host with the rows withheld: ${shown(s)}`);
+
     // And the store goes back as it was found: every case below wants a prompt.
     store.files.delete("/etc/init");
     s = reboot(4400);
     if (row(s, s.cursor_y) !== prompt())
         fail(`no /etc/init left ${row(s, s.cursor_y)}, expected a prompt`);
+    // The other half of the rule: no archive program, so the grid is braam's.
+    if (!rows(s).some((line) => line.startsWith("browser:")))
+        fail(`a plain boot did not report the host: ${shown(s)}`);
 }

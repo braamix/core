@@ -97,7 +97,11 @@ Task<bool> ask(Term &term, Str question, const u32 &pid)
 // prompt anyone could answer usefully. A mismatch is the user's call: the old
 // /bin may be what they want kept, and a stale one says so for itself when
 // exec_resolve refuses it.
-Task<void> unpack_if_stale(Term &term, const u32 &pid)
+//
+// Returns the count rather than printing it: whether boot's own news is wanted
+// is not known until /etc/init has been read, which needs this to have run. An
+// error or a question is the other kind, and goes out either way.
+Task<u32> unpack_if_stale(Term &term, const u32 &pid)
 {
     String stored;
     if (Task<Result<String>> t = read_file(VERSION_PATH)) {
@@ -107,7 +111,7 @@ Task<void> unpack_if_stale(Term &term, const u32 &pid)
     }
 
     if (stored.str() == BRAAM_VERSION)
-        co_return;
+        co_return 0;
 
     if (!stored.empty()) {
         Buf<128> line;
@@ -121,7 +125,7 @@ Task<void> unpack_if_stale(Term &term, const u32 &pid)
             yes = co_await t;
         if (!yes) {
             say(term, "keeping the stored image");
-            co_return;
+            co_return 0;
         }
     }
 
@@ -130,12 +134,10 @@ Task<void> unpack_if_stale(Term &term, const u32 &pid)
         r = co_await t;
     if (r.is_err()) {
         say(term, "the root archive would not unpack — /bin is empty and there is no shell");
-        co_return;
+        co_return 0;
     }
 
-    Buf<96> line;
-    line.put("unpacked ").put(r.value()).put(" files");
-    say(term, line.str());
+    co_return r.value();
 }
 
 // The directories the store is expected to have and the archive does not
@@ -284,13 +286,14 @@ void write_labelled(Term &term, Str line)
     screen_newline(term);
 }
 
-// What the system is running on, under the version line main.cpp already wrote.
-// It is here rather than there because that export cannot await, and asking the
-// host is the only way to know any of this.
+// What the system is running on, asked once. It is here rather than in main.cpp
+// because that export cannot await, and asking the host is the only way to know
+// any of this. Cached whether or not it is printed: /proc/host answers out of
+// g_host, and `uname` out of /proc/host.
 //
-// A description that does not arrive is not an error: the store is what boot
-// cannot do without, and this is the motd's kind of line, not the OPFS one.
-Task<void> show_host(Term &term, const StorageBackend &b)
+// An answer that does not arrive is not an error: the store is what boot cannot
+// do without, and this is the motd's kind of line, not the OPFS one.
+Task<void> learn_host()
 {
     if (Task<Result<String>> t = host_info()) {
         Result<String> r = co_await t;
@@ -301,7 +304,11 @@ Task<void> show_host(Term &term, const StorageBackend &b)
             }
         }
     }
+}
 
+// Those facts on the grid, under the version line main.cpp already wrote.
+void show_host(Term &term, const StorageBackend &b)
+{
     Str rest = banner_half(host_facts());
     while (!rest.empty()) {
         usize nl = rest.find('\n');
@@ -370,9 +377,13 @@ Str host_facts()
 Task<bool> boot_filesystem(Term &term, const u32 &pid)
 {
     // Idempotent. A second boot in a test finds the mounts already there and
-    // leaves them, rather than reporting every one of them as an error.
-    if (!vfs_mounts().empty())
+    // leaves them, rather than reporting every one of them as an error — but
+    // still reads INIT, which is the store's to answer and may have changed.
+    if (!vfs_mounts().empty()) {
+        if (Task<void> t = learn_init_prog())
+            co_await t;
         co_return true;
+    }
 
     // Concept.md §5.2: OPFS is absent in Safari private browsing, and the sync
     // access handles the fast path needs exist only in a worker. There is no
@@ -389,9 +400,9 @@ Task<bool> boot_filesystem(Term &term, const u32 &pid)
         co_return false;
     }
 
-    // What the machine is, before what is being done to it: the mounts and the
-    // unpack below say what happened, and this says where.
-    if (Task<void> t = show_host(term, b))
+    // Asked before the store, since it is a round trip and nothing below waits
+    // on it. Whether it reaches the grid is settled after the unpack.
+    if (Task<void> t = learn_host())
         co_await t;
 
     Fs *root = heap_new<OpfsFs>();
@@ -413,8 +424,26 @@ Task<bool> boot_filesystem(Term &term, const u32 &pid)
         if (vfs_mount("/dev", dev).is_err())
             say(term, "/dev would not mount");
 
-    if (Task<void> t = unpack_if_stale(term, pid))
+    u32 unpacked = 0;
+    if (Task<u32> t = unpack_if_stale(term, pid))
+        unpacked = co_await t;
+
+    // INIT is a file in the store, so this is the first point it can be read.
+    if (Task<void> t = learn_init_prog())
         co_await t;
+
+    // An archive that names its own program owns the grid from the version line
+    // down: what the host is, and what came out of the archive, are braam's own
+    // news in front of somebody else's. /proc/host still answers for both.
+    if (!g_init) {
+        show_host(term, b);
+        if (unpacked) {
+            Buf<96> line;
+            line.put("unpacked ").put(unpacked).put(" files");
+            say(term, line.str());
+        }
+    }
+
     if (Task<void> t = make_dirs(term))
         co_await t;
     if (Task<void> t = wipe_tmp())
@@ -634,10 +663,7 @@ Task<i32> init_task(const u32 &pid)
     if (Task<i32> t = term_watch())
         sched_spawn(move(t), "getty");
 
-    // After the store: INIT is a file in it.
-    if (Task<void> t = learn_init_prog())
-        co_await t;
-
+    // g_init is boot_filesystem's: INIT is a file in the store it mounts.
     if (Task<i32> t = shell_session(*t0, g_init ? g_init->str() : SHELL, pid, true))
         co_return co_await t;
     co_return 1;

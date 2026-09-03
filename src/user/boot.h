@@ -16,7 +16,9 @@ constexpr Str SHELL = "/bin/sh";
 
 // What an archive puts in place of that shell on terminal 0 (Concept.md §4):
 // one line, the path of the program to run. Absent, empty or unreadable all
-// mean SHELL, so an archive without the file boots as it always did.
+// mean SHELL, so an archive without the file boots as it always did. Present,
+// it also keeps boot's own report of the host off the grid: the screen is that
+// program's, and /proc/host has the facts.
 constexpr Str INIT = "/etc/init";
 
 // Printed on the grid before that first prompt, and absent is not an error: a
@@ -26,7 +28,8 @@ constexpr Str MOTD = "/etc/motd";
 // False when there is no store to run on — a browser with no OPFS, which is
 // fatal now rather than a memory fallback (Concept.md §5.2). `pid` is init's,
 // for the claim the upgrade prompt takes on the keyboard, and `term` is where
-// it says so.
+// it says so. Reads INIT on the way, since that is the store's to answer, and
+// prints the boot banner only when the archive named no program of its own.
 Task<bool> boot_filesystem(Term &term, const u32 &pid);
 
 // A terminal the host has just made: its console pump, and a shell of its own
