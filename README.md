@@ -13,8 +13,7 @@ are still there tomorrow. It works on a phone.
 Braam is a small command-line system: a kernel, a filesystem, a terminal, a
 shell, fifty-six programs and a package manager. It is written from scratch in
 C++20 and compiled to WebAssembly, which browsers run at close to native speed.
-There is no server side. The whole system is a few static files, so any web host
-can serve it.
+The whole system is a few static files, so any web host can serve it.
 
 Nothing is borrowed — no C library, no Emscripten, no `xterm.js`. Every program
 is a separate WebAssembly file running in a sandbox of its own, and none of them
@@ -31,14 +30,14 @@ $ spin &                             # a program that loops forever
 $ kill %1                            # killed anyway
 ```
 
-It is not a Unix clone: no POSIX layer, no `fork`, no VT100 to emulate, and no
-C library under the system. The terminal is a grid of cells a program fills
-directly; it also parses the escape sequences a guest sends it
+It is not a Unix clone: no POSIX layer, no `fork`, and no C library under the
+system. The terminal is a grid of cells a program fills directly; it also parses
+the escape sequences a guest sends it
 ([doc/ANSI_Escape_Codes.md](doc/ANSI_Escape_Codes.md)), but nothing native uses
-them. Giving that up makes the system far smaller and lets
-every part use what the browser already provides. A program *ported* from
-elsewhere may opt into one — [doc/Compat.md](doc/Compat.md) is the kit — but a
-port is still a rewrite, and nothing in this tree links it.
+them. Giving all that up makes the system far smaller and lets every part use
+what the browser already provides. A program *ported* from elsewhere may opt
+into a compatibility kit — [doc/Compat.md](doc/Compat.md) — but a port is still
+a rewrite, and nothing in this tree links it.
 
 ## Three ideas
 
@@ -88,21 +87,19 @@ having to cooperate — `spin` exists to show that. The shell is one of these
 programs, not part of the kernel.
 
 **A package manager.** `pkg` installs software that did not ship with the
-system. A repository is just files on a web server: an index and one zip per
-package. The index is signed, and the keys it is checked against ship inside the
-archive. An install is committed by renaming a single symbolic link, so a tab
-that dies partway has installed nothing. The system ships pointed at the public
-repository <https://braamix.github.io>, and
+system. A repository is just files on a web server: a signed index and one zip
+per package, checked against keys that ship inside the boot archive. An install
+is committed by renaming one symbolic link, so a tab that dies partway has
+installed nothing. The system ships pointed at <https://braamix.github.io>, and
 [doc/Package_Formats.md](doc/Package_Formats.md) §10 explains running one of
 your own.
 
 **An embedding API.** `web/braam.js` puts a terminal on any web page with
-`mount({ canvas })`. `web/embed.html` is a working example, and
-`web/dual.html` splits a window between two screens of one kernel —
-`mount({ screens: [ … ] })`, a shell and a `^C` of its own on each, over one
-filesystem. `web/quad.html` is the same in a 2×2 of four, which is as many
+`mount({ canvas })`, and `web/embed.html` is a working example. `web/dual.html`
+splits a window between two screens of one kernel — a shell and a `^C` of its
+own on each, over one filesystem — and `web/quad.html` is four, which is as many
 terminals as there can be. A site that boots into one program rather than a
-prompt puts its path in `/etc/init`, one line in its own boot archive.
+prompt names its path in `/etc/init`, one line in its own boot archive.
 
 ## Building
 
@@ -160,6 +157,7 @@ is the guide and [examples/hello/](examples/hello/) is the worked example.
 | [src/ui/](src/ui/) | the layout layer over the grid of cells |
 | [src/user/](src/user/) | starting programs, system calls, the console, pipes, `/proc`, boot |
 | [src/proc/](src/proc/) | the runtime every program carries |
+| [src/compat/](src/compat/) | the opt-in kit a ported program may link |
 | [src/cmd/](src/cmd/) | one file per program; `sh/` and `pkg/` have directories |
 | [web/](web/) | the page, the workers, the renderer, the browser side of everything |
 | [rootfs/](rootfs/) | what the boot archive carries |
@@ -176,6 +174,9 @@ is the guide and [examples/hello/](examples/hello/) is the worked example.
 - [doc/Shell.md](doc/Shell.md) — the manual for `/bin/sh`.
 - [doc/System_Calls.md](doc/System_Calls.md) — how a program talks to the
   kernel.
+- [doc/ANSI_Escape_Codes.md](doc/ANSI_Escape_Codes.md) — the escapes the screen
+  understands, and the bytes a program sends for a key.
+- [doc/Compat.md](doc/Compat.md) — the kit for porting a Unix program.
 - [doc/Programming_Manual.md](doc/Programming_Manual.md) — writing a program of
   your own.
 - [doc/Package_Management.md](doc/Package_Management.md) and
@@ -189,11 +190,9 @@ Version 0.9. Everything above works and the tests pass. A tablet works too: tap
 to type, drag to select, with a row of buttons for the keys a touch keyboard
 does not have.
 
-Some things are missing on purpose. There is no `bg` and no `^Z` yet. Lines are
-not
-re-wrapped when the window is resized. One program has the screen at a time.
-There are no file permissions and no CPU limits — a program can be killed, but
-not slowed down.
+Some things are missing on purpose: no `bg` and no `^Z`, no re-wrapping when the
+window is resized, one program on the screen at a time, no file permissions and
+no CPU limits — a program can be killed, but not slowed down.
 
 ## License
 

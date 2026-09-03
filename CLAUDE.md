@@ -11,9 +11,9 @@ C++20, compiled to wasm32, deployable as a static site with no server and no
 special HTTP headers. No libc under the system, no Emscripten, no `xterm.js` —
 nothing is linked that is not in this tree. A *ported* program may opt into
 `braam::compat` ([doc/Compat.md](doc/Compat.md)); nothing in this tree does.
-Two parts of the tree are not ours and they are the whole of it: `src/math/` is
-musl's libm, vendored under an MIT licence, and `src/compat/cwidth.cpp` is
-Markus Kuhn's `wcwidth` intervals under his own grant.
+Only two parts are not ours: `src/math/` is musl's libm, vendored under an MIT
+licence, and `src/compat/cwidth.cpp` is Markus Kuhn's `wcwidth` intervals under
+his own grant.
 
 Two things must never regress: the wasm ABI of seven imports and nine exports,
 and the three passing CTest cases.
@@ -26,7 +26,7 @@ and the three passing CTest cases.
   `§n` below refers to it.
 - **[doc/Release_Notes.md](doc/Release_Notes.md) is where the *why* goes** —
   appended under a new heading, never by rewriting an old one. It holds the
-  release being written; the finished ones are a file each in
+  release being written; finished ones are a file each in
   [doc/releases/](doc/releases/), indexed at its top. M0–M9's objectives and
   acceptance criteria are live constraints in
   [doc/releases/Release_Notes-v0.1.md](doc/releases/Release_Notes-v0.1.md) —
@@ -45,14 +45,13 @@ and the three passing CTest cases.
 - **[doc/Compat.md](doc/Compat.md)** is the opt-in port kit `braam::compat` —
   what a *ported* Unix program may link, the A/B/C split, and what it costs.
   Groups A and B are complete: §4 is the `b_*` family, `compat/cio.h` its one
-  header, and `examples/portlet` and `examples/portio` the two in-tree callers
-  that keep it building. The system itself still has no libc, and
-  `PORT [NOFLOAT]` is the whole of the opt-in.
-- **There is no `doc/TODO.md`.** It held the sequence of what was left and is
-  deleted, because nothing is: sections A, B, D and P are all spent. Its one
-  standing argument — why the syscall table is *not* the gap — is in
-  Release_Notes.md, so that question is not re-derived. A new plan starts a
-  file or a section of its own.
+  header, `examples/portlet` and `examples/portio` the two in-tree callers that
+  keep it building. `PORT [NOFLOAT]` is the whole of the opt-in; the system
+  itself still has no libc.
+- **There is no `doc/TODO.md`.** Nothing was left in it: sections A, B, D and P
+  are all spent, and its one standing argument — why the syscall table is *not*
+  the gap — is in Release_Notes.md. A new plan starts a file or section of its
+  own.
 - **[doc/Testing.md](doc/Testing.md)** is how the two suites are organised, what
   can be tested in which, and the rules the system suite's one cumulative
   session runs by. Read it before adding a case or moving one.
@@ -91,15 +90,14 @@ make clean
 - Version = `BRAAM_VERSION_BASE` ([src/kernel/version.h](src/kernel/version.h),
   hand-edited) + commit count + short hash. `tools/version.py` is the one
   implementation and runs at *build* time; `tools/release.py` imports it.
-- **The seven publisher tools in `tools/` are hand-run and no build step calls
+- **The seven publisher tools in `tools/` are hand-run; no build step calls
   them**: `ed25519.py` (the one place a key is read, and the only thing needing
   `cryptography`), `signindex.py`, `mkanchor.py`, `mkpkg.py`, `mkindex.py`,
-  `mkrepo.py`, which regenerates `test/unit/repo.data` under keys it destroys,
-  and `mkmathdata.py`, which regenerates `test/unit/math.data` from the host's
-  own libm.
-  `mkindex.py` derives Package_Formats.md §6.1's `cmd:` names from each package's
-  `bin/`, so no publisher writes one down. **No private key** goes in the tree,
-  in anything built from it, or inside `rootfs.zip`.
+  `mkrepo.py` (regenerates `test/unit/repo.data` under keys it destroys) and
+  `mkmathdata.py` (regenerates `test/unit/math.data` from the host's own libm).
+  `mkindex.py` derives Package_Formats.md §6.1's `cmd:` names from each
+  package's `bin/`, so no publisher writes one down. **No private key** goes in
+  the tree, in anything built from it, or inside `rootfs.zip`.
 - `braam_add_program(NAME … SOURCES … [LIBS])` in
   [cmake/BraamProgram.cmake](cmake/BraamProgram.cmake) is shared by `src/cmd/`
   and the installed SDK, so an out-of-tree program is built exactly as these
@@ -140,19 +138,17 @@ make clean
 
 - `system` — `test/run.mjs --kernel` under Node, and it is the ordered `CASES`
   table and nothing else: a case is one file in [test/system/](test/system/)
-  exporting `check()`, over the driver in
-  [test/system/harness.mjs](test/system/harness.mjs). **The order is
-  load-bearing** — it is one cumulative session, so state crosses cases and an
-  entry that depends on an earlier one says so beside it. The kernel's exact
-  imports (`host.fs`, `host.fs_sync`, `host.log`, `host.now`, `host.present`,
-  `host.random`, `host.svc`), its exports (`init`, `key`, `memory`, `ref`, `resize`, `sys`,
-  `sys_async`, `tick`, `wake`) — **their arity as well as their names** — and
-  every binary's surface and `braam` section are
+  exporting `check()`, over [test/system/harness.mjs](test/system/harness.mjs).
+  **The order is load-bearing** — one cumulative session, so state crosses cases
+  and an entry that depends on an earlier one says so beside it. The kernel's
+  exact imports (`host.fs`, `host.fs_sync`, `host.log`, `host.now`,
+  `host.present`, `host.random`, `host.svc`), its exports (`init`, `key`,
+  `memory`, `ref`, `resize`, `sys`, `sys_async`, `tick`, `wake`) — **arity as
+  well as names** — and every binary's surface and `braam` section are
   [test/system/abi.mjs](test/system/abi.mjs); the boot to a prompt is
   `boot.mjs`; `rootfs/etc/help` against the builtin table and the archive's
-  `bin/` is `help.mjs`; a second terminal, a second shell and the one
-  filesystem under both is `dual.mjs`, and all four of `TERM_MAX` at once is
-  `quad.mjs`.
+  `bin/` is `help.mjs`; a second terminal, a second shell and the one filesystem
+  under both is `dual.mjs`, and all four of `TERM_MAX` at once is `quad.mjs`.
 - `unit` — `test/run.mjs --tests` over `tests.wasm`, with `rootfs.zip` alongside
   so that `src/cmd/pkg/zip.cpp` and `web/fs.js` are compared over the same bytes
   rather than each trusted against its own reading of the format. New core code
@@ -182,11 +178,10 @@ from `/bin/pkg` (`src/cmd/pkg/host.cpp`), the kernel's own services from the
 suite (`test/unit/fakehost.h`) — which is how a check that must be tested keeps
 out of the half that cannot be. `pkg/unzip.cpp`, `store.cpp`, `host.cpp` and
 `install.cpp` stay out, and `sh/glob.cpp` and `sh/condrun.cpp` with them,
-because they walk the store. `braam_math` is the one half that is *linked*
-instead: it links `braam_flags` alone and has no syscall to hide, as `braam_ui`
-does not. Anything needing a program to run belongs in
-`test/system/`, as a file and a line in `run.mjs`'s table.
-[doc/Testing.md](doc/Testing.md) is the whole of both suites.
+because they walk the store. `braam_math` is *linked* instead: it links
+`braam_flags` alone and has no syscall to hide, as `braam_ui` does not. Anything
+needing a program to run belongs in `test/system/`, as a file and a line in
+`run.mjs`'s table. [doc/Testing.md](doc/Testing.md) is the whole of both suites.
 
 ## Architecture invariants
 
@@ -272,10 +267,13 @@ Further constraints, easy to violate by habit:
   makes one by resizing it** — `resize(tid, …)` for an unknown id creates it,
   spawns its pump and has init start a `/bin/sh` on it
   ([src/user/boot.cpp](src/user/boot.cpp), `init_term_up`), so a page with one
-  canvas has exactly one shell. A process carries `Proc::term`, inherited at
-  spawn like `cwd`; **there is no "current terminal" global, and adding one is
-  the bug this shape exists to prevent** — a syscall server awaits.
-  `web/dual.html` is two screens of one kernel and `web/quad.html` four;
+  canvas has exactly one shell. **Terminal 0 runs what `/etc/init` names**, when
+  the boot archive carries that line ([src/user/boot.h](src/user/boot.h),
+  `INIT`); absent, empty or unreadable all mean the shell, and a named program
+  also keeps boot's banner off the grid. A process carries `Proc::term`,
+  inherited at spawn like `cwd`; **there is no "current terminal" global, and
+  adding one is the bug this shape exists to prevent** — a syscall server
+  awaits. `web/dual.html` is two screens of one kernel and `web/quad.html` four;
   `web/embed.html` is two kernels.
 - **One receiver per `Channel`; a terminal's keyboard has its console pump** —
   permanent, spawned when the terminal is made
@@ -313,9 +311,9 @@ interpreter, which `exec_resolve` chases exactly once.
   else. The first kind has no file; of the second, `test`, `echo`, `true` and
   `false` keep a file in `/bin`, since a builtin shadows the name at a prompt
   and not everywhere, while `[` and `:` are punctuation nothing spawns and have
-  none. A builtin runs **in
-  its turn rather than alongside**, so it must buffer its output and write it
-  once or it fills an eight-slot pipe with nobody to drain it.
+  none. A builtin runs **in its turn rather than alongside**, so it must buffer
+  its output and write it once or it fills an eight-slot pipe with nobody to
+  drain it.
 - **Everything else is a process in a worker of its own** — address-space,
   capability, descriptor and memory-cap isolation plus a real kill switch.
   `braam_add_program` arranges it unasked and the `braam` section carries no
@@ -398,8 +396,9 @@ argue in Concept.md first.
   operations); `src/ui/` (layout over a `Grid`: `Pane`, `TextBuf`, `TextView`);
   `src/math/` (musl's libm, vendored, plus its `strtod` and `printf` engines);
   `src/user/` (exec and the syscall dispatcher, console, pipes, `ProcFs`, boot
-  and init); `src/proc/` (a process binary's runtime); `src/cmd/` (one file per
-  program, bar `src/cmd/pkg/` and `src/cmd/sh/`).
+  and init); `src/proc/` (a process binary's runtime); `src/compat/` (the opt-in
+  port kit, linked by nothing in this tree); `src/cmd/` (one file per program,
+  bar `src/cmd/pkg/` and `src/cmd/sh/`).
 - `braam_fs` and `braam_svc` are siblings above the kernel and below userland:
   no upward dependency and none on each other; anything needing the scheduler or
   the screen belongs in `src/user/` (hence `ProcFs`). **`braam_sh` links
