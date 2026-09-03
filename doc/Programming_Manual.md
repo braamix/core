@@ -395,7 +395,7 @@ Each is a `Task<Result<T>>`. `Result` carries an `Error` and is unpacked with
 | Files | `open_at(path, flags)`, `open_read`, `read_file`, `stat_of`, `list_dir`, `make_dir`, `make_dir_all`, `remove_path`, `touch_path`, `make_link`, `read_link`, `rename_path`, `seek_fd(fd, off, whence)`, `truncate_fd(fd, n)`, `copy_file`, `copy_tree`, `TreeWalk(root)` |
 | Directory | `cwd_get()`, `cwd_set(path)` — this process's own, inherited from whoever spawned it |
 | Children | `make_pipe()`, `spawn(Args, ChildIo, const Args *env)`, `wait_child(pid)`, `kill_child(pid)`, `set_fg(pid)` |
-| Terminal | `tty_of(fd)`, `keys_claim(bool)`, `screen_claim(bool)`, `key_read()`, `cursor_get()`, `cursor_set(x, y, on)`, `style_set(fg, bg, attrs)`, `cursor_echo(x, y, cur, flags, runs)` |
+| Terminal | `tty_of(fd)`, `keys_claim(bool)`, `screen_claim(bool)`, `key_read()`, `cursor_get()`, `cursor_set(x, y, on)`, `style_set(fg, bg, attrs)`, `cursor_echo(x, y, cur, flags, runs)` — and from `proc/keyenc.h`, not a syscall: `key_encode(k, out)` |
 | System | `storage_of()`, `sleep_for(ms)`, `clock_now()` — and from `proc/rt.h`, synchronous rather than `Task`s: `proc_pid()`, `proc_now()`, `proc_random()` |
 | Environment | `proc_env(name)`, `proc_env_count()`, `proc_env_at(i)` — from `proc/rt.h`, and not syscalls |
 | Host services | `fetch_url(url, spec)`, `ws_connect(url)`, `clip_get`, `clip_put`, `pick`, `pick_open`, `fexport`, `verify_sig`, `inflate` |
@@ -600,6 +600,25 @@ Four rules, all of which bite:
 hour, min, sec, weekday}`, with `TIME_MONTHS` and `TIME_DAYS` beside it for the
 names. Pure — no syscall — so the wall clock and the timezone are the caller's
 to fetch with `clock_now()` and add in. `date` and `ls -l` are the callers.
+
+### `proc/keyenc.h` — a key as the bytes a terminal would send
+
+`key_encode(k, out)` writes what a VT100 or an xterm sends for `Key{code,
+mods}` and returns how many bytes, or 0 for a key that sends nothing;
+`KEY_ENC_MAX` is 8. Pure — no syscall, no state, no timer.
+
+This is only for a program **feeding something that reads a byte stream**: a
+guest machine's console, or a remote host. A native program has no use for it
+and pays nothing, since `--gc-sections` keeps it out. The table is
+[doc/ANSI_Escape_Codes.md](ANSI_Escape_Codes.md) §5 and the other direction —
+what the screen understands when a program *writes* escapes — is §4.
+
+```cpp
+char seq[KEY_ENC_MAX];
+usize n = key_encode(Key{ k.code, k.mods }, seq);   // ESC [ A for KEY_UP
+```
+
+Feed all of `n` or none of it: half a sequence is worse than none.
 
 ### `proc/opt.h` — the command line
 

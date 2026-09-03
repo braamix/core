@@ -8,6 +8,7 @@ add_library(braam_proc STATIC
     file.cpp
     filebuf.cpp
     io.cpp
+    keyenc.cpp
     opt.cpp
     rt.cpp
     screen.cpp

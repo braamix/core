@@ -22,6 +22,7 @@ add_executable(tests
     unit/test_hostfs.cpp
     unit/test_jsref.cpp
     unit/test_io.cpp
+    unit/test_keyenc.cpp
     unit/test_local.cpp
     unit/test_math.cpp
     unit/test_ftoa.cpp
@@ -78,11 +79,15 @@ add_executable(tests
     ../src/cmd/sh/parse.cpp
     ../src/cmd/sh/tokenize.cpp
 
-    # The option parser, the calendar, truncate's SIZE grammar and a buffered
-    # stream's bookkeeping are the process runtime's, and pure for the same
-    # reason: Args, Str and Result and nothing else. braam_proc is not linked
-    # here. file.cpp is the half that reads and writes, and stays out.
+    # The option parser, the calendar, truncate's SIZE grammar, a buffered
+    # stream's bookkeeping and the key encoder are the process runtime's, and
+    # pure for the same reason: Args, Str and Result and nothing else.
+    # braam_proc is not linked here. file.cpp is the half that reads and
+    # writes, and stays out. keyenc.cpp has no in-tree caller -- nothing native
+    # sends escapes for a key -- so this suite is the only thing holding
+    # ANSI_Escape_Codes.md §5 true.
     ../src/proc/filebuf.cpp
+    ../src/proc/keyenc.cpp
     ../src/proc/opt.cpp
     ../src/proc/size.cpp
     ../src/proc/time.cpp

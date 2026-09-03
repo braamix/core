@@ -41,8 +41,9 @@ Compiled in, and therefore testable there: `sh/parse.cpp`, `sh/tokenize.cpp`,
 `sh/expand.cpp`, `sh/match.cpp`, `sh/cond.cpp`, `sh/complete.cpp` (the grammar,
 the expander, the matcher, `test`'s expression, and the arithmetic behind Tab),
 `diff/diffreg.cpp` and `diff/emit.cpp` (the comparison and its three formats),
-`proc/opt.cpp` and `proc/time.cpp` (the option parser and the calendar), and the
-syscall-free half of `src/cmd/pkg/`.
+`proc/opt.cpp` and `proc/time.cpp` (the option parser and the calendar),
+`proc/keyenc.cpp` (ANSI_Escape_Codes.md §5, which nothing in this tree calls, so
+the suite is its only caller), and the syscall-free half of `src/cmd/pkg/`.
 `diff/main.cpp` is the half that reads and writes, and stays out.
 `pkg/trust.cpp` and `pkg/index.cpp` qualify by taking a `PkgHost`: the suite
 hands them the kernel's own services where `/bin/pkg` hands them syscalls.

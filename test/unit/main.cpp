@@ -53,6 +53,7 @@ void test_parse();
 void test_expand();
 void test_match();
 void test_opt();
+void test_keyenc();
 void test_help();
 void test_size();
 void test_diff();
@@ -128,6 +129,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_cond();
     test_complete(); // after tokenize: the site scan is the lexer
     test_opt();
+    test_keyenc();
     test_help();
     test_size();
     test_diff(); // after str and vec: a line table is views over one buffer

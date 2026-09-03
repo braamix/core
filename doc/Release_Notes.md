@@ -233,6 +233,46 @@ The arrangement itself is unchanged, so §3.5 is untouched. `index.html` is stil
 short of the focus ring and the `overflow: hidden` the two multi-pane pages
 have; that is a separate tidy.
 
+## The other half of the escape: what a program sends for a key
+
+[ANSI_Escape_Codes.md](ANSI_Escape_Codes.md) §5 was a specification with nothing
+behind it, as §4 had been. It is now
+[src/proc/keyenc.cpp](../src/proc/keyenc.cpp): `key_encode(Key, char[8])`, the
+bytes and the count.
+
+**It is not the kernel's, and that is the whole design.** A key reaches a
+program as `Key{code, mods}` and there are no control characters anywhere in
+the ABI — `^D` is `'d'` with `MOD_CTRL`. Teaching the console pump to emit
+bytes would put a byte stream on the *input* side to match the one §4 put on
+the output side, and the input side does not need one: nothing native reads
+keys as bytes, and the two programs that will are a guest emulator and an ssh
+client. So the encoder is in the process runtime, `--gc-sections` keeps it out
+of the fifty-odd binaries that never name it, and **nothing in this tree names
+it at all.**
+
+That last point is the argument for
+[test/unit/test_keyenc.cpp](../test/unit/test_keyenc.cpp). A pure `src/proc/`
+half with no in-tree caller would otherwise rot with nothing to notice, so the
+case is not a nicety — it is the only thing holding the table true. Compiled
+into `tests.wasm` like `proc/opt.cpp` and `proc/time.cpp`, which also makes a
+syscall in it a link error.
+
+**Three decisions inside the table.** CSI and never SS3 for the arrows and
+Home/End, because nothing tracks DECCKM — the screen swallows `ESC [ ? 1 h`
+(§4.5), so a program cannot know it was asked for, and the CSI forms are what a
+terminal in normal mode sends and every decoder accepts. No timer for the
+Escape key, because §6.5 says the ambiguity does not exist on this side: a
+`Key` arrives whole and `KEY_ESCAPE` is a code. And a printable key goes out in
+**UTF-8**, which is what makes a guest's eight-bit line carry Cyrillic rather
+than dropping it.
+
+`KEY_ENTER`…`KEY_F12` are 26 consecutive codes in
+[src/kernel/key.h](../src/kernel/key.h), so §5.2 is one indexed table rather
+than a 26-arm switch, and §5.3's parameterised form shares its rows: the final
+byte and the tilde parameter are what both need.
+
+**No kernel change, and no ABI change.** `kernel.wasm` did not move.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

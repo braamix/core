@@ -37,10 +37,11 @@ and the three passing CTest cases.
   [src/kernel/sysabi.h](src/kernel/sysabi.h) or [web/proc.js](web/proc.js) must
   keep it true.
 - **[doc/ANSI_Escape_Codes.md](doc/ANSI_Escape_Codes.md)** is the two tables of
-  the escape half. §4 is what `screen_write` understands and is implemented
+  the escape half. §4 is what `screen_write` understands
   ([src/kernel/ansi.cpp](src/kernel/ansi.cpp)); §5 is what a *program* sends for
-  a key, is nobody's but the program's, and is **not written**. §6's five traps
-  are the ones to read before touching either.
+  a key, and is `key_encode` in [src/proc/keyenc.cpp](src/proc/keyenc.cpp) —
+  in the process runtime because it is a program's, and named by nothing in
+  this tree. §6's five traps are the ones to read before touching either.
 - **[doc/Compat.md](doc/Compat.md)** is the opt-in port kit `braam::compat` —
   what a *ported* Unix program may link, the A/B/C split, and what it costs.
   Groups A and B are complete: §4 is the `b_*` family, `compat/cio.h` its one

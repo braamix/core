@@ -17,7 +17,8 @@ There are two halves, and they are not symmetric:
 - **A program encodes.** The kernel never turns a keystroke into bytes. A key
   reaches a program as `Key{code, mods}` ([src/kernel/key.h](../src/kernel/key.h)),
   and a program that must feed a guest or a remote host encodes it itself, using
-  the table in §5.
+  the table in §5 — `key_encode` in
+  [src/proc/keyenc.h](../src/proc/keyenc.h), which a program links or ignores.
 
 > **Notation.** ESC is the byte `0x1B`. **CSI** is the two bytes `ESC [`;
 > **SS3** is `ESC O`. A space between bytes in a table is for the reader and is
@@ -252,6 +253,8 @@ to that colour.
 This half is **not** the kernel's. A program holding a raw keyboard claim
 (`KeyInput` in [src/user/tty.h](../src/user/tty.h)) receives `Key{code, mods}`
 and, if it is feeding a guest or a remote host, encodes it with this table.
+`key_encode` in [src/proc/keyenc.h](../src/proc/keyenc.h) is the table written
+out, and §7 says where it sits.
 
 ### 5.1 Keys that are one or two bytes
 
@@ -366,7 +369,8 @@ guest's, and always was.
 
 ## 7. Where it lands
 
-**§4 has landed. §5 has not** — it is a program's, and nothing links it yet.
+**Both halves have landed**, in two places: §4 in the kernel, §5 in the process
+runtime, where a program picks it up or does not.
 
 - **The parser** is [src/kernel/ansi.cpp](../src/kernel/ansi.cpp) over an
   `Ansi` ([src/kernel/ansi.h](../src/kernel/ansi.h)) held by the `Term`, and it
@@ -388,9 +392,18 @@ guest's, and always was.
   grammar and the table, and [test/system/escape.mjs](../test/system/escape.mjs)
   for the path from a program's write to the cells, where `tr` supplies the ESC
   byte a prompt cannot type (§6.5).
-- **The key encoder** is still to write: a program-side helper under
-  `src/proc/`, a pure function of `Key{code, mods}`, linked by `simbesm` and by
-  whatever needs it next.
+- **The key encoder** is [src/proc/keyenc.cpp](../src/proc/keyenc.cpp),
+  `key_encode(Key, char[8])` — a pure function of `Key{code, mods}` returning
+  the bytes and their count, with no state and no timer. It sits in the process
+  runtime rather than the kernel because §5 is a program's: `--gc-sections`
+  keeps it out of every binary that does not name it, and **nothing in this
+  tree names it**. `simbesm` in `braam-apps` is the first caller, an `ssh`
+  client the next. `KEY_ENTER`…`KEY_F12` are 26 consecutive codes
+  ([src/kernel/key.h](../src/kernel/key.h)), so §5.2 is one indexed table and
+  the parameterised form of §5.3 shares its rows.
+- **Its case** is [test/unit/test_keyenc.cpp](../test/unit/test_keyenc.cpp),
+  compiled into the in-wasm suite as the other pure `src/proc/` halves are.
+  With no in-tree caller it is the only thing holding this table true.
 
 ---
 
@@ -403,6 +416,6 @@ guest's, and always was.
 - [src/kernel/screen.h](../src/kernel/screen.h) — the grid, the cell and the
   operations §4 maps onto.
 - [src/kernel/key.h](../src/kernel/key.h) — `Key`, `KEY_*` and `MOD_*`, the
-  input to §5.
+  input to §5, and [src/proc/keyenc.h](../src/proc/keyenc.h) its output.
 - [src/user/tty.h](../src/user/tty.h) — `KeyInput` and `FullScreen`, the claims
   a program takes before it needs any of this.
