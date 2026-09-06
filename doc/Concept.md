@@ -529,6 +529,12 @@ Compilation is expensive; instantiation is cheap. The host caches the compiled
 module and instantiates per `exec`, so a binary is compiled once however many
 workers run it. Starting a worker is the other cost, and the pool answers it.
 
+**The cache is keyed on the image, never on the path it arrived by.** A path is
+mutable — an upgraded package, a rebuilt binary written over itself, a file
+replaced through `fimport` — and a cache keyed on one hands back a stale module
+for the life of the page, with nothing to say so. Hashing the image is far
+cheaper than the compile it guards.
+
 **A syscall is the cost that does not go away**: two `postMessage` hops and two
 copies, measured at 34–45 µs in three engines. What that leaves on the
 interactive path is the *line* rather than the keystroke, which is why it is

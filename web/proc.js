@@ -207,11 +207,25 @@ export function workerOps(pid, clock, entropy) {
 
 // ---------------------------------------------------------- the host's half
 
+// FNV-1a, with the length beside it. The compile cache keys on what a binary
+// is and not on where it was found: a path is mutable, so keying on one served
+// a stale module for the life of the page whenever a program was replaced
+// under a name already run -- an upgraded package, a rebuild, an fimport.
+// ~0.2 ms for 128 KB, once per distinct image (Concept.md §4.4).
+function digest(bytes) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < bytes.length; i++) {
+        h ^= bytes[i];
+        h = Math.imul(h, 0x01000193);
+    }
+    return `${h >>> 0}:${bytes.length}`;
+}
+
 // `makeLink()` makes a worker for a process. Where it is absent or will not
 // make one, a spawn is refused with AGAIN and the kernel backs off and asks
 // again — there is nowhere else to put a process (Concept.md §4).
 export function makeProc(mem, kernel, makeLink, clock = () => 0) {
-    const modules = new Map(); // path -> Module; §4.4's compile cache
+    const modules = new Map(); // digest -> Module; §4.4's compile cache
     const procs = new Map();   // pid -> the kernel's half of one process
     const idle = [];           // workers with no process in them
 
@@ -283,20 +297,22 @@ export function makeProc(mem, kernel, makeLink, clock = () => 0) {
 
     function spawn(r) {
         const pid = r.get("aux");
-        const path = r.arg();
         const flags = r.get("flags");
         const initial = initialOf(flags);
         const maximum = maxOf(flags);
 
         // Compiled before a worker is asked for: the cache is the host's
         // (§4.4), a Module is structured-cloneable, and a malformed binary is
-        // caught where `exec` can still say so rather than being retried.
+        // caught where `exec` can still say so rather than being retried. Keyed
+        // on the image and not on r.arg(), the path -- see digest().
         stat.spawned++;
-        let module = modules.get(path);
+        const bytes = r.bytes();
+        const key = digest(bytes);
+        let module = modules.get(key);
         if (!module) {
             stat.compiled++;
-            module = new WebAssembly.Module(r.bytes());
-            modules.set(path, module);
+            module = new WebAssembly.Module(bytes);
+            modules.set(key, module);
         }
 
         // No worker, no process: there is nowhere else to put one. AGAIN rather

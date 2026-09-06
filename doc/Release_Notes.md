@@ -9,6 +9,28 @@ The release after 0.9 is being written, and starts below. New sections are
 appended under it, and the whole moves to [releases/](releases/) when the
 release is cut.
 
+## The compile cache keys on the image, not on the path
+
+`pkg upgrade` relinked `/pkg/bin/<name>` to the new generation, said so, and
+then ran the old binary anyway — for the life of the page, with nothing to
+say so. The host's compile cache (§4.4) was a `Map` from path to Module, and a
+path is mutable: the same name resolves to different bytes after an upgrade, a
+rebuild written over itself, or an `fimport`. The image the kernel had already
+sent was ignored on a hit.
+
+Keying on a digest of the image instead makes the cache sound for every writer
+rather than for one of them, and it is what the section always meant by
+"compiled once however many workers run it" — once per binary, not once per
+name. FNV-1a over 128 KB is ~0.2 ms, paid once per distinct image, against a
+compile that is far dearer and a syscall that is 34–45 µs on its own. Two
+paths holding the same bytes now share a module, which the old key could not
+do.
+
+The eight `pkg` cases each assert that the upgraded program's *output* changed
+and none of them caught this, because their fixtures are `#!/bin/sh` scripts —
+never compiled, so never cached. The `stale` case runs two real binaries at one
+path, which is the shape that was missing.
+
 ## The screen parses, and the grid is still the model
 
 [ANSI_Escape_Codes.md](ANSI_Escape_Codes.md) was written as a specification with

@@ -163,3 +163,23 @@ export function check() {
     if (!rows(s).includes("after"))
         fail(`the shell did not survive ^C on a spawned pair: ${JSON.stringify(rows(s))}`);
 }
+
+// The compile cache is keyed on the image and not on the path it came from
+// (web/proc.js). A path is mutable: an upgraded package, a rebuild, an
+// fimport all put different bytes under a name already run, and keying on
+// the name served the first module for the life of the page. The eight pkg
+// cases could not catch it -- their fixtures are #!/bin/sh scripts, which are
+// never compiled.
+export function stale() {
+    let s = submit("cp /bin/echo /home/x", 9220);
+    s = submit("/home/x first", 9221);
+    if (!rows(s).includes("first"))
+        fail(`the copied binary did not run: ${JSON.stringify(rows(s))}`);
+
+    // A different program at the same path. It must be the one that runs.
+    s = submit("cp /bin/pwd /home/x", 9222);
+    s = submit("/home/x", 9223);
+    if (!rows(s).includes("/home"))
+        fail(`a replaced binary ran the cached module: ${JSON.stringify(rows(s))}`);
+    submit("rm /home/x", 9224);
+}

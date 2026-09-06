@@ -151,6 +151,7 @@ const CASES = [
     ["diff",       diff.check],
     ["unzip",      unzip.check],
     ["entry",      entry.check],
+    ["stale",      spawn.stale],      // after every ls -l: it moves the clock on
     ["dual",       dual.check],       // leaves a second shell up, so others() gains one
     ["quad",       quad.check],       // after dual: four terminals at once, and it exits three
     ["panel",      panel.check],      // after quad: one program on two of its screens
