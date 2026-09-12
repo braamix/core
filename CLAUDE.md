@@ -11,9 +11,10 @@ C++20, compiled to wasm32, deployable as a static site with no server and no
 special HTTP headers. No libc under the system, no Emscripten, no `xterm.js` —
 nothing is linked that is not in this tree. A *ported* program may opt into
 `braam::compat` ([doc/Compat.md](doc/Compat.md)); nothing in this tree does.
-Only two parts are not ours: `src/math/` is musl's libm, vendored under an MIT
-licence, and `src/compat/cwidth.cpp` is Markus Kuhn's `wcwidth` intervals under
-his own grant.
+Only three parts are not ours: `src/math/` is musl's libm, vendored under an MIT
+licence, `src/compat/cwidth.cpp` is Markus Kuhn's `wcwidth` intervals under his
+own grant, and `test/unit/att/` is AT&T's `regex(3)` conformance corpus under
+Glenn Fowler's — test data, linked into nothing that ships.
 
 Two things must never regress: the wasm ABI of seven imports and nine exports,
 and the three passing CTest cases.
@@ -156,6 +157,12 @@ make clean
   [test/CMakeLists.txt](test/CMakeLists.txt), and a declaration and call in
   [test/unit/main.cpp](test/unit/main.cpp) — miss the third and it compiles,
   links and never runs. That call order is load-bearing too.
+  **[test/unit/att/](test/unit/att/) is AT&T's `regex(3)` conformance corpus,
+  upstream verbatim but for a two-line `R"DAT(` wrapper** — the one oracle in
+  the tree that is POSIX's rather than some host's. `test_attregex.cpp` is
+  `testregex.c`'s loop and its `matchcheck()`; a case this engine does not pass
+  is a `DEVIATIONS` entry that fails **both** ways, so the list cannot rot.
+  Re-sync by copying and re-adding the two lines, never by editing a case.
 - `size` — `tools/size_budget.txt`, checked at build time.
 
 Both wasm modules are driven by the in-memory backends

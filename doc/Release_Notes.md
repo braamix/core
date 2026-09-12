@@ -362,6 +362,63 @@ byte and the tilde parameter are what both need.
 
 **No kernel change, and no ABI change.** `kernel.wasm` did not move.
 
+## The regex test got an oracle that is not a host
+
+`regex.data` was the honest thing to write when the engine arrived: eh's native
+differential harness could not come along, so `tools/mkregexdata.py` asked the
+host's own `<regex.h>` the same 2,211 questions once and wrote the answers down.
+What it records, though, is *one libc's* answers. The tool has to pick
+`REG_NEWLINE`'s value by platform because glibc and the BSDs disagree; three
+behaviours had to be lifted out of the table entirely and asserted by hand
+because the hosts disagree with each other about them; and a regeneration on a
+different machine would quietly move the baseline. A table like that can prove
+the engine has not changed. It cannot say the engine is right.
+
+AT&T's `testregex` is the thing that can. Glenn Fowler's harness is the
+reference conformance driver for POSIX `regex(3)`, and its answers are the
+standard's rather than an implementation's — `(a|ab)(c|bcd)(d*)` on `abcd` has
+one POSIX-correct subexpression split, and the corpus says which.
+
+**What was adopted is the data, not the driver.** `testregex.c` wants `stdio`,
+`setjmp`, `signal` and `alarm`, and a program is not what the in-wasm suite can
+run. So the seven `.dat` files are vendored into `test/unit/att/` verbatim —
+the diff against upstream is two lines a file, `R"DAT(` and `)DAT"`, which is
+the `solve.data` idiom and keeps a re-sync a copy — and `test_attregex.cpp` is
+the driver's main loop reduced to what this corpus actually uses. Profiling it
+first kept that small: the corpus needs the `B` and `E` dialects, three
+modifiers, `SAME`, an `nmatch` override, two `{` `}` blocks and the
+categorisation lines, and nothing else. No `RE_DUP_MAX`, no `NIL`, no locales,
+no `A`/`S`/`K` dialects. The part lifted exactly is `matchcheck()`, including
+the two rules a looser comparison would drop: every slot past the answer must
+read `(-1,-1)`, and the slot past `nmatch` is a sentinel that must come back
+unwritten.
+
+**The files are not all pass/fail, and treating them as if they were would be
+wrong.** `basic`, `forcedassoc`, `nullsubexpr` and `repetition` are the
+conformance set. `leftassoc` and `rightassoc` are a pair AT&T does not expect
+any implementation to pass both of — glibc passes the first, the BSDs the
+second — so what is asserted is the categorisation, not a winner. And
+`categorize.dat` is a report: fourteen groups, each naming the category the
+engine falls into. Pinning those fourteen answers turns it into an assertion
+that names the axis when the engine moves.
+
+**Thirty-six of 449 cases are deviations, and the entry is an assertion too.** A
+listed case that starts *passing* fails the suite as loudly as one that starts
+failing, so the list cannot rot in either direction. Two are documented absences
+— `[[.x.]]` and `[[=x=]]`, which `regex.h` already says are not here. One is a
+plain bug: `a{9876543210}` is accepted where POSIX wants `BADBR`. The other
+thirty-three are one property: **POSIX assigns subexpressions by
+leftmost-longest applied outward, and a backtracking matcher reports the split
+it reached success by.** The whole match is right in all but two of them; what
+differs is which group inside it got what, and whether a starred group takes
+the empty final iteration POSIX requires. `categorize.dat`'s verdict is
+`SUBEXPRESSION=grouping` where the standard wants `precedence`, which is the
+same finding in AT&T's vocabulary.
+
+That is a real gap and it is now measured rather than assumed — which was the
+point. Closing it is a matcher change, not a test change, and it is not made
+here.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

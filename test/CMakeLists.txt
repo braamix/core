@@ -27,6 +27,7 @@ add_executable(tests
     unit/test_math.cpp
     unit/test_ftoa.cpp
     unit/test_regex.cpp
+    unit/test_attregex.cpp
     unit/test_match.cpp
     unit/test_opt.cpp
     unit/test_pane.cpp

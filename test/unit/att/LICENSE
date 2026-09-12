@@ -1,0 +1,40 @@
+The .dat files in this directory are AT&T Research's regex(3) conformance
+corpus, by Glenn Fowler <gsf@research.att.com>, taken from
+
+    http://www.research.att.com/~gsf/testregex/
+
+They are the data half of the testregex harness, and the grant in that
+harness's own header covers them:
+
+    The following license covers testregex.c and all associated test data.
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of THIS SOFTWARE FILE (the "Software"), to deal in the Software
+    without restriction, including without limitation the rights to use,
+    copy, modify, merge, publish, distribute, and/or sell copies of the
+    Software, and to permit persons to whom the Software is furnished to do
+    so, subject to the following disclaimer:
+
+    THIS SOFTWARE IS PROVIDED BY AT&T ``AS IS'' AND ANY EXPRESS OR IMPLIED
+    WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+    MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+    IN NO EVENT SHALL AT&T BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+The originating site is gone. The bytes here came from
+https://github.com/gburd/testregex, whose copies of basic.dat,
+forcedassoc.dat, leftassoc.dat, nullsubexpr.dat and rightassoc.dat are
+identical to the Internet Archive's snapshots of the address above, and whose
+categorize.dat and repetition.dat are later revisions of the same files.
+
+Go's copies under src/regexp/testdata/ are edited away from POSIX for RE2/Go
+semantics and were not used.
+
+A re-sync is a copy plus two lines per file: `R"DAT(` at the top and `)DAT"`
+at the bottom, which is what makes each file one string literal to #include.
+Nothing else here departs from upstream.

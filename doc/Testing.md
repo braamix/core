@@ -92,6 +92,32 @@ here and alternation in glibc, and `.` takes a whole UTF-8 sequence here where
 the host's takes a byte. `test_regex.cpp` asserts each of those by hand and says
 which is which, so a regeneration on another host does not silently move them.
 
+**`test/unit/att/` is the third-party oracle, and the only one that is not a
+host's opinion.** It is AT&T Research's `regex(3)` conformance corpus — Glenn
+Fowler's, the data half of `testregex` — seven files carried upstream verbatim
+but for the `R"DAT(` / `)DAT"` wrapper that makes each one string literal, under
+the grant in [test/unit/att/LICENSE](../test/unit/att/LICENSE). Its answers are
+POSIX's own rather than some libc's, so a disagreement is a defect and not a
+difference. `test_attregex.cpp` is `testregex.c`'s main loop reduced to what the
+corpus asks for — the `B` and `E` dialects, the `i`, `n` and `$` modifiers, an
+`nmatch` override, `SAME`, the `{` `}` skip blocks and the `?` `|` `;`
+categorisation lines — over its `matchcheck()`: exact endpoints for every
+entry an answer lists, `(-1,-1)` for every slot past them, and a sentinel past
+`nmatch` that must come back unwritten. Four files must pass whole
+(`basic`, `forcedassoc`, `nullsubexpr`, `repetition`, 449 runs); `leftassoc` and
+`rightassoc` are a categorisation AT&T does not expect both of, and
+`categorize.dat` is a report whose fourteen verdicts are pinned so that a change
+in the engine names the axis it moved.
+
+**A case this engine does not pass is a `DEVIATIONS` entry, and the entry is an
+assertion.** Each names the file, upstream's line and one line of reason; a
+listed case that starts *passing* is reported too, so nothing moves in either
+direction unremarked. The thirty-six there now are four classes, three of them
+the one property a backtracker does not have — POSIX assigns subexpressions by
+leftmost-longest applied outward, where this engine reports the split it reached
+success by. A re-sync is a copy plus the two wrapper lines; it will shift line
+numbers, and a shift is loud in both directions by design.
+
 `FakeHost` ([test/unit/fakehost.h](../test/unit/fakehost.h)) is the
 `PkgHost` stand-in. There is **no filter**: the case list is inside the wasm, so
 running one case means building `tests` and reading the harness output.
