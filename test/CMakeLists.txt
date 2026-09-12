@@ -26,6 +26,7 @@ add_executable(tests
     unit/test_local.cpp
     unit/test_math.cpp
     unit/test_ftoa.cpp
+    unit/test_regex.cpp
     unit/test_match.cpp
     unit/test_opt.cpp
     unit/test_pane.cpp
@@ -119,13 +120,14 @@ add_executable(tests
 # braam_math is linked rather than compiled in: the compile-in convention is
 # there so a syscall in sh/ or pkg/ is a link error, and this one links
 # braam_flags alone and has no syscall to hide -- as braam_ui, above, does not.
+# braam_regex is the same shape, and the heap it does reach is the kernel's.
 # braam_compat_pure is the same shape: Group A of the port kit is pure
 # computation, so a syscall in it is a link error here. braam_compat_float
 # answers cfmt.cpp's compat_fmt_f64, since test_compat.cpp asserts %f -- the
 # suite is a PORT target's float half, spelled the way one is.
 target_link_libraries(tests PRIVATE
-    braam_user braam_fs braam_svc braam_ui braam_math braam_compat_pure
-    braam_compat_float braam_core braam_flags)
+    braam_user braam_fs braam_svc braam_ui braam_math braam_regex
+    braam_compat_pure braam_compat_float braam_core braam_flags)
 
 find_program(BRAAM_NODE node REQUIRED)
 

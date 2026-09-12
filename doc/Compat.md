@@ -38,8 +38,9 @@ guard, and it is tested.
 `mem*`, `str*`, `ctype`, `malloc`/`calloc`/`realloc`/`free`, the `strtol` and
 `strtod` families, `qsort`/`mergesort`/`bsearch`,
 `snprintf`/`vsnprintf`/`sprintf`, `errno`, `strerror`, `getenv`, the calendar
-(`<time.h>`), the wide half (`<wchar.h>`, `<wctype.h>`), `fnmatch` and
-`<sys/queue.h>`. Group A has no syscall, which is why `braam_compat_pure` links
+(`<time.h>`), the wide half (`<wchar.h>`, `<wctype.h>`), `fnmatch`,
+`<sys/queue.h>` and `<regex.h>`. Group A has no syscall, which is why
+`braam_compat_pure` links
 into `tests.wasm` the way `braam_math` does: a syscall in it is a link error.
 
 Group A does reach the tree's *pure* primitives and leaves them undefined in the
@@ -156,6 +157,12 @@ freestanding `<endian.h>` arrived only in clang 23.
   because `[[:digit:]]` parsed as an ordinary bracket is a silently wrong
   answer. It is not `sh`'s `glob_match`: that one is `braam_sh`'s and takes the
   expander's quoting mask where `fnmatch` takes flags and a backslash.
+- **`<regex.h>` is `braam::regex`** under the name C uses, which the kit carries
+  so a `PORT` target asks for nothing: `regcomp`, `regexec`, `regerror` and
+  `regfree`, leftmost-longest, ERE and BRE, with `\1` in both. It is the
+  system's own library and not a Group A translation unit — the flag surface,
+  the two departures from POSIX and what it costs are in
+  Programming_Manual.md §6.
 - **`strerror` returns the POSIX *name***, `"ENOENT"`. Every byte of English
   prose a Unix libc spends here stays unspent. It is **not** `error_name()` in
   `kernel/result.h`, which answers prose — `"not found"` — and is what the rest
@@ -292,6 +299,7 @@ arm costs, since `--gc-sections` drops the rest:
 | `mbrtowc`, `wcwidth`, `iswalpha` | +3,463 |
 | `gmtime_r`, `strftime` | +4,337 |
 | `strtod` | +6,898 |
+| `regcomp`, `regexec` and `regerror` | +14,080 |
 
 `<sys/queue.h>` is macros, so its 107 bytes are the caller's own loop. `fnmatch`
 carries the twelve `ctype` predicates because a POSIX character class names them

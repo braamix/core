@@ -79,6 +79,7 @@ add_subdirectory(src/fs)
 add_subdirectory(src/svc)
 add_subdirectory(src/ui)
 add_subdirectory(src/math)
+add_subdirectory(src/regex)
 add_subdirectory(src/user)
 add_subdirectory(src/proc)
 add_subdirectory(src/compat)
@@ -86,6 +87,7 @@ add_subdirectory(src/compat)
 # The program recipe, shared with the SDK: it names the targets a consumer
 # imports, so this tree aliases them to the same names.
 add_library(braam::math  ALIAS braam_math)
+add_library(braam::regex ALIAS braam_regex)
 add_library(braam::proc  ALIAS braam_proc)
 add_library(braam::ui    ALIAS braam_ui)
 add_library(braam::flags ALIAS braam_flags)
@@ -179,12 +181,13 @@ add_custom_target(serve
 
 # The SDK — doc/Programming_Manual.md. Three libraries and no more: braam_core,
 # braam_fs, braam_svc and braam_user each carry a host import no binary may have.
-install(TARGETS braam_proc braam_ui braam_math braam_flags
+install(TARGETS braam_proc braam_ui braam_math braam_regex braam_flags
                 braam_compat braam_compat_pure braam_compat_proc
                 braam_compat_float braam_compat_nofloat braam_portflags
         EXPORT braam-targets
         ARCHIVE DESTINATION ${BRAAM_INSTALL_LIBDIR})
 set_target_properties(braam_math  PROPERTIES EXPORT_NAME math)
+set_target_properties(braam_regex PROPERTIES EXPORT_NAME regex)
 set_target_properties(braam_proc  PROPERTIES EXPORT_NAME proc)
 set_target_properties(braam_ui    PROPERTIES EXPORT_NAME ui)
 set_target_properties(braam_flags PROPERTIES EXPORT_NAME flags)
@@ -203,7 +206,7 @@ install(EXPORT braam-targets
 # math/musl and math/cvt are excluded: they answer <stdint.h>, <float.h> and
 # <math.h> for the vendored sources, and define errno and the character classes
 # as they need them. Those names under include/braam/ would be a trap.
-foreach(dir kernel fs proc ui math compat)
+foreach(dir kernel fs proc ui math regex compat)
     install(DIRECTORY src/${dir}/
             DESTINATION ${BRAAM_INSTALL_INCLUDEDIR}/${dir}
             FILES_MATCHING PATTERN "*.h"

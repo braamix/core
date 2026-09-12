@@ -20,6 +20,9 @@ set(BRAAM_BIN_PROGRAMS ${BRAAM_BIN_LIST} PARENT_SCOPE)
 # musl's strtod and printf float engines, over doubles it cannot avoid.
 set(BRAAM_BIN_LIB_seq braam::math)
 
+# /bin/grep is the one program that asks for the regular-expression engine.
+set(BRAAM_BIN_LIB_grep braam::regex)
+
 # A program that is more than one translation unit names the library that holds
 # the rest of it, and where its own source is when that is not <name>.cpp.
 set(BRAAM_BIN_LIB_pkg braam_pkg)

@@ -42,6 +42,23 @@ usize utf8_decode(Str s, usize at, char32_t &out);
 char32_t rune_lower(char32_t c);
 char32_t rune_upper(char32_t c);
 
+// The twelve POSIX classes over a codepoint. Case decides the letters, so the
+// coverage is rune_lower's plus a table of the letter blocks that have no
+// case; `print` is the grid's own rule — a rune it can render is one cell —
+// and not a width, which is what <wctype.h> answers instead.
+bool rune_is_upper(char32_t c);
+bool rune_is_lower(char32_t c);
+bool rune_is_alpha(char32_t c);
+bool rune_is_digit(char32_t c);
+bool rune_is_xdigit(char32_t c);
+bool rune_is_alnum(char32_t c);
+bool rune_is_space(char32_t c);
+bool rune_is_blank(char32_t c);
+bool rune_is_cntrl(char32_t c);
+bool rune_is_print(char32_t c);
+bool rune_is_graph(char32_t c);
+bool rune_is_punct(char32_t c);
+
 // Decimal, no sign, no leading space, and the whole string must be digits.
 // None on empty input, a stray character, or a value past 2^32 - 1.
 Option<u32> parse_u32(Str s);

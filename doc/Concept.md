@@ -181,9 +181,11 @@ About 1,500 lines: an allocator — a bump arena plus size-class free lists over
 `Result<T, E>`, `Option<T>` and `HashMap<K, V>`. Coroutine frames go through the
 allocator, so it is built for that workload (§8.2).
 
-One library is not ours: `braam::math` is musl's libm, vendored, so that a Unix
-port has `<cmath>` to link against. A program opts into it, it carries no host
-import, and the kernel does not link it.
+Two libraries sit beside that, opted into by name, carrying no host import, and
+not linked by the kernel: `braam::math` is musl's libm, vendored, so that a Unix
+port has `<cmath>` to link against, and `braam::regex` is POSIX regular
+expressions, ours, written for an editor and lifted out of it when a second
+program wanted them.
 
 Beside them, and linked by nothing here, is the opt-in port kit `braam::compat`
 (doc/Compat.md), for a program being ported from Unix.

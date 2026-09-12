@@ -9,6 +9,73 @@ The release after 0.9 is being written, and starts below. New sections are
 appended under it, and the whole moves to [releases/](releases/) when the
 release is cut.
 
+## An editor's regex engine became the system's
+
+`braam::regex` did not start here. It was written for `editors/eh` in the
+applications tree, because the port kit had no `<regex.h>` and eh's whole
+purpose is searching. It is 1,000 lines: a recursive-descent parser into a node
+arena, and a backtracking matcher over an explicit continuation list. When
+`/bin/grep` wanted regular expressions the choice was a second engine or this
+one, and a second engine is how a tree ends up with `le`'s 6,600-line GNU
+`regex.c` *and* a rewrite of it.
+
+**`le` stays on GNU, and that is not indecision.** It calls `re_search_2` across
+the two halves of a gap buffer without copying, under Emacs syntax with
+`RE_FRUGAL`, and its sixty shipped syntax files are written to those semantics.
+Porting it to this engine means a copy of the buffer per search, non-greedy
+quantifiers this engine does not have, and rewriting user-facing files to mean
+what they already say. What the lift bought there was ~20 KB of a 537 KB binary
+— so `le` was left alone, and the one thing it did need was a quoted include:
+`<regex.h>` now answers from the kit and would have captured it silently.
+
+**Four things were wrong to ship in an SDK header, and closing them is most of
+the work.** `REG_ICASE` and `REG_NOSUB` were declared and never read — eh passed
+neither, so nothing noticed. `REG_EXTENDED` was declared and ignored too, which
+is worse: a program that meant a BRE got an ERE and no complaint, so there is a
+BRE arm now, sharing the matcher and forking only the parser. And there was no
+`regerror`, because eh's error handling is one `beep()`; a single `REG_BADPAT`
+was enough for that and is not enough for `grep`, so the parser's thirteen
+failure sites are now POSIX's codes with messages behind them.
+
+Back-references came with the BRE arm rather than for it: `\1` is POSIX in a BRE
+and would have been a gap, and in a backtracking matcher it is one node type.
+They are in the ERE too, as GNU's extension, which is the one behaviour change
+for eh — `\1` used to be a literal `1`.
+
+**`REG_STARTEND` is what made the engine usable from this system at all.**
+`kernel/string.h` says in its first line that nothing there is NUL-terminated,
+so without a region the subject `grep` has would need a NUL appended per line.
+Replacing the NUL sentinel with an end pointer throughout the matcher is a
+smaller change than it sounds — ten comparisons — and it also means a NUL inside
+a line is a byte rather than an end.
+
+The rest was the platform. `realloc` became `heap_alloc` with a doubling grow
+helper, which the three arenas did not have before: they grew one element at a
+time, O(n²) in the pattern. `<ctype.h>` and `<wctype.h>` became
+`kernel/text.h`'s new `rune_is_*`, which is where the twelve classes belonged
+anyway — `src/compat/cwctype.cpp` had them, so the port kit was the only way to
+ask the system what a letter is. They are one implementation now, with
+`iswprint`/`iswgraph`/`iswpunct` staying in compat because those three answer a
+*width* through `wcwidth` where `rune_is_print` answers the grid's own
+question: a rune it can put in a cell.
+
+**`grep` defaults to an ERE and keeps `-F` for a plain string.** That silently
+changes what `grep 1.2` means, which is the price of a grep that is a grep. `-F`
+is not a compatibility shim — a literal search needs no engine, the substring
+loop was already written, and it is the faster answer.
+
+**The retired test is the part worth arguing about.** eh's engine had a native
+differential harness: 3,456 cases against the host's own `<regex.h>`, under
+ASan and UBSan. An engine that reaches `kernel/alloc.h` cannot be compiled for
+the host — `kernel/types.h` asserts `sizeof(usize) == 4` — so that harness could
+not come along. Keeping it would have meant an allocation seam and a
+classification seam existing only for the test, and a library shaped by its
+test. Instead `tools/mkregexdata.py` asks the host the same questions once and
+writes the answers down: the corpus survives as `test/unit/regex.data` and is
+replayed in wasm, where the engine actually runs. What it cannot record —
+back-references in an ERE, `\|`, UTF-8 by the sequence — is asserted by hand,
+because those are the three places the hosts disagree with each other.
+
 ## The compile cache keys on the image, not on the path
 
 `pkg upgrade` relinked `/pkg/bin/<name>` to the new generation, said so, and

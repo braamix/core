@@ -32,10 +32,11 @@ Either way, this is what you get:
 
 | Path | What it is |
 | --- | --- |
-| `include/braam/{kernel,fs,proc,ui,math}/` | the headers a program includes |
+| `include/braam/{kernel,fs,proc,ui,math,regex}/` | the headers a program includes |
 | `lib/braam/libbraam_proc.a` | the process runtime: the allocator, the strings, the task scheduler, the syscall wrappers |
 | `lib/braam/libbraam_ui.a` | the layout layer, for a program that paints |
 | `lib/braam/libbraam_math.a` | musl's libm, for a program that asks for it (§6) |
+| `lib/braam/libbraam_regex.a` | POSIX regular expressions, likewise (§6) |
 | `lib/braam/libbraam_compat_pure.a` | the opt-in port kit's pure half, for a *ported* C program (doc/Compat.md) |
 | `lib/braam/libbraam_compat_proc.a` | the same kit's blocking half — Group B's `b_*` family, over `braam::proc` |
 | `include/braam/compat/include/` | the kit's system header names — on a `PORT` target's path and no other's |
@@ -55,8 +56,9 @@ distribution but the compiler and its freestanding headers — `<stdint.h>`,
 `<stddef.h>`, `<stdarg.h>`, `<limits.h>`, `<float.h>` and `<endian.h>`, which
 declare no functions and pull in no runtime. No sysroot, so `<stdio.h>` does not
 resolve unless you ask for the port kit. There is no
-libc *under* the system and no way to put one there. There is a libm, and there
-is an opt-in port kit for ported C; §6 says how to link either.
+libc *under* the system and no way to put one there. There is a libm, there are
+POSIX regular expressions, and there is an opt-in port kit for ported C; §6 says
+how to link any of them.
 
 ---
 
@@ -113,7 +115,8 @@ the build directory and configure again.
 
 `braam_add_program(NAME <n> SOURCES <...> [LIBS <...>])` is the same function
 `src/cmd/` builds the system's own thirty-six programs with. It links
-`braam::proc` and `braam::flags` — `braam::math` is asked for by name — links
+`braam::proc` and `braam::flags` — `braam::math` and `braam::regex` are asked
+for by name — links
 with `--import-memory` so the memory cap is the kernel's, and runs `stamp.py`
 over the result. `LIBS` names anything else the program is made of. The CMake
 target it defines is `bin_<name>` — the file is `<name>.wasm`, and the prefix is
@@ -699,7 +702,8 @@ already repaired its own grid by the time it reports one.
 
 ### Mathematics — `math/math.h` and `math/ftoa.h`
 
-The one library a program asks for by name, because most do not want it:
+One of the two libraries a program asks for by name, because most do not want
+it:
 
 ```cmake
 braam_add_program(NAME plot SOURCES plot.cpp LIBS braam::math)
@@ -751,12 +755,65 @@ unreferenced archive member. `sqrt` alone costs 309 bytes, since it is one wasm
 instruction; `exp` 3.1 KB, `sin` and `cos` together 5.3 KB, `pow` 8.3 KB, and
 twelve transcendentals at once 24 KB.
 
+### Regular expressions — `regex/regex.h`
+
+The other, and it is POSIX's own three functions rather than a spelling of our
+own:
+
+```cmake
+braam_add_program(NAME grep SOURCES grep.cpp LIBS braam::regex)
+```
+
+```cpp
+int    regcomp(regex_t *, const char *pattern, int cflags);
+int    regexec(const regex_t *, const char *, size_t nmatch, regmatch_t *, int eflags);
+size_t regerror(int errcode, const regex_t *, char *errbuf, size_t errbuf_size);
+void   regfree(regex_t *);
+```
+
+`REG_EXTENDED` is an ERE and its absence a POSIX BRE — `\( \)` grouping,
+`\{m,n\}` intervals, `+ ? | ( ) { }` literal, `*` literal where there is
+nothing to repeat, and `^` and `$` anchors only at the ends. Back-references
+`\1`..`\9` work in both, which is GNU's extension in an ERE. `REG_ICASE` folds
+through `rune_lower` and `REG_NEWLINE` puts `^` and `$` at every line, where
+`.` and `[^x]` then refuse the newline. `REG_NOSUB` asks for the verdict alone.
+`REG_NOTBOL` and `REG_NOTEOL` are POSIX's.
+
+**The match is leftmost-longest**, as POSIX says and unlike the backtracking
+engines that stop at the first one: `foo|foobar` against `foobar` takes all six
+characters. Captures come from whichever match won, and ten slots are reported
+— `pmatch[0]` and nine groups.
+
+**A subject is a region, not a C string.** `REG_STARTEND` takes its extent from
+`pmatch[0]`, so a `Str` needs no terminator and a NUL inside it is a byte like
+any other. Without the flag the subject ends at its NUL, as C expects.
+
+**Offsets are bytes, and a match never ends mid-character**: `.` and a bracket
+consume a whole UTF-8 sequence, and the classes are the codepoint's —
+`kernel/text.h`'s `rune_is_*`, whose coverage is case plus a table of the letter
+blocks that have none.
+
+`regex_t` is POD, so a program may keep one at namespace scope where a
+destructor could not run; `regfree` is what releases it. Two deliberate
+departures from POSIX: a backslash inside a bracket escapes the next byte, so
+`[\]]` is a bracket holding `]`; and an anchored pattern is recognised only by
+a leading `^`, so `^a|^b` is searched from every position rather than every
+line start — slower, never wrong.
+
+Not here: collating elements (`[.x.]`, `[=x=]`), a locale, and GNU's `\|`, `\+`
+and `\?` in a BRE. The whole engine is 14 KB, all or nothing — it is one
+translation unit, so a program that names `regcomp` links the lot.
+
+A `PORT` target reaches the same three functions as `<regex.h>` and needs no
+`LIBS` line, the kit carrying it (doc/Compat.md).
+
 ### What the headers do *not* contain
 
 `include/braam/kernel/` and `include/braam/fs/` are shipped because the
 libraries' headers include them, and they are worth reading — `str.h`,
 `string.h`, `vec.h`, `span.h`, `result.h`, `fmt.h`, `text.h`, `path.h` and
-`math/math.h` are the whole standard library here. But the parts of them that
+`math/math.h` are the whole standard library here, with `regex/regex.h` beside
+them. But the parts of them that
 name the scheduler, the host imports or the VFS belong to the kernel and have
 nothing behind them in a program: reaching one is a link error, which is the
 intended answer.
@@ -772,7 +829,8 @@ link error or a trap rather than a warning:
 - **No libc by default.** No `malloc`, no `memcpy` you did not write, no
   `<cstring>`. `-nostdlib -nostdinc++` is not negotiable, and a construct
   needing a compiler-rt builtin — 128-bit division, an outlined `memcpy`,
-  anything `long double` — will not link. There *is* a libm: `braam::math`, §6.
+  anything `long double` — will not link. There *is* a libm, `braam::math`, and
+  there are regular expressions, `braam::regex`; §6.
   A program being **ported** from Unix may opt into `braam::compat`, which
   changes nothing for one that does not: doc/Compat.md.
 - **Never `new` anything.** `operator new` returns null on failure and there are

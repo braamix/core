@@ -46,6 +46,30 @@ void test_text()
     CHECK(!is_digit('/'));
     CHECK(!is_digit(':'));
 
+    // ---- the twelve classes, which <wctype.h> and braam::regex share ----
+    //
+    // Case names the letters, so the coverage is rune_lower's; the blocks that
+    // have none are a table.
+    CHECK(rune_is_upper('A') && !rune_is_upper('a'));
+    CHECK(rune_is_lower('a') && !rune_is_lower('A'));
+    CHECK(rune_is_upper(0x0410) && rune_is_lower(0x0430)); // Cyrillic А, а
+    CHECK(rune_is_upper(0x0391) && rune_is_lower(0x03b1)); // Greek Α, α
+    CHECK(rune_is_alpha('z') && rune_is_alpha(0x00e9) && rune_is_alpha(0x4e00));
+    CHECK(!rune_is_alpha('1') && !rune_is_alpha(' ') && !rune_is_alpha(0x00ab));
+    CHECK(rune_is_digit('7') && !rune_is_digit(0x0660)); // ASCII digits only
+    CHECK(rune_is_xdigit('f') && rune_is_xdigit('F') && !rune_is_xdigit('g'));
+    CHECK(rune_is_alnum('1') && rune_is_alnum(0x0430) && !rune_is_alnum('-'));
+    CHECK(rune_is_space(' ') && rune_is_space('\n') && rune_is_space(0x3000));
+    CHECK(!rune_is_space('a') && !rune_is_space(0));
+    CHECK(rune_is_blank('\t') && rune_is_blank(0x00a0) && !rune_is_blank('\n'));
+    CHECK(rune_is_cntrl(0x1b) && rune_is_cntrl(0x0085) && !rune_is_cntrl('a'));
+    // print is the grid's rule -- a rune it can put in a cell -- and not a
+    // width: a combining mark is printable, a surrogate is not.
+    CHECK(rune_is_print('a') && rune_is_print(0x0301) && rune_is_print(0x4e00));
+    CHECK(!rune_is_print(0x1b) && !rune_is_print(0xd800) && !rune_is_print(0x110000));
+    CHECK(rune_is_graph(',') && !rune_is_graph(' ') && !rune_is_graph(0));
+    CHECK(rune_is_punct(',') && rune_is_punct(0x00ab) && !rune_is_punct('a'));
+
     screen_reset(t0());
     CHECK(screen_resize(t0(), 8, 2));
 

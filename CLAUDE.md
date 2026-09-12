@@ -395,6 +395,7 @@ argue in Concept.md first.
   ABI); `src/svc/` (fetch, WebSocket, clipboard, file transfer, clock, process
   operations); `src/ui/` (layout over a `Grid`: `Pane`, `TextBuf`, `TextView`);
   `src/math/` (musl's libm, vendored, plus its `strtod` and `printf` engines);
+  `src/regex/` (POSIX regular expressions, one file, opted into by name);
   `src/user/` (exec and the syscall dispatcher, console, pipes, `ProcFs`, boot
   and init); `src/proc/` (a process binary's runtime); `src/compat/` (the opt-in
   port kit, linked by nothing in this tree); `src/cmd/` (one file per program,
@@ -406,7 +407,11 @@ argue in Concept.md first.
   scheduler. **`braam_ui` links `braam_flags` alone** and the kernel does not
   link it; keep it clear of the VFS, the screen and every host import.
   **`braam_math` is the same shape** and the kernel does not link it either; a
-  program asks for it with `LIBS braam::math`. There is **no `long double`** on
+  program asks for it with `LIBS braam::math`. **`braam_regex` is the same shape
+  again**, reaching `kernel/alloc.h` and `kernel/text.h` and nothing else, and
+  it carries `-fno-builtin` because a hand-written `strlen` loop is otherwise
+  recognised into a call to a libc that is not here. There is **no `long
+  double`** on
   this target — it is 113-bit quad and every operation on one is a compiler-rt
   link error — so musl's `*l.c`, `nexttoward.c` and `nexttowardf.c` stay
   upstream.

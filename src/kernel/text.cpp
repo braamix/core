@@ -130,6 +130,37 @@ const struct {
     { 0x1fe5, 0x1fec }, { 0x1ff3, 0x1ffc },
 };
 
+// Letter blocks with no case, which asking for the other case cannot find.
+const struct {
+    char32_t first, last;
+} CASELESS[] = {
+    { 0x0590, 0x06ff }, // Hebrew, Arabic
+    { 0x0700, 0x07bf }, // Syriac, Arabic supplement, Thaana
+    { 0x0900, 0x0dff }, // Devanagari .. Sinhala
+    { 0x0e00, 0x0fff }, // Thai, Lao, Tibetan
+    { 0x1000, 0x109f }, // Myanmar
+    { 0x1100, 0x11ff }, // Hangul Jamo
+    { 0x1200, 0x137f }, // Ethiopic
+    { 0x13a0, 0x13ff }, // Cherokee
+    { 0x1780, 0x17ff }, // Khmer
+    { 0x3040, 0x30ff }, // kana
+    { 0x3105, 0x312f }, // Bopomofo
+    { 0x3400, 0x4dbf }, // CJK extension A
+    { 0x4e00, 0x9fff }, // CJK
+    { 0xa000, 0xa4cf }, // Yi
+    { 0xac00, 0xd7a3 }, // Hangul syllables
+    { 0xf900, 0xfaff }, // CJK compatibility
+    { 0x20000, 0x2fffd },
+};
+
+bool caseless_letter(char32_t c)
+{
+    for (const auto &b : CASELESS)
+        if (c >= b.first && c <= b.last)
+            return true;
+    return false;
+}
+
 } // namespace
 
 char32_t rune_lower(char32_t c)
@@ -190,6 +221,72 @@ char32_t rune_upper(char32_t c)
                 return p.upper;
     }
     return c;
+}
+
+bool rune_is_upper(char32_t c)
+{
+    return c != rune_lower(c);
+}
+
+bool rune_is_lower(char32_t c)
+{
+    return c != rune_upper(c);
+}
+
+bool rune_is_alpha(char32_t c)
+{
+    return rune_is_upper(c) || rune_is_lower(c) || caseless_letter(c);
+}
+
+bool rune_is_digit(char32_t c)
+{
+    return c >= '0' && c <= '9';
+}
+
+bool rune_is_xdigit(char32_t c)
+{
+    return rune_is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
+bool rune_is_alnum(char32_t c)
+{
+    return rune_is_alpha(c) || rune_is_digit(c);
+}
+
+// The six ASCII ones, plus Unicode's separators.
+bool rune_is_space(char32_t c)
+{
+    return c == ' ' || (c >= '\t' && c <= '\r') || c == 0x0085 || c == 0x00a0 || c == 0x1680 ||
+           (c >= 0x2000 && c <= 0x200a) || c == 0x2028 || c == 0x2029 || c == 0x202f ||
+           c == 0x205f || c == 0x3000;
+}
+
+// Space separators only, not the line ones.
+bool rune_is_blank(char32_t c)
+{
+    return c == ' ' || c == '\t' || c == 0x00a0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200a) ||
+           c == 0x202f || c == 0x205f || c == 0x3000;
+}
+
+bool rune_is_cntrl(char32_t c)
+{
+    return c < 0x20 || (c >= 0x7f && c < 0xa0);
+}
+
+// What rune_safe leaves alone and the grid can put in a cell.
+bool rune_is_print(char32_t c)
+{
+    return !rune_is_cntrl(c) && rune_safe(c) == c;
+}
+
+bool rune_is_graph(char32_t c)
+{
+    return c != 0 && rune_is_print(c) && !rune_is_space(c);
+}
+
+bool rune_is_punct(char32_t c)
+{
+    return rune_is_graph(c) && !rune_is_alnum(c);
 }
 
 Option<u32> parse_u32(Str s)
@@ -264,7 +361,7 @@ bool scan_number(Str s, usize &used, u32 base, usize width, u64 &out, bool &neg)
         base = (i < end && s[i] == '0') ? 8 : 10;
     }
 
-    u64 v   = 0;
+    u64 v    = 0;
     bool any = false;
     for (int d; i < end && (d = digit_in(s[i], base)) >= 0; i++) {
         v   = v * base + u64(d);

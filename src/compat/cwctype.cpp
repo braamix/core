@@ -1,47 +1,14 @@
-// The wide classes, over kernel/text.h's rune_lower/rune_upper. Their coverage
-// is this file's: ASCII, Latin-1, Latin Extended-A, Greek and Cyrillic have
-// case, and a short table names the letter blocks that have none. Not full
-// Unicode, and <wctype.h> says so.
-#include "kernel/text.h"
-
+// The wide classes, over kernel/text.h's rune_is_* — the same coverage, which
+// is case plus a table of the letter blocks that have none. Not full Unicode,
+// and <wctype.h> says so. The three that ask about rendering are this file's
+// own, over wcwidth: <wctype.h> answers a width where the grid answers a cell.
 #include <string.h>
 #include <wchar.h>
 #include <wctype.h>
 
+#include "kernel/text.h"
+
 namespace {
-
-struct Block {
-    unsigned first, last;
-};
-
-// Letters with no case mapping, so iswalpha cannot find them by asking for one.
-const Block LETTERS[] = {
-    { 0x0590, 0x06FF }, // Hebrew, Arabic
-    { 0x0700, 0x07BF }, // Syriac, Arabic supplement, Thaana
-    { 0x0900, 0x0DFF }, // Devanagari .. Sinhala
-    { 0x0E00, 0x0FFF }, // Thai, Lao, Tibetan
-    { 0x1000, 0x109F }, // Myanmar
-    { 0x1100, 0x11FF }, // Hangul Jamo
-    { 0x1200, 0x137F }, // Ethiopic
-    { 0x13A0, 0x13FF }, // Cherokee
-    { 0x1780, 0x17FF }, // Khmer
-    { 0x3040, 0x30FF }, // kana
-    { 0x3105, 0x312F }, // Bopomofo
-    { 0x3400, 0x4DBF }, // CJK extension A
-    { 0x4E00, 0x9FFF }, // CJK
-    { 0xA000, 0xA4CF }, // Yi
-    { 0xAC00, 0xD7A3 }, // Hangul syllables
-    { 0xF900, 0xFAFF }, // CJK compatibility
-    { 0x20000, 0x2FFFD },
-};
-
-bool caseless_letter(unsigned c)
-{
-    for (const Block &b : LETTERS)
-        if (c >= b.first && c <= b.last)
-            return true;
-    return false;
-}
 
 wint_t to_lower(wint_t c)
 {
@@ -59,55 +26,47 @@ extern "C" {
 
 int iswupper(wint_t c)
 {
-    return c != to_lower(c);
+    return rune_is_upper(char32_t(c));
 }
 
 int iswlower(wint_t c)
 {
-    return c != to_upper(c);
+    return rune_is_lower(char32_t(c));
 }
 
 int iswalpha(wint_t c)
 {
-    return iswupper(c) || iswlower(c) || caseless_letter(unsigned(c));
+    return rune_is_alpha(char32_t(c));
 }
 
 int iswdigit(wint_t c)
 {
-    return c >= '0' && c <= '9';
+    return rune_is_digit(char32_t(c));
 }
 
 int iswxdigit(wint_t c)
 {
-    return iswdigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    return rune_is_xdigit(char32_t(c));
 }
 
 int iswalnum(wint_t c)
 {
-    return iswalpha(c) || iswdigit(c);
+    return rune_is_alnum(char32_t(c));
 }
 
-// The six bytes ctype's isspace takes, plus Unicode's separators.
 int iswspace(wint_t c)
 {
-    unsigned v = unsigned(c);
-    return v == ' ' || (v >= '\t' && v <= '\r') || v == 0x0085 || v == 0x00a0 || v == 0x1680 ||
-           (v >= 0x2000 && v <= 0x200a) || v == 0x2028 || v == 0x2029 || v == 0x202f ||
-           v == 0x205f || v == 0x3000;
+    return rune_is_space(char32_t(c));
 }
 
-// Space, tab and Unicode's space separators; not the line ones.
 int iswblank(wint_t c)
 {
-    unsigned v = unsigned(c);
-    return v == ' ' || v == '\t' || v == 0x00a0 || v == 0x1680 ||
-           (v >= 0x2000 && v <= 0x200a) || v == 0x202f || v == 0x205f || v == 0x3000;
+    return rune_is_blank(char32_t(c));
 }
 
 int iswcntrl(wint_t c)
 {
-    unsigned v = unsigned(c);
-    return v < 0x20 || (v >= 0x7f && v < 0xa0);
+    return rune_is_cntrl(char32_t(c));
 }
 
 int iswprint(wint_t c)
