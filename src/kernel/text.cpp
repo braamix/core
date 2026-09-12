@@ -91,6 +91,45 @@ bool odd_upper(char32_t c)
     return (c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17e);
 }
 
+// Greek Extended, the rows whose uppercase eight sit directly above their
+// lowercase eight. Answers the lowercase member of c's pair, or zero.
+char32_t greek_ext_row(char32_t c)
+{
+    const char32_t lower = c & ~char32_t(8), n = c & 7;
+    switch (c & ~char32_t(0xf)) {
+    case 0x1f00:
+    case 0x1f20:
+    case 0x1f30:
+    case 0x1f60:
+    case 0x1f80:
+    case 0x1f90:
+    case 0x1fa0:
+        return lower;
+    case 0x1f10: // epsilon and omicron: no perispomeni, so six of eight
+    case 0x1f40:
+        return n < 6 ? lower : 0;
+    case 0x1f50: // upsilon: only the four with dasia
+        return (c & 1) ? lower : 0;
+    case 0x1fb0: // alpha, iota, upsilon: the vrachy and macron pairs
+    case 0x1fd0:
+    case 0x1fe0:
+        return n < 2 ? lower : 0;
+    }
+    return 0;
+}
+
+// The rest of the block: the vowels with varia or oxia, whose uppercase was
+// put in the last four rows, and the four with an iota subscript.
+const struct {
+    char32_t lower, upper;
+} GREEK_EXT[] = {
+    { 0x1f70, 0x1fba }, { 0x1f71, 0x1fbb }, { 0x1f72, 0x1fc8 }, { 0x1f73, 0x1fc9 },
+    { 0x1f74, 0x1fca }, { 0x1f75, 0x1fcb }, { 0x1f76, 0x1fda }, { 0x1f77, 0x1fdb },
+    { 0x1f78, 0x1ff8 }, { 0x1f79, 0x1ff9 }, { 0x1f7a, 0x1fea }, { 0x1f7b, 0x1feb },
+    { 0x1f7c, 0x1ffa }, { 0x1f7d, 0x1ffb }, { 0x1fb3, 0x1fbc }, { 0x1fc3, 0x1fcc },
+    { 0x1fe5, 0x1fec }, { 0x1ff3, 0x1ffc },
+};
+
 } // namespace
 
 char32_t rune_lower(char32_t c)
@@ -111,6 +150,13 @@ char32_t rune_lower(char32_t c)
         return c + 32;
     if (c >= 0x400 && c <= 0x40f)
         return c + 80;
+    if (c >= 0x1f00 && c <= 0x1fff) {
+        if (char32_t lower = greek_ext_row(c))
+            return lower;
+        for (const auto &p : GREEK_EXT)
+            if (p.upper == c)
+                return p.lower;
+    }
     return c;
 }
 
@@ -134,6 +180,15 @@ char32_t rune_upper(char32_t c)
         return c - 32;
     if (c >= 0x450 && c <= 0x45f)
         return c - 80;
+    if (c == 0x1fbe) // prosgegrammeni, whose uppercase is plain iota
+        return 0x399;
+    if (c >= 0x1f00 && c <= 0x1fff) {
+        if (char32_t lower = greek_ext_row(c))
+            return lower | 8;
+        for (const auto &p : GREEK_EXT)
+            if (p.lower == c)
+                return p.upper;
+    }
     return c;
 }
 

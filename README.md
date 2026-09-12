@@ -104,8 +104,8 @@ prompt names its path in `/etc/init`, one line in its own boot archive.
 ## Building
 
 You need a clang that can target wasm32, plus CMake, make and Node. On macOS
-that is `brew install llvm lld`; on Debian or Ubuntu,
-`apt install clang lld llvm`.
+that is `brew install llvm lld node`; on Debian or Ubuntu,
+`apt install clang lld llvm nodejs`.
 
 ```
 make            # build the kernel, the programs and the tests

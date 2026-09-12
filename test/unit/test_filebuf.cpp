@@ -248,4 +248,21 @@ void test_filebuf()
     CHECK_EQ(rune_lower(0x0401), 0x0451); // yo
     CHECK_EQ(rune_upper(0x0451), 0x0401);
     CHECK_EQ(rune_lower(0x00df), 0x00df); // sharp s has no single uppercase
+
+    // Greek Extended: the paired rows, the short ones, and the scattered half.
+    CHECK_EQ(rune_lower(0x1f0f), 0x1f07); // alpha dasia perispomeni
+    CHECK_EQ(rune_upper(0x1f07), 0x1f0f);
+    CHECK_EQ(rune_lower(0x1f1d), 0x1f15); // epsilon dasia oxia
+    CHECK_EQ(rune_upper(0x1f15), 0x1f1d);
+    CHECK_EQ(rune_lower(0x1f59), 0x1f51); // upsilon dasia
+    CHECK_EQ(rune_upper(0x1f50), 0x1f50); // upsilon psili: no single uppercase
+    CHECK_EQ(rune_upper(0x1faf), 0x1faf); // omega dasia perispomeni ypogegrammeni
+    CHECK_EQ(rune_upper(0x1f70), 0x1fba); // alpha varia
+    CHECK_EQ(rune_lower(0x1fba), 0x1f70);
+    CHECK_EQ(rune_upper(0x1ff3), 0x1ffc); // omega ypogegrammeni
+    CHECK_EQ(rune_lower(0x1ffc), 0x1ff3);
+    CHECK_EQ(rune_upper(0x1fb0), 0x1fb8); // alpha vrachy
+    CHECK_EQ(rune_upper(0x1fbe), 0x0399); // prosgegrammeni
+    CHECK_EQ(rune_upper(0x1fb6), 0x1fb6); // alpha perispomeni: no single one
+    CHECK_EQ(rune_lower(0x1f16), 0x1f16); // unassigned
 }
