@@ -402,12 +402,19 @@ second — so what is asserted is the categorisation, not a winner. And
 engine falls into. Pinning those fourteen answers turns it into an assertion
 that names the axis when the engine moves.
 
-**Thirty-six of 449 cases are deviations, and the entry is an assertion too.** A
-listed case that starts *passing* fails the suite as loudly as one that starts
-failing, so the list cannot rot in either direction. Two are documented absences
-— `[[.x.]]` and `[[=x=]]`, which `regex.h` already says are not here. One is a
-plain bug: `a{9876543210}` is accepted where POSIX wants `BADBR`. The other
-thirty-three are one property: **POSIX assigns subexpressions by
+**The first run found one plain bug, and it is fixed rather than recorded.**
+`a{9876543210}` compiled: the bound was accumulated into an `int` with nothing
+watching it, so a long enough run of digits wrapped into whatever it wrapped
+into. There is a `DUP_MAX` of 32767 now — testregex.c's own default, and
+glibc's — the accumulation stops there rather than wrapping, and past it is
+`REG_BADBR`. `test_regex.cpp` carries the bound, the wrap and the unclosed
+brace beside it, since the corpus only has the one spelling.
+
+**Thirty-five of 449 cases are deviations, and the entry is an assertion too.**
+A listed case that starts *passing* fails the suite as loudly as one that
+starts failing, so the list cannot rot in either direction. Two are documented
+absences — `[[.x.]]` and `[[=x=]]`, which `regex.h` already says are not here.
+The other thirty-three are one property: **POSIX assigns subexpressions by
 leftmost-longest applied outward, and a backtracking matcher reports the split
 it reached success by.** The whole match is right in all but two of them; what
 differs is which group inside it got what, and whether a starred group takes

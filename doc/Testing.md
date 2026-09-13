@@ -112,7 +112,7 @@ in the engine names the axis it moved.
 **A case this engine does not pass is a `DEVIATIONS` entry, and the entry is an
 assertion.** Each names the file, upstream's line and one line of reason; a
 listed case that starts *passing* is reported too, so nothing moves in either
-direction unremarked. The thirty-six there now are four classes, three of them
+direction unremarked. The thirty-five there now are two documented absences and
 the one property a backtracker does not have — POSIX assigns subexpressions by
 leftmost-longest applied outward, where this engine reports the split it reached
 success by. A re-sync is a copy plus the two wrapper lines; it will shift line

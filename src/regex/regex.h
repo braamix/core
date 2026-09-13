@@ -13,6 +13,8 @@
 // Not here: GNU's \| \+ \? in a BRE, collating elements ([.x.], [=x=]), and a
 // locale — the classes are the codepoint's, kernel/text.h's rune_is_*, whose
 // coverage is case plus the letter blocks that have none.
+//
+// A {m,n} bound is at most 32767; past that is REG_BADBR.
 #pragma once
 
 #include <stddef.h>

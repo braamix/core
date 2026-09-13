@@ -289,14 +289,12 @@ struct Deviation {
 // below but the two marked `leftmost`.
 //
 //   absent      regex.h says the feature is not here
-//   badbr       an interval bound that does not fit
 //   subexpr     the groups inside a correct whole match are split another way
 //   iteration   a starred group's last iteration, and what it leaves behind
 //   leftmost    the missing empty iteration moves the whole match
 const Deviation DEVIATIONS[] = {
     { "basic.dat", 61, "absent: [[.x.]], and ECOLLATE has no code here" },
     { "basic.dat", 62, "absent: [[=x=]], and ECOLLATE has no code here" },
-    { "basic.dat", 31, "badbr: an interval bound past what fits is accepted" },
 
     { "forcedassoc.dat", 9, "subexpr: the outer group takes the shorter side" },
     { "forcedassoc.dat", 10, "subexpr: the outer group takes the shorter side" },

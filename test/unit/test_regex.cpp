@@ -206,6 +206,14 @@ void errors()
     CHECK_RE("(a", "x", ERE, "!Unmatched (");
     CHECK_RE(")(", "x", ERE, "!Unmatched (");
     CHECK_RE("a{2,1}", "x", ERE, "!Invalid repetition count");
+    // A bound past 32767, and one long enough to wrap an int if it were let to.
+    CHECK_RE("a{32768}", "x", ERE, "!Invalid repetition count");
+    CHECK_RE("a{0,32768}", "x", ERE, "!Invalid repetition count");
+    CHECK_RE("a{9876543210}", "x", ERE, "!Invalid repetition count");
+    CHECK_RE("a\\{9876543210\\}", "x", BRE, "!Invalid repetition count");
+    // The bound itself still compiles, and an unclosed brace is still the brace.
+    CHECK_RE("a{32767}", "x", ERE, "-");
+    CHECK_RE("a{9876543210", "x", ERE, "!Unmatched {");
     CHECK_RE("a{2", "x", ERE, "!Unmatched {");
     CHECK_RE("*", "x", ERE, "!Nothing to repeat");
     CHECK_RE("+a", "x", ERE, "!Nothing to repeat");

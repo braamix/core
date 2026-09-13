@@ -612,28 +612,41 @@ int parse_atom_ere(Build *b)
     return lit_seq(b);
 }
 
+enum { DUP_MAX = 32767 };
+
+// One bound. Accumulation stops at DUP_MAX so that a long run of digits cannot
+// wrap into a small count; the result stays above it for the caller to refuse.
+int scan_bound(const char **q)
+{
+    int v = 0;
+
+    while (is_dig(**q)) {
+        if (v <= DUP_MAX)
+            v = v * 10 + (*(*q)++ - '0');
+        else
+            (*q)++;
+    }
+    return v;
+}
+
 // {m,n} in an ERE, \{m,n\} in a BRE; the brace has been seen.
 int parse_interval(Build *b, int *mn, int *mx)
 {
     const char *q = b->p + (b->bre ? 2 : 1);
 
-    *mn = 0;
-    while (is_dig(*q))
-        *mn = *mn * 10 + (*q++ - '0');
+    *mn = scan_bound(&q);
     if (*q == ',') {
         q++;
-        if (is_dig(*q)) {
-            *mx = 0;
-            while (is_dig(*q))
-                *mx = *mx * 10 + (*q++ - '0');
-        } else {
-            *mx = -1;
-        }
+        *mx = is_dig(*q) ? scan_bound(&q) : -1;
     } else {
         *mx = *mn;
     }
     if (b->bre ? !(q[0] == '\\' && q[1] == '}') : *q != '}') {
         b->err = REG_EBRACE;
+        return -1;
+    }
+    if (*mn > DUP_MAX || *mx > DUP_MAX) {
+        b->err = REG_BADBR;
         return -1;
     }
     if (0 <= *mx && *mx < *mn) {
