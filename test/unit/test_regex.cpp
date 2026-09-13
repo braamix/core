@@ -281,6 +281,41 @@ void backrefs()
              "0:10 0:1 1:2 2:3 3:4 4:5 5:6 6:7 7:8 8:9");
 }
 
+// POSIX assigns subexpressions by leftmost-longest applied outward. AT&T's
+// corpus is the authority on it (test_attregex.cpp); these are the rules it
+// states only through its answers.
+void subexpressions()
+{
+    // A turn reports what it matched: a branch this one skipped is unset, not
+    // left over from the last.
+    CHECK_RE("((..)|(.)){2}", "aaa", ERE, "0:3 2:3 - 2:3");
+    CHECK_RE("(a(b)?)+", "aba", ERE, "0:3 2:3");
+    // Which also decides a backreference to it, inside the repeat and out.
+    CHECK_RE("((a)|b)*\\2", "abaa", ERE, "0:4 2:3 2:3");
+    CHECK_RE("\\(a\\(b\\)*\\)*\\2", "abab", BRE, "-");
+
+    // A repeat takes as few turns as it can, so no trailing empty one -- but
+    // one empty turn beats none.
+    CHECK_RE("(a*)*", "aaa", ERE, "0:3 0:3");
+    CHECK_RE("(a*)*", "x", ERE, "0:0 0:0");
+    // Turns owed to min are taken even so, and the last one is what shows.
+    CHECK_RE("(a*){2}(x)", "ax", ERE, "0:2 1:1 1:2");
+    CHECK_RE("(a*)*(x)", "ax", ERE, "0:2 0:1 1:2");
+    // One entry stands for all of them, so a large min is not 2000 frames.
+    CHECK_RE("(a*){2000}b", "aaab", ERE, "0:4 3:3");
+    CHECK_RE("(a*){2000}(x)", "x", ERE, "0:1 0:0 0:1");
+
+    // The whole match moves with it: \1 is the empty turn's, not the first's.
+    CHECK_RE("\\(a*\\)*\\(x\\)\\(\\1\\)", "ax", BRE, "0:2 1:1 1:2 2:2");
+
+    // Outward: the outer group settles before what is inside it, and a repeat
+    // before its turns.
+    CHECK_RE("((a*)(b|abc))(c*)", "abc", ERE, "0:3 0:3 0:0 0:3 3:3");
+    CHECK_RE("(ab|a|c|bcd)*(d*)", "ababcd", ERE, "0:6 3:6 6:6");
+    // A repeat with no group in it is still an extent, and this one takes all.
+    CHECK_RE(".*(.*)", "ab", ERE, "0:2 2:2");
+}
+
 // The two limits: an answer, not a hang and not a trap.
 void limits()
 {
@@ -321,6 +356,7 @@ void test_regex()
     startend();
     errors();
     backrefs();
+    subexpressions();
     deviations();
     limits();
 }

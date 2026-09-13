@@ -3,7 +3,9 @@
 //
 // Leftmost-longest, not leftmost-first: accept() records the end and returns
 // false, so every match at a start position is enumerated and the longest kept.
-// Captures come from whichever match won.
+// Subexpressions are POSIX's as well: the parse a match was reached by is
+// recorded as a trail of node instances, and among matches of one length the
+// winner of trail_cmp_node() -- leftmost-longest applied outward -- is kept.
 //
 // Offsets are bytes. `.` and a bracket consume a whole UTF-8 sequence, so a
 // match never ends mid-character. The subject is a region, not a C string:
@@ -35,10 +37,10 @@ struct Node {
     int child; // GROUP/REP body, ALT first branch
     int alt;   // ALT next branch
     int min, max;
-    int group; // GROUP/CLOSE/BACKREF
+    int group; // GROUP/CLOSE/BACKREF; REP: first group in the body
     int set;   // SET
-    int close; // GROUP: its OP_CLOSE node
-    int len;
+    int close; // GROUP: its OP_CLOSE node; CLOSE: its OP_GROUP; REP: last group
+    int len;   // LIT: bytes; REP: 1 when it sits in a body with no group in it
     unsigned char bytes[4];
     unsigned int rune; // LIT: what bytes decode to, for REG_ICASE
 };
@@ -483,6 +485,7 @@ int parse_group(Build *b)
     b->p += b->bre ? 2 : 1;
     Node *n     = nodes(b->re);
     n[ci].group = g;
+    n[ci].close = ni; // back to the open, which is the trail entry to close
     n[ni].group = g;
     n[ni].child = inner;
     n[ni].close = ci;
@@ -666,6 +669,7 @@ bool at_interval(const Build *b)
 
 int parse_rep(Build *b, bool at_start)
 {
+    int g0 = b->ngroup;
     int ai = b->bre ? parse_atom_bre(b, at_start) : parse_atom_ere(b);
 
     if (ai < 0)
@@ -702,6 +706,10 @@ int parse_rep(Build *b, bool at_start)
         n[ri].child = ai;
         n[ri].min   = mn;
         n[ri].max   = mx;
+        // The body's groups, cleared at the head of every turn; an empty range
+        // when it has none. Stacked repeats (a**) share the one body.
+        n[ri].group = g0 + 1;
+        n[ri].close = b->ngroup;
         n[ai].next  = -1;
         ai          = ri;
     }
@@ -752,6 +760,27 @@ int empty_branch(Build *b)
     return ni;
 }
 
+// A repeat with no group in its body has nothing to tell one turn from another,
+// so only its own extent is traced and nothing under it is. The continuation
+// runs inside the body's call, so this cannot be a depth counter at match time.
+void mark_trace(regex_t *re, int ni, bool off)
+{
+    while (ni >= 0) {
+        Node *n = &nodes(re)[ni];
+
+        if (n->op == OP_ALT) {
+            for (int b = n->child; b >= 0; b = nodes(re)[b].alt)
+                mark_trace(re, b, off);
+        } else if (n->op == OP_REP) {
+            n->len = off;
+            mark_trace(re, n->child, off || n->close < n->group);
+        } else {
+            mark_trace(re, n->child, off);
+        }
+        ni = n->next;
+    }
+}
+
 // A BRE has no alternation, so this is one concatenation there.
 int parse_alt(Build *b)
 {
@@ -792,12 +821,26 @@ struct Cont {
     int kind; // 0 sequence, 1 another turn of a repeat
     int node;
     int count;
-    const char *from;
-    // REP: the captures as they were before this turn. A turn that consumes
-    // nothing did not participate, and POSIX says its groups do not count.
-    const regmatch_t *save;
+    const char *from; // REP: where this turn began
+    int rep, turn;    // REP: trail entries of the repeat and of this turn
     const Cont *up;
 };
+
+// One instance of a traced node in the parse being tried: a group, a repeat, or
+// one turn of a repeat, whose `node` is the repeat's. `parent` indexes the
+// instance it sits in, so the array is the parse tree in preorder.
+struct Mark {
+    int node;
+    int parent;
+    regoff_t so, eo;
+};
+
+// What a failed subtree puts back.
+struct Trail {
+    int n, parent;
+};
+
+enum { TRAIL_MAX = 4096 };
 
 struct Exec {
     const regex_t *re;
@@ -819,6 +862,14 @@ struct Exec {
     int ncap;
     const char *best; // longest end seen at this start, or null
     regmatch_t *bestcap;
+
+    // The parse being tried, and the one `best` was reached by. Off unless
+    // captures were asked for, and off again past TRAIL_MAX.
+    Mark *trail;
+    int ntrail, ctrail, curparent;
+    Mark *besttrail;
+    int nbesttrail, cbesttrail;
+    bool trace;
 };
 
 enum { MAX_DEPTH = 2000 };
@@ -827,7 +878,136 @@ bool mseq(Exec *e, int ni, const char *s, const Cont *k);
 
 bool mcont(Exec *e, const Cont *k, const char *s);
 
-bool mrep(Exec *e, int ni, const char *s, int count, const Cont *k);
+bool mrep(Exec *e, int ni, const char *s, int count, int ti, const Cont *k);
+
+// --------------------------------------------------------------- the trail
+
+Trail trail_mark(const Exec *e)
+{
+    return { e->ntrail, e->curparent };
+}
+
+void trail_reset(Exec *e, Trail t)
+{
+    e->ntrail    = t.n;
+    e->curparent = t.parent;
+}
+
+// An instance opens and what follows nests inside it; -1 when untraced, which
+// the caller carries to the close.
+int trail_open(Exec *e, int node, const char *s)
+{
+    if (!e->trace)
+        return -1;
+    if (e->ntrail == e->ctrail) {
+        int want = e->ctrail ? e->ctrail * 2 : 64;
+        Mark *m  = TRAIL_MAX < want ? nullptr
+                                    : (Mark *)grow(e->trail, e->ntrail, want, sizeof(*m));
+        if (!m) {
+            e->trace = false; // past the cap the incumbent stands
+            return -1;
+        }
+        e->trail  = m;
+        e->ctrail = want;
+    }
+    Mark *m      = &e->trail[e->ntrail];
+    m->node      = node;
+    m->parent    = e->curparent;
+    m->so        = s - e->base;
+    m->eo        = -1;
+    e->curparent = e->ntrail;
+    return e->ntrail++;
+}
+
+void trail_close(Exec *e, int i, const char *s)
+{
+    if (i < 0)
+        return;
+    e->trail[i].eo = s - e->base;
+    e->curparent   = e->trail[i].parent;
+}
+
+// A group's own instance is the innermost open one: its body has closed.
+void trail_close_group(Exec *e, int node, const char *s)
+{
+    int i = e->curparent;
+
+    if (0 <= i && e->trail[i].node == node)
+        trail_close(e, i, s);
+}
+
+// The trail is preorder, so a parent's subtree is contiguous and a shallower
+// entry ends the walk over its children.
+int trail_kid(const Mark *m, int n, int parent, int i)
+{
+    for (int j = i; j < n; j++) {
+        if (m[j].parent == parent)
+            return j;
+        if (m[j].parent < parent)
+            break;
+    }
+    return -1;
+}
+
+int trail_cmp_kids(const Exec *e, const Mark *A, int na, int a, const Mark *B, int nb, int b);
+
+// -1 when A is POSIX's answer, 1 when B is, 0 when they do not differ.
+int trail_cmp_node(const Exec *e, const Mark *A, int na, int a, const Mark *B, int nb, int b)
+{
+    // Which subexpression it is comes first: the one opening earlier in the
+    // pattern is the one POSIX prefers to see take part. Then leftmost, then
+    // longest, then the same applied to what is inside.
+    if (A[a].node != B[b].node)
+        return A[a].node < B[b].node ? -1 : 1;
+    if (A[a].so != B[b].so)
+        return A[a].so < B[b].so ? -1 : 1;
+    if (A[a].eo != B[b].eo)
+        return A[a].eo > B[b].eo ? -1 : 1;
+    return trail_cmp_kids(e, A, na, a, B, nb, b);
+}
+
+int trail_cmp_kids(const Exec *e, const Mark *A, int na, int a, const Mark *B, int nb, int b)
+{
+    // A repeat's children are its turns. A turn carries the repeat's node too,
+    // but its own child is the one atom the body is, so it never runs out here.
+    bool turns = 0 <= a && nodes(e->re)[A[a].node].op == OP_REP;
+    int i      = trail_kid(A, na, a, a + 1);
+    int j      = trail_kid(B, nb, b, b + 1);
+
+    for (int k = 0;; k++) {
+        if (i < 0 && j < 0)
+            return 0;
+        // A repeat takes as few turns as it can, but one empty turn beats none;
+        // anywhere else the subexpression that took part wins.
+        if (i < 0 || j < 0) {
+            if (k && turns)
+                return i < 0 ? -1 : 1;
+            return i < 0 ? 1 : -1;
+        }
+        int r = trail_cmp_node(e, A, na, i, B, nb, j);
+        if (r)
+            return r;
+        i = trail_kid(A, na, a, i + 1);
+        j = trail_kid(B, nb, b, j + 1);
+    }
+}
+
+// The trail the best match was reached by, kept beside its captures.
+void trail_keep(Exec *e)
+{
+    if (e->cbesttrail < e->ntrail) {
+        Mark *m = (Mark *)grow(e->besttrail, 0, e->ntrail, sizeof(*m));
+        if (!m) {
+            e->trace = false;
+            return;
+        }
+        e->besttrail  = m;
+        e->cbesttrail = e->ntrail;
+    }
+    for (int i = 0; i < e->ntrail; i++)
+        e->besttrail[i] = e->trail[i];
+    e->nbesttrail = e->ntrail;
+}
 
 // Membership, negation not applied yet: REG_ICASE folds before [^...] inverts,
 // so [^a] refuses 'A' as POSIX says.
@@ -891,14 +1071,22 @@ int lit_width(const Exec *e, const Node *n, const char *s)
 }
 
 // The end of the whole pattern: record and refuse, so the search goes on and
-// the longest match wins.
+// the longest match wins. Among ends that tie, the POSIX parse wins.
 bool accept(Exec *e, const char *s)
 {
-    if (!e->best || e->best < s) {
-        e->best = s;
-        for (int i = 0; i < e->ncap; i++)
-            e->bestcap[i] = e->cap[i];
+    bool take = !e->best || e->best < s;
+
+    if (!take && e->best == s && e->trace) {
+        e->budget -= e->ntrail;
+        take = trail_cmp_kids(e, e->trail, e->ntrail, -1, e->besttrail, e->nbesttrail, -1) < 0;
     }
+    if (!take)
+        return false;
+    e->best = s;
+    for (int i = 0; i < e->ncap; i++)
+        e->bestcap[i] = e->cap[i];
+    if (e->trace)
+        trail_keep(e);
     return false;
 }
 
@@ -908,34 +1096,56 @@ bool mcont(Exec *e, const Cont *k, const char *s)
         return accept(e, s);
     if (k->kind == 0)
         return mseq(e, k->node, s, k->up);
-    // A turn that consumed nothing would repeat for ever, so stop expanding.
-    // It counts only when it is the only turn -- which is what sets the group
-    // in (a*)* against a string with no a, and what stops a trailing empty turn
-    // overwriting the one that matched.
+
+    Trail t = trail_mark(e);
+    bool r;
+
+    trail_close(e, k->turn, s);
     if (s == k->from) {
-        if (1 < k->count)
-            for (int i = 0; i < e->ncap; i++)
-                e->cap[i] = k->save[i];
-        return mcont(e, k->up, s);
+        // A turn that consumed nothing would repeat for ever, so stop
+        // expanding. It stands for the turns still owed to min as well, which
+        // are the same empty turn in the same place; mrep's fall-through
+        // enumerates the parse without it, and the two are compared.
+        trail_close(e, k->rep, s);
+        r = mcont(e, k->up, s);
+    } else {
+        r = mrep(e, k->node, s, k->count, k->rep, k->up);
     }
-    return mrep(e, k->node, s, k->count, k->up);
+    if (!r)
+        trail_reset(e, t);
+    return r;
 }
 
-bool mrep(Exec *e, int ni, const char *s, int count, const Cont *k)
+bool mrep(Exec *e, int ni, const char *s, int count, int ti, const Cont *k)
 {
     const Node *n = &nodes(e->re)[ni];
 
     if (n->max < 0 || count < n->max) {
         regmatch_t save[NCAP];
-        Cont kk = { 1, ni, count + 1, s, save, k };
+        Cont kk = { 1, ni, count + 1, s, ti, -1, k };
+        Trail t = trail_mark(e);
 
         for (int i = 0; i < e->ncap; i++)
             save[i] = e->cap[i];
+        // A turn is worth telling from the next only when a group is in it.
+        kk.turn = n->group <= n->close ? trail_open(e, ni, s) : -1;
+        // A turn reports what it matched, not what an earlier one did.
+        for (int g = n->group; g <= n->close && g < e->ncap; g++)
+            e->cap[g].rm_so = e->cap[g].rm_eo = -1;
         if (mseq(e, n->child, s, &kk))
             return true;
+        trail_reset(e, t);
+        for (int i = 0; i < e->ncap; i++)
+            e->cap[i] = save[i];
     }
-    if (count >= n->min)
-        return mcont(e, k, s);
+    if (count >= n->min) {
+        Trail t = trail_mark(e);
+
+        trail_close(e, ti, s);
+        if (mcont(e, k, s))
+            return true;
+        trail_reset(e, t);
+    }
     return false;
 }
 
@@ -981,7 +1191,7 @@ bool push_mark(Exec *e, const char *s)
 // turns can be taken in a loop and backed off down a mark stack. That keeps
 // `.*` on a long line off the native stack, where one frame per character
 // would trap.
-bool mrep_simple(Exec *e, int ni, const char *s, const Cont *k)
+bool mrep_simple(Exec *e, int ni, const char *s, int ti, const Cont *k)
 {
     const Node *n = &nodes(e->re)[ni];
     const Node *c = &nodes(e->re)[n->child];
@@ -995,18 +1205,23 @@ bool mrep_simple(Exec *e, int ni, const char *s, const Cont *k)
 
         if (w == 0 || --e->budget < 0)
             break;
+        // The mark before the count, so a failed push leaves no unwritten slot.
+        if (!push_mark(e, s + w))
+            break;
         s += w;
         count++;
-        if (!push_mark(e, s))
-            break;
     }
 
     bool ok = false;
     for (int i = count; i >= n->min; i--) {
+        Trail t = trail_mark(e);
+
+        trail_close(e, ti, e->marks[base + i]);
         if (mcont(e, k, e->marks[base + i])) {
             ok = true;
             break;
         }
+        trail_reset(e, t);
     }
     e->nmarks = base;
     return ok;
@@ -1109,9 +1324,12 @@ bool mone(Exec *e, int ni, const char *s, const Cont *k)
         regoff_t was = n->group < e->ncap ? e->cap[n->group].rm_so : -1;
         if (n->group < e->ncap)
             e->cap[n->group].rm_so = s - e->base;
-        Cont kk = { 0, n->close, 0, nullptr, nullptr, k };
+        Trail t = trail_mark(e);
+        Cont kk = { 0, n->close, 0, nullptr, -1, -1, k };
+        trail_open(e, ni, s);
         if (mseq(e, n->child, s, &kk))
             return true;
+        trail_reset(e, t);
         if (n->group < e->ncap)
             e->cap[n->group].rm_so = was;
         return false;
@@ -1121,8 +1339,11 @@ bool mone(Exec *e, int ni, const char *s, const Cont *k)
         regoff_t was = n->group < e->ncap ? e->cap[n->group].rm_eo : -1;
         if (n->group < e->ncap)
             e->cap[n->group].rm_eo = s - e->base;
+        Trail t = trail_mark(e);
+        trail_close_group(e, n->close, s);
         if (mcont(e, k, s))
             return true;
+        trail_reset(e, t);
         if (n->group < e->ncap)
             e->cap[n->group].rm_eo = was;
         return false;
@@ -1141,8 +1362,17 @@ bool mone(Exec *e, int ni, const char *s, const Cont *k)
                 return true;
         return false;
 
-    case OP_REP:
-        return rep_is_simple(e, n) ? mrep_simple(e, ni, s, k) : mrep(e, ni, s, 0, k);
+    case OP_REP: {
+        // The extent is traced whatever the body is: it is what leaves `.*` in
+        // `.*(.*)` the longer of the two.
+        Trail t = trail_mark(e);
+        int ti  = n->child < 0 || n->len ? -1 : trail_open(e, ni, s);
+        bool r  = rep_is_simple(e, n) ? mrep_simple(e, ni, s, ti, k) : mrep(e, ni, s, 0, ti, k);
+
+        if (!r)
+            trail_reset(e, t);
+        return r;
+    }
     }
     return false;
 }
@@ -1153,7 +1383,7 @@ bool mseq(Exec *e, int ni, const char *s, const Cont *k)
         return mcont(e, k, s);
     if (MAX_DEPTH <= e->depth)
         return false;
-    Cont kk = { 0, nodes(e->re)[ni].next, 0, nullptr, nullptr, k };
+    Cont kk = { 0, nodes(e->re)[ni].next, 0, nullptr, -1, -1, k };
     e->depth++;
     bool r = mone(e, ni, s, &kk);
     e->depth--;
@@ -1258,6 +1488,8 @@ int regcomp(regex_t *preg, const char *pattern, int cflags)
     }
     preg->re_nsub = (cflags & REG_NOSUB) ? 0 : (size_t)b.ngroup;
 
+    mark_trace(preg, preg->start, false);
+
     // A pattern that can match empty matches everywhere; no filter can help.
     int done = 0;
     if (first_of_seq(&b, preg->start, &done))
@@ -1332,6 +1564,13 @@ int regexec(const regex_t *preg, const char *string, size_t nmatch, regmatch_t p
     e.cap     = cap;
     e.bestcap = bestcap;
     e.ncap    = NCAP;
+    // With no group reported there is nothing to choose between parses, which
+    // is what keeps grep paying nothing for this.
+    e.trail      = nullptr;
+    e.ctrail     = 0;
+    e.besttrail  = nullptr;
+    e.cbesttrail = 0;
+    e.trace      = nmatch > 1 && preg->re_nsub > 0;
     // One budget for the call, not per start position: a pathological pattern
     // reports no match rather than hanging, and there is no co_await in here to
     // interrupt it with.
@@ -1365,7 +1604,10 @@ int regexec(const regex_t *preg, const char *string, size_t nmatch, regmatch_t p
             cap[i].rm_so = cap[i].rm_eo = -1;
             bestcap[i].rm_so = bestcap[i].rm_eo = -1;
         }
-        e.best = nullptr;
+        e.best       = nullptr;
+        e.ntrail     = 0;
+        e.nbesttrail = 0;
+        e.curparent  = -1;
 
         (void)mseq(&e, preg->start, s, nullptr);
 
@@ -1384,5 +1626,7 @@ int regexec(const regex_t *preg, const char *string, size_t nmatch, regmatch_t p
     }
 
     heap_free(e.marks);
+    heap_free(e.trail);
+    heap_free(e.besttrail);
     return rc;
 }

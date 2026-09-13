@@ -299,7 +299,7 @@ arm costs, since `--gc-sections` drops the rest:
 | `mbrtowc`, `wcwidth`, `iswalpha` | +3,463 |
 | `gmtime_r`, `strftime` | +4,337 |
 | `strtod` | +6,898 |
-| `regcomp`, `regexec` and `regerror` | +14,080 |
+| `regcomp`, `regexec` and `regerror` | +16,602 |
 
 `<sys/queue.h>` is macros, so its 107 bytes are the caller's own loop. `fnmatch`
 carries the twelve `ctype` predicates because a POSIX character class names them

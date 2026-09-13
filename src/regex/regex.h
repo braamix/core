@@ -7,8 +7,10 @@
 //
 // ERE with REG_EXTENDED, POSIX BRE without it, back-references in both. The
 // match is leftmost-longest, as POSIX says and unlike the backtracking engines
-// that stop at the first one. Offsets are bytes; `.` and a bracket take a
-// whole UTF-8 sequence, so a match never ends mid-character.
+// that stop at the first one, and the groups inside it are POSIX's too: the
+// rule is applied outward, so a subexpression takes the longest the ones around
+// it leave for it. Offsets are bytes; `.` and a bracket take a whole UTF-8
+// sequence, so a match never ends mid-character.
 //
 // Not here: GNU's \| \+ \? in a BRE, collating elements ([.x.], [=x=]), and a
 // locale — the classes are the codepoint's, kernel/text.h's rune_is_*, whose

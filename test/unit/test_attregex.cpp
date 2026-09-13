@@ -282,53 +282,13 @@ struct Deviation {
     const char *why;
 };
 
-// Four classes, and only the first is a documented absence. The other three are
-// one property this backtracker does not have: POSIX assigns subexpressions by
-// the leftmost-longest rule applied outward, where a backtracker reports
-// whichever split it reached success by. The whole match is right in every case
-// below but the two marked `leftmost`.
-//
-//   absent      regex.h says the feature is not here
-//   subexpr     the groups inside a correct whole match are split another way
-//   iteration   a starred group's last iteration, and what it leaves behind
-//   leftmost    the missing empty iteration moves the whole match
+// Two, and both are documented absences rather than wrong answers. The
+// subexpression-assignment family that stood here is gone: the matcher records
+// the parse each match was reached by and keeps the one leftmost-longest picks
+// applied outward, which is what POSIX asks for.
 const Deviation DEVIATIONS[] = {
     { "basic.dat", 61, "absent: [[.x.]], and ECOLLATE has no code here" },
     { "basic.dat", 62, "absent: [[=x=]], and ECOLLATE has no code here" },
-
-    { "forcedassoc.dat", 9, "subexpr: the outer group takes the shorter side" },
-    { "forcedassoc.dat", 10, "subexpr: the outer group takes the shorter side" },
-    { "forcedassoc.dat", 11, "subexpr: the first alternative wins the prefix" },
-    { "forcedassoc.dat", 12, "subexpr: the first alternative wins the prefix" },
-    { "forcedassoc.dat", 17, "subexpr: (a*) takes 'a' where POSIX leaves it empty" },
-    { "forcedassoc.dat", 18, "subexpr: (a*) takes 'a' where POSIX leaves it empty" },
-    { "forcedassoc.dat", 23, "subexpr: (a*) takes 'a' where POSIX leaves it empty" },
-    { "forcedassoc.dat", 24, "subexpr: (a*) takes 'a' where POSIX leaves it empty" },
-    { "forcedassoc.dat", 29, "subexpr: (a|ab) takes 'a' where POSIX takes 'ab'" },
-
-    { "nullsubexpr.dat", 45, "iteration: (z) keeps an extent the last pass did not set" },
-    { "nullsubexpr.dat", 58, "leftmost: the empty pass of \\(a*\\)* is not taken" },
-    { "nullsubexpr.dat", 61, "leftmost: the empty pass of \\(a*\\)* is not taken" },
-    { "nullsubexpr.dat", 72, "iteration: {2} reports the first pass, not the last" },
-    { "nullsubexpr.dat", 73, "iteration: {2} reports the first pass, not the last" },
-
-    { "repetition.dat", 46, "iteration: a branch the last pass skipped stays set" },
-    { "repetition.dat", 49, "iteration: a branch the last pass skipped stays set" },
-    { "repetition.dat", 57, "iteration: a branch the last pass skipped stays set" },
-    { "repetition.dat", 67, "iteration: a branch the last pass skipped stays set" },
-    { "repetition.dat", 69, "iteration: a branch the last pass skipped stays set" },
-    { "repetition.dat", 94, "iteration: (.?) reports the last full pass, not the empty one" },
-    { "repetition.dat", 103, "iteration: (.?) reports the last full pass, not the empty one" },
-    { "repetition.dat", 130, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 131, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 132, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 133, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 135, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 136, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 137, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 138, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 140, "subexpr: the repeat splits 'bcd' rather than taking it" },
-    { "repetition.dat", 141, "subexpr: the repeat splits 'bcd' rather than taking it" },
 };
 
 const Deviation *deviation_for(const char *file, u32 line)
@@ -674,12 +634,11 @@ void associativity()
 
     CHECK(left.run == 12 && right.run == 12);
 
-    // Neither, as it happens: this engine is right-associative on eight of the
-    // twelve and left on four, which is the same subexpression-assignment gap
-    // forcedassoc.dat's deviations name. Pinned exactly so it cannot drift
-    // unremarked -- passing either file whole would fail these.
-    CHECK_EQ(left.fail, 8);
-    CHECK_EQ(right.fail, 4);
+    // Right-associative: a subexpression as long as the whole match allows is
+    // what rightassoc.dat's twelve answers are, and leftassoc.dat's twelve are
+    // the other reading. Pinned so it cannot drift unremarked.
+    CHECK_EQ(left.fail, 12);
+    CHECK_EQ(right.fail, 0);
 }
 
 // categorize.dat is a report rather than a suite: fourteen groups, each naming
@@ -690,21 +649,21 @@ void categorisation()
     // What the fourteen groups answer for this engine, in file order. The
     // first four are the axes; the rest are AT&T's names for a wrong answer,
     // and an "-UNKNOWN" is the `;` fallback -- the engine is wrong in a way
-    // upstream has no name for.
+    // upstream has no name for. None of the ten is a name now.
     const char *const WANT =
         "POSITION=leftmost\n"
         "ASSOCIATIVITY=right\n"
-        "SUBEXPRESSION=grouping\n"
+        "SUBEXPRESSION=precedence\n"
         "REPEAT_LONGEST=first\n"
-        "BUG=alternation-order\n"
         "EXPECTED\n"
         "EXPECTED\n"
         "EXPECTED\n"
         "EXPECTED\n"
         "EXPECTED\n"
         "EXPECTED\n"
-        "BUG=repeat-artifact\n"
-        "BUG=repeat-artifact-nomatch\n"
+        "EXPECTED\n"
+        "EXPECTED\n"
+        "EXPECTED\n"
         "EXPECTED\n";
 
     Stats st;

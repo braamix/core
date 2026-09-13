@@ -426,6 +426,99 @@ That is a real gap and it is now measured rather than assumed — which was the
 point. Closing it is a matcher change, not a test change, and it is not made
 here.
 
+## The matcher learned where a subexpression ends
+
+It is made here. Of the deviations above, four runs are the two documented
+absences, counted once per dialect; the thirty-one that remained were the one
+property — the count of thirty-three above is a line the bound fix left
+behind — and they are gone. `basic`, `forcedassoc`,
+`nullsubexpr` and `repetition` pass whole — 449 runs, no failures — and
+`categorize.dat` now answers `SUBEXPRESSION=precedence` with every one of its
+ten bug axes reading `EXPECTED`.
+
+**What the engine was missing was not a rule but a comparison.** `accept()`
+already enumerated every match at a start position and kept the longest; among
+matches of the *same* length it kept whichever the backtracker reached first,
+which is greedy-first and alternation-left-to-right, and that is what POSIX is
+not. So the ingredient the engine lacked was a way to tell two equally long
+matches apart — and that needs the *shape* of the parse, which nothing kept.
+
+**A capture vector is not enough to compare with, and that is the difficulty.**
+`((..)|(.)){2}` on `aaa` has two parses of length 3: turns of `aa`+`a`, and of
+`a`+`aa`. POSIX wants the first, but its group 1 ends up at `(2,3)` and the
+loser's at `(1,3)` — compare the *reported* captures and the wrong one wins on
+leftmost. The rule is about the turns, and only the first turn distinguishes
+them. So the matcher now keeps a **trail**: one entry per instance of a group,
+of a repeat, and of a turn of a repeat, each with its extent and a parent index,
+pushed as the parse is walked and truncated when it is backtracked. It is the
+parse tree in preorder, and comparing two of them is POSIX's rule read
+literally — settle a node, then its children left to right.
+
+**Four rules, and each one is pinned by a case that would otherwise flip.**
+A node settles before what is inside it (`((a*)(b|abc))(c*)` on `abc`), which
+includes a repeat settling before its own turns: `(ab|a|c|bcd)*(d*)` on `ababcd`
+has the repeat reaching 6 one way and 5 the other, and both parses end the whole
+match at 6 because `(d*)` mops up — compare turn by turn first and the shorter
+repeat wins on a longer second turn. Two subexpressions that are not the same
+one are ordered by which opens earlier in the pattern, before either extent is
+looked at, which is what keeps `(a|b)*c|(a|ab)*c` and `(.a|.b).*|.*(.a|.b)` on
+their old answers. A repeat takes as few turns as it can — no trailing empty
+one, `(a*)*` on `aaaaaa` — except that one empty turn beats none, `(a*)*` on
+`x`. Everywhere else, the subexpression that took part wins over one that did
+not: `((a|a)|a)` and `(ab)c|abc`.
+
+**A repeat with no group in it is still an extent.** Nothing inside it can move
+a capture, so its turns are not recorded — but `.*(.*)` on `ab` reports
+`(2,2)` for the group precisely because the `.*` to its left is a subexpression
+that settles first, and dropping its entry would report `(0,2)`, which is AT&T's
+`BUG=subexpression-first`. `(a|b)?.*` on `b` is the same thing once more.
+
+**Which of those entries to suppress is a property of the pattern, not of the
+stack.** The first draft carried a depth counter incremented around an untraced
+body, and it was wrong for a reason worth writing down: this is a CPS matcher,
+so the continuation — the whole rest of the match — runs *nested inside* the
+body's call. A counter around `mrep_simple` swallows everything that follows the
+repeat, not the repeat's body. `mark_trace()` walks the tree once at compile
+time instead and marks each repeat that sits inside a group-free body.
+
+**Turns had to change as well, and this half is not gated on `nmatch`.** A turn
+now clears its body's groups before it runs, so a branch the last turn skipped
+reads `(?,?)` rather than keeping an extent nothing set — that alone is the
+`iteration` family, and it is what makes `\(a\(b\)*\)*\2` on `abab` the
+`NOMATCH` POSIX asks for, `\2` having been cleared by the turn that did not set
+it. A turn that consumes nothing is now recorded rather than rolled back, with
+the parse that omits it enumerated beside it and the comparison choosing; that
+is what moves `\(a*\)*\(x\)\(\1\)` on `ax` from `(1,2)` to `(0,2)`, the only
+place in the corpus where subexpression assignment moves the *whole* match.
+Recording it changes what a later `\1` can match, so it must happen whether or
+not captures were asked for — a `REG_NOSUB` run has to reach the same verdict,
+and the harness checks exactly that.
+
+**A bound of `{32767}` is one trail entry, not 32767 of them.** Turns owed to
+`min` are taken even when empty — `X(.?){8,}Y` reports `(8,8)` where `{0,}`
+reports `(7,8)` — but the remaining ones are the same empty turn in the same
+place, so one entry stands for all. The collapse is sound because an empty turn
+stops the expansion either way: interior empty turns were never enumerated, so
+no parse is lost. `(a*){2000}b` answers rather than spending 2000 frames of
+`MAX_DEPTH`.
+
+**Grep pays nothing for any of it.** The trail is recorded only when `regexec`
+was asked for captures — `nmatch > 1` and a group in the pattern — and
+`/bin/grep` compiles `REG_NOSUB` and passes 1. Where it is on, the comparison is
+charged to the same budget the rest of the matcher is, and past 4,096 entries it
+is switched off and the incumbent stands, since comparing against a truncated
+trail says nothing. Measured either way, the pathological patterns take what
+they took before; what grew is the code, by 2,522 bytes, which
+[Compat.md](Compat.md)'s cost table now carries.
+
+**The pinned meta-assertions moved, which is what they are there for.** The
+engine is cleanly right-associative now — twelve of `rightassoc.dat` and none
+of `leftassoc.dat`, where it was right on eight and left on four, that split
+having been the same gap under another name. `test_regex.cpp` gained the rules
+the corpus states only through its answers, and its 2,211 host-recorded cases
+needed no change: the ambiguous ones there, `(a*)*b` and its kin, are cases
+where this host and POSIX agree.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 
