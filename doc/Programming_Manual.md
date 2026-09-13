@@ -800,9 +800,13 @@ departures from POSIX: a backslash inside a bracket escapes the next byte, so
 a leading `^`, so `^a|^b` is searched from every position rather than every
 line start — slower, never wrong.
 
-Not here: collating elements (`[.x.]`, `[=x=]`), a locale, and GNU's `\|`, `\+`
-and `\?` in a BRE. The whole engine is 14 KB, all or nothing — it is one
-translation unit, so a program that names `regcomp` links the lot.
+`[[.x.]]` and `[[=x=]]` name `x` and nothing else, which is all a collating
+element and an equivalence class are where every character sorts as itself; a
+name that is not one character is `REG_ECOLLATE`.
+
+Not here: a locale, and GNU's `\|`, `\+` and `\?` in a BRE. The whole engine is
+17 KB, all or nothing — it is one translation unit, so a program that names
+`regcomp` links the lot.
 
 A `PORT` target reaches the same three functions as `<regex.h>` and needs no
 `LIBS` line, the kit carrying it (doc/Compat.md).

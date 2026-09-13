@@ -112,10 +112,11 @@ in the engine names the axis it moved.
 **A case this engine does not pass is a `DEVIATIONS` entry, and the entry is an
 assertion.** Each names the file, upstream's line and one line of reason; a
 listed case that starts *passing* is reported too, so nothing moves in either
-direction unremarked. The two there now are documented absences, `[[.x.]]` and
-`[[=x=]]`; the subexpression-assignment family that stood beside them is gone,
-the matcher having been given POSIX's rule rather than a backtracker's. A
-re-sync is a copy plus the two wrapper lines; it will shift line
+direction unremarked. There are none now: the subexpression-assignment family
+is gone, the matcher having been given POSIX's rule rather than a
+backtracker's, and the two collating-element absences beside it are
+implemented. The table stays, empty, because an entry is how the next one would
+be recorded. A re-sync is a copy plus the two wrapper lines; it will shift line
 numbers, and a shift is loud in both directions by design.
 
 `FakeHost` ([test/unit/fakehost.h](../test/unit/fakehost.h)) is the

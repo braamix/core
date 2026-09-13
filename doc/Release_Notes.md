@@ -519,6 +519,28 @@ the corpus states only through its answers, and its 2,211 host-recorded cases
 needed no change: the ambiguous ones there, `(a*)*b` and its kin, are cases
 where this host and POSIX agree.
 
+## A collating element is a character here
+
+The last two deviations were `[[.NIL.]]` and `[[=aleph=]]`, both wanting
+`ECOLLATE` from a parser that had never heard of either bracket. They are
+implemented now, and the simplest reading is the correct one: a collating
+element is the character it names and an equivalence class is the set of
+characters that sort as it, so where every character sorts as itself — what a
+system with one locale and no collation table has — `[[.x.]]` and
+`[[=x=]]` are both `[x]`. Multi-character names have no meaning to give them,
+and that is `REG_ECOLLATE`, a code the header did not have before and now has,
+appended rather than slotted into POSIX's numbering so that nothing else moves.
+
+It is one function, `bracket_point()`, because an endpoint is an endpoint:
+`[[.a.]-[.c.]]` and `[x[.-.]y]` fall out of writing it once and calling it for
+both sides of a range. The name runs to its own terminator rather than to the
+first `]`, so `[[.].]]` is a bracket holding `]`.
+
+**The corpus now passes whole — 449 runs, no failures, no deviations.** The
+table stays where it is, empty, with `deviation_for()` still walking it: it is
+the shape an entry would take, and the assertion that an entry starting to pass
+is as loud as a case starting to fail is worth keeping armed.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

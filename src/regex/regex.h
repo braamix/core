@@ -12,9 +12,12 @@
 // it leave for it. Offsets are bytes; `.` and a bracket take a whole UTF-8
 // sequence, so a match never ends mid-character.
 //
-// Not here: GNU's \| \+ \? in a BRE, collating elements ([.x.], [=x=]), and a
-// locale — the classes are the codepoint's, kernel/text.h's rune_is_*, whose
-// coverage is case plus the letter blocks that have none.
+// [[.x.]] and [[=x=]] name x, which is all either is where every character
+// sorts as itself; a name that is not one character is REG_ECOLLATE.
+//
+// Not here: GNU's \| \+ \? in a BRE, and a locale — the classes are the
+// codepoint's, kernel/text.h's rune_is_*, whose coverage is case plus the
+// letter blocks that have none.
 //
 // A {m,n} bound is at most 32767; past that is REG_BADBR.
 #pragma once
@@ -47,6 +50,7 @@ enum {
     REG_ERANGE,  // [z-a]
     REG_ESPACE,  // out of memory
     REG_BADRPT,  // *, + or ? with nothing to repeat
+    REG_ECOLLATE, // [[.NIL.]], a collating element that is not one character
 };
 
 typedef ptrdiff_t regoff_t;

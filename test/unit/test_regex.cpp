@@ -281,6 +281,31 @@ void backrefs()
              "0:10 0:1 1:2 2:3 3:4 4:5 5:6 6:7 7:8 8:9");
 }
 
+// [[.x.]] and [[=x=]] name x. The corpus has only the two that are errors.
+void collating()
+{
+    CHECK_RE("[[.x.]]", "x", ERE, "0:1");
+    CHECK_RE("[[=x=]]", "x", ERE, "0:1");
+    CHECK_RE("[a[=b=]c]", "b", ERE, "0:1");
+    CHECK_RE("[^[.a.]]", "a", ERE, "-");
+    // As a range endpoint, either end.
+    CHECK_RE("[[.a.]-c]", "b", ERE, "0:1");
+    CHECK_RE("[[.a.]-[.c.]]", "b", ERE, "0:1");
+    // The name is whatever the terminator ends, punctuation and runes included.
+    CHECK_RE("[[.].]]", "]", ERE, "0:1");
+    CHECK_RE("[[.-.]]", "-", ERE, "0:1");
+    CHECK_RE("[x[.-.]y]", "-", ERE, "0:1");
+    CHECK_RE("[[.\xc3\xa9.]]", "\xc3\xa9", ERE, "0:2");
+    CHECK_RE("[[=a=]]", "A", ERE | REG_ICASE, "0:1");
+    // A name that is not one character names nothing, and an unclosed one is
+    // the bracket's complaint rather than its own.
+    CHECK_RE("[[.NIL.]]", "x", ERE, "!Invalid collating element");
+    CHECK_RE("[[=aleph=]]", "x", ERE, "!Invalid collating element");
+    CHECK_RE("[[..]]", "x", ERE, "!Invalid collating element");
+    CHECK_RE("[[.NIL.]]", "x", BRE, "!Invalid collating element");
+    CHECK_RE("[[.x]]", "x", ERE, "!Unmatched [");
+}
+
 // POSIX assigns subexpressions by leftmost-longest applied outward. AT&T's
 // corpus is the authority on it (test_attregex.cpp); these are the rules it
 // states only through its answers.
@@ -356,6 +381,7 @@ void test_regex()
     startend();
     errors();
     backrefs();
+    collating();
     subexpressions();
     deviations();
     limits();

@@ -307,6 +307,36 @@ int class_named(const char *name, int len)
     return 0;
 }
 
+// One endpoint of a bracket item. [.x.] and [=x=] name x; a name that is not
+// one character is REG_ECOLLATE.
+bool bracket_point(Build *b, unsigned int *out)
+{
+    if (b->p[0] == '[' && (b->p[1] == '.' || b->p[1] == '=')) {
+        char kind     = b->p[1];
+        const char *q = b->p + 2;
+
+        while (*q && !(q[0] == kind && q[1] == ']'))
+            q++;
+        if (*q == '\0') {
+            b->err = REG_EBRACK;
+            return false;
+        }
+        if (q == b->p + 2 || b->p + 2 + decode(b->p + 2, q, out) != q) {
+            b->err = REG_ECOLLATE;
+            return false;
+        }
+        b->p = q + 2;
+        return true;
+    }
+    if (*b->p == '\\' && b->p[1]) {
+        b->p++;
+        *out = (unsigned char)*b->p++;
+        return true;
+    }
+    b->p += decode(b->p, b->pend, out);
+    return true;
+}
+
 // [ has been consumed. Shared by both arms: a bracket is the same in each.
 int parse_bracket(Build *b)
 {
@@ -353,22 +383,14 @@ int parse_bracket(Build *b)
         }
 
         unsigned int lo;
-        if (*b->p == '\\' && b->p[1]) {
-            b->p++;
-            lo = (unsigned char)*b->p++;
-        } else {
-            b->p += decode(b->p, b->pend, &lo);
-        }
+        if (!bracket_point(b, &lo))
+            return -1;
 
         unsigned int hi = lo;
         if (b->p[0] == '-' && b->p[1] != ']' && b->p[1] != '\0') {
             b->p++;
-            if (*b->p == '\\' && b->p[1]) {
-                b->p++;
-                hi = (unsigned char)*b->p++;
-            } else {
-                b->p += decode(b->p, b->pend, &hi);
-            }
+            if (!bracket_point(b, &hi))
+                return -1;
             if (hi < lo) {
                 b->err = REG_ERANGE;
                 return -1;
@@ -1522,7 +1544,7 @@ size_t regerror(int errcode, const regex_t *preg, char *errbuf, size_t errbuf_si
         "Unmatched [",        "Unmatched (",
         "Unmatched {",        "Invalid repetition count",
         "Invalid range end",  "Out of memory",
-        "Nothing to repeat",
+        "Nothing to repeat",  "Invalid collating element",
     };
     const char *m = 0 <= errcode && errcode < (int)(sizeof(MSG) / sizeof(MSG[0])) ? MSG[errcode]
                                                                                   : "Unknown error";

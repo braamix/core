@@ -176,11 +176,11 @@ bool expand_escapes(Str in, Field &out)
 
 // ---------------------------------------------------------------- the answer
 
-// REG_NOMATCH through REG_BADRPT, spelled as testregex.c's codes[] spells them.
-// ECOLLATE has no code here, so an answer naming it can only be met by BADPAT.
-const char *const CODE_NAME[] = { "",        "NOMATCH", "BADPAT", "ECTYPE", "EESCAPE",
-                                  "ESUBREG", "EBRACK",  "EPAREN", "EBRACE", "BADBR",
-                                  "ERANGE",  "ESPACE",  "BADRPT" };
+// REG_NOMATCH through REG_ECOLLATE, spelled as testregex.c's codes[] spells
+// them.
+const char *const CODE_NAME[] = { "",        "NOMATCH", "BADPAT", "ECTYPE",  "EESCAPE",
+                                  "ESUBREG", "EBRACK",  "EPAREN", "EBRACE",  "BADBR",
+                                  "ERANGE",  "ESPACE",  "BADRPT", "ECOLLATE" };
 
 const usize NCODE = sizeof CODE_NAME / sizeof CODE_NAME[0];
 
@@ -190,14 +190,11 @@ Str code_name(int rc)
 }
 
 // An answer that is a bare regcomp error name rather than a match array.
-// NOMATCH is not one: it is what regexec answers. ECOLLATE is, even though
-// nothing here returns it.
+// NOMATCH is not one: it is what regexec answers.
 bool is_code_answer(Str ans)
 {
     if (ans == "NOMATCH")
         return false;
-    if (ans == "ECOLLATE")
-        return true;
     for (usize i = 2; i < NCODE; i++)
         if (ans == Str(CODE_NAME[i]))
             return true;
@@ -282,18 +279,14 @@ struct Deviation {
     const char *why;
 };
 
-// Two, and both are documented absences rather than wrong answers. The
-// subexpression-assignment family that stood here is gone: the matcher records
-// the parse each match was reached by and keeps the one leftmost-longest picks
-// applied outward, which is what POSIX asks for.
-const Deviation DEVIATIONS[] = {
-    { "basic.dat", 61, "absent: [[.x.]], and ECOLLATE has no code here" },
-    { "basic.dat", 62, "absent: [[=x=]], and ECOLLATE has no code here" },
-};
+// None: the corpus passes whole. An entry is a file, upstream's line and one
+// line of reason, and the empty table is the assertion that none is needed.
+const Deviation *const DEVIATIONS = nullptr;
+const usize NDEVIATION            = 0;
 
 const Deviation *deviation_for(const char *file, u32 line)
 {
-    for (usize i = 0; i < sizeof DEVIATIONS / sizeof DEVIATIONS[0]; i++)
+    for (usize i = 0; i < NDEVIATION; i++)
         if (Str(DEVIATIONS[i].file) == Str(file) && DEVIATIONS[i].line == line)
             return &DEVIATIONS[i];
     return nullptr;
