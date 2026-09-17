@@ -15,7 +15,7 @@
 constexpr usize INDEX_MAX = 1u << 19;
 
 // The most a package archive may be, whatever S says: it is held whole.
-constexpr u64 PACKAGE_MAX = 4u << 20;
+constexpr u64 PACKAGE_MAX = 50u << 20;
 
 constexpr u32 INDEX_GRAMMAR = 1;
 

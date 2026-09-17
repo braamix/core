@@ -196,7 +196,7 @@ A zip is not self-checking here: both readers step past the CRC-32
    dependencies entirely inside the file just checked. A name the index does not
    list does not exist and is not looked for elsewhere.
 8. **Fetch `<N>/<name>-<version>.zip`**, capped at the exact `S` the index gave,
-   and at `PACKAGE_MAX` (4 MiB) whatever `S` says.
+   and at `PACKAGE_MAX` (50 MiB) whatever `S` says.
 9. **Hash what arrived** and compare size and digest against the stanza. A
    mismatch is `Err(Perm)`.
 10. **Only now** unzip and install.

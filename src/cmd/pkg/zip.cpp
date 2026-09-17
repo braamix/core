@@ -261,5 +261,16 @@ bool ZipSink::take(Str chunk)
 {
     if (chunk.size() > want_ - out_.size())
         return false;
+    // Doubling past the declared size would hold two large copies at once.
+    usize need = out_.size() + chunk.size();
+    if (need > out_.capacity()) {
+        u64 cap = out_.capacity() * 2ull;
+        if (cap < need)
+            cap = need;
+        if (cap > want_)
+            cap = want_;
+        if (!out_.reserve(usize(cap)))
+            return false;
+    }
     return out_.append(chunk);
 }
