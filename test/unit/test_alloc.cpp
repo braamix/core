@@ -9,9 +9,34 @@ void test_alloc()
     CHECK_EQ(heap_block_size(1), 16);
     CHECK_EQ(heap_block_size(16), 16);
     CHECK_EQ(heap_block_size(17), 32);
+    CHECK_EQ(heap_block_size(33), 64);
+    CHECK_EQ(heap_block_size(100), 128);
     CHECK_EQ(heap_block_size(512), 512);
-    CHECK_EQ(heap_block_size(513), 65536);
+    CHECK_EQ(heap_block_size(513), 1024);
+    CHECK_EQ(heap_block_size(1000), 1024);
+    CHECK_EQ(heap_block_size(4097), 8192);
+    CHECK_EQ(heap_block_size(32768), 32768);
+    CHECK_EQ(heap_block_size(32769), 65536);
     CHECK_EQ(heap_block_size(65537), 131072);
+
+    // A middle class shares its span: a thousand kilobyte blocks are a
+    // megabyte and a half, not sixty-four.
+    usize held = heap_stats().bytes_reserved;
+    void **kb  = static_cast<void **>(heap_alloc(1000 * sizeof(void *)));
+    CHECK(kb != nullptr);
+    for (usize i = 0; i < 1000; i++) {
+        kb[i] = heap_alloc(1000);
+        CHECK(kb[i] != nullptr);
+        CHECK_EQ(reinterpret_cast<usize>(kb[i]) & 15u, 0);
+        static_cast<u8 *>(kb[i])[999] = u8(i);
+    }
+    CHECK(heap_stats().bytes_reserved - held <= 20 * 65536);
+    for (usize i = 0; i < 1000; i++) {
+        CHECK_EQ(static_cast<u8 *>(kb[i])[999], u8(i));
+        CHECK_EQ(heap_usable_size(kb[i]), 1024);
+        heap_free(kb[i]);
+    }
+    heap_free(kb);
 
     // Every block is 16-aligned, and distinct.
     void *p[64];

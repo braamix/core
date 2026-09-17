@@ -179,8 +179,8 @@ freestanding `<endian.h>` arrived only in clang 23.
   that reads null as failure cannot mistake success for it.
 - **`realloc` never shrinks.** Capacity comes from `heap_usable_size`, so it is
   never stale, but a 1 MB block realloc'd to 1 KB keeps its spans.
-- **`PATH_MAX` is 512** — `FS_BLOCK`, `FILE_BUF` and the allocator's top small
-  size class, so a `char[PATH_MAX]` is exactly one block. The number is not the
+- **`PATH_MAX` is 512** — `FS_BLOCK`, `FILE_BUF` and one of the allocator's
+  size classes, so a `char[PATH_MAX]` is exactly one block. The number is not the
   constraint; the placement is. Put one in a heap block, never in a coroutine
   frame.
 - **No `long double`.** It is 113-bit quad here and every operation on one is a

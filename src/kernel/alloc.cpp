@@ -16,9 +16,11 @@ constexpr usize SPAN_SIZE  = usize(1) << SPAN_SHIFT;
 constexpr usize PAGE_SIZE  = 65536;
 constexpr usize MAX_SPANS  = 4096; // 256 MiB of addressable heap
 
-constexpr u16 SIZE_CLASS[]  = { 16, 32, 48, 64, 96, 128, 192, 256, 384, 512 };
+// Powers of two up to half a span, so a span holds at least two blocks of any
+// class and a class is a bit count.
+constexpr u16 SIZE_CLASS[]  = { 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768 };
 constexpr usize NUM_CLASSES = sizeof(SIZE_CLASS) / sizeof(SIZE_CLASS[0]);
-constexpr usize MAX_SMALL   = 512;
+constexpr usize MAX_SMALL   = 32768;
 
 constexpr u8 SPAN_UNUSED     = 0xFF;
 constexpr u8 SPAN_FREE       = 0xFE; // head of a free run
@@ -63,12 +65,13 @@ u8 *span_addr(u32 i)
     return reinterpret_cast<u8 *>(usize(i) << SPAN_SHIFT);
 }
 
+// The bits in n - 1, less the four the smallest class has: this is on every
+// allocation. n is at least 1.
 usize class_of(usize n)
 {
-    for (usize c = 0; c < NUM_CLASSES; c++)
-        if (n <= SIZE_CLASS[c])
-            return c;
-    return NUM_CLASSES;
+    if (n <= SIZE_CLASS[0])
+        return 0;
+    return usize(32 - __builtin_clz(u32(n - 1))) - 4;
 }
 
 // Extends linear memory so that `spans` spans starting at h.next_span exist.
