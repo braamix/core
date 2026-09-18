@@ -131,6 +131,14 @@ target_link_libraries(tests PRIVATE
     braam_compat_pure braam_compat_float braam_core braam_flags)
 
 find_program(BRAAM_NODE node REQUIRED)
+set(BRAAM_NODE_MIN 22.12)
+execute_process(COMMAND ${BRAAM_NODE} --version
+    OUTPUT_VARIABLE BRAAM_NODE_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE)
+string(REGEX REPLACE "^v" "" BRAAM_NODE_VERSION "${BRAAM_NODE_VERSION}")
+if(BRAAM_NODE_VERSION VERSION_LESS BRAAM_NODE_MIN)
+    message(FATAL_ERROR "${BRAAM_NODE} is ${BRAAM_NODE_VERSION}; the tests need Node "
+        "${BRAAM_NODE_MIN} or later (-DBRAAM_NODE=<path> names another)")
+endif()
 
 # The archive comes along so that the packer and the unpacker in web/fs.js are
 # checked against each other, not each against its own reading of the format.

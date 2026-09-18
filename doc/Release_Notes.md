@@ -541,6 +541,18 @@ table stays where it is, empty, with `deviation_for()` still walking it: it is
 the shape an entry would take, and the assertion that an entry starting to pass
 is as loud as a case starting to fail is worth keeping armed.
 
+## Node 22.12, checked at configure time
+
+Both suites import `web/*.js` from Node, and those files are the browser's: ES
+modules with no `package.json` to say so, and a zip reader over
+`DecompressionStream("deflate-raw")`. Node loads the first as ESM only from
+22.12, where syntax detection became the default, and has the second only from
+21.2. Under the Node 18 an Ubuntu 24.04 `apt install nodejs` gives, the build
+succeeded and `system` and `unit` both died on their first import, which read as
+a broken tree. A `package.json` in `web/` would cure the import and not the
+decompressor, and would ship with the site; `test/CMakeLists.txt` refuses an
+older Node when configuring instead, naming the version it found.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 
