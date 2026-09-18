@@ -672,6 +672,114 @@ translated from. `examples/zpipe` is zlib's own example rewritten. It is the
 in-tree caller that keeps the SDK side building, and the `sdk` test
 round-trips `/etc/help` through it under the installed harness.
 
+## bzip2, rewritten beside zlib
+
+`braam::bzip2` is the SDK's fourth library. A port that reads or writes `.bz2`
+had nothing to link, and the host has nothing to lend: `DecompressionStream`
+knows gzip and deflate, and not bzip2.
+
+**It is rewritten in C++ for zlib's reason.** `bzlib_private.h` includes
+`<stdlib.h>` whatever it is built with. Built `BZ_NO_STDIO`, it wants a
+`bz_internal_error` from its caller in place of the `exit(3)` it would have
+called. Vendoring would have meant shim headers answering libc names inside the
+library, as it would have for zlib.
+
+The algorithms are kept step for step: the run-length front end, both block
+sorts, the move-to-front and Huffman coding with its four refining passes, and
+the decoder's resumable state machine. The rest changed:
+
+- The types are the tree's: `Span`, `Str`, `Result` and `heap_alloc`.
+- `EState` and `DState` became `BzEncodeState` and `BzDecodeState`, since a
+  type name must be unique across the tree. The fields are in snake case.
+- `crctable.c` is built at compile time. `randtable.c` stays a literal, since
+  it has no rule to build it from.
+- `bzlib.c` is split between `compress.cpp` and `decompress.cpp`, as its two
+  halves share nothing.
+- The decoder's four output loops, fast and small each with a randomised twin,
+  became one template over the byte source. That includes upstream's hand-cached
+  fast path, and the output is the same.
+
+**There is one private header, and it keeps upstream's name.** zlib's rewrite
+avoided one by merging deflate.c and trees.c. Here the block sort, the
+compressor and the Huffman builder all need the encoder's state, and merging
+them would make a 1,700-line file. So `bzlib_private.h` is shared, and the
+install rule's new `*_private.h` pattern keeps it out of the SDK. The pattern is
+general: any library's private header takes that name.
+
+**An internal check fails the stream, not the process.** Upstream's `AssertH`
+prints an appeal to report the bug and calls `exit(3)`. A library that ends its
+program is not one a program can hold. Here each check sets `bug`, the call
+returns, and every later call on that stream answers `Misuse`. No input reaches
+them, so nothing tests them. The one upstream's message says is known to fire,
+1007, it blames on unreliable memory.
+
+**Three things the decoder does differently, none visible on a good stream:**
+
+- An error is sticky. Upstream leaves the state wherever it stopped after
+  `BZ_DATA_ERROR`, and a further call parses on from there.
+- `Stuck` is distinguished from progress. Upstream answers `BZ_OK` whether or
+  not the call moved, so the shim maps `Stuck` back to `BZ_OK`.
+- The block-start fetch returns `Corrupt` when out of range. Upstream's
+  `BZ_GET_FAST` inside `BZ2_decompress` returns `True`, which is `BZ_RUN_OK` by
+  number, and skips saving its locals. The checks before it make that
+  unreachable; it is a status now so that nothing depends on that.
+
+**Byte-identity is the oracle again.** `tools/mkbzip2data.py` asks Python's
+`bz2`, the host's libbzip2 1.0.8, for ten inputs at every block size. All 90
+agreed on the first build. It refuses any libbzip2 but 1.0.x, and bzip2's output
+has not changed since 1.0.3 capped codes at 17 bits.
+
+One test comes free: the work factor chooses between the main sort and the
+fallback, and both build the same order. So `test_bzip2.cpp` compresses at
+factors 1 to 250 and requires the host's bytes each time. Blocks under 10,000
+bytes always take the fallback, and the periodic input exhausts the main sort's
+budget, so both sorts are pinned to libbzip2's output.
+
+**The decoder has two oracles that are not the compressor.** `sample3.bz2` is
+from the bzip2 distribution. The other is a randomised block, which bzip2 0.9.0
+wrote when its sort was too slow for repetitive data. Every version since 0.9.5
+writes none, but a decoder must still read them, and no tool makes one now. The
+generator builds one from text with no run of four:
+
+1. XOR the text with 0.9.0's mask.
+2. Compress it.
+3. Set the block's randomised bit and give both CRCs the text's.
+4. Require the host's libbzip2 to give the text back.
+
+Both decoders read it. Without it, `rand_update` would be dead code.
+
+**A flush is not a sync point**, unlike zlib's. It ends a block, but the last
+bits of that block wait in the bit buffer for the next one. So the output so far
+does not decompress to the input so far. The test checks that the flush makes a
+second block, and nothing more.
+
+**The one-shot takes streams in a row and refuses anything else.** `bunzip2`
+reads concatenated streams, and `pbzip2` writes nothing but. `bunzip2` warns
+about trailing garbage and ignores it. `bzip2_uncompress` refuses it, because
+otherwise a truncated second stream would pass as a whole first one.
+
+**The memory is upstream's, rounded to spans.** At block size 9 a compressor is
+7.6 MB and a decompressor 3.7 MB, or 2.4 MB in small mode. `ftab` is 65,537
+words, four bytes past four spans, so it takes five. It stays at that size,
+because `mainSort` indexes entry 65,536.
+
+In the port kit, the compressor's arm is +19,072 bytes, the decompressor's
++21,397, and both +39,380.
+
+**Checked beyond the suite**, before any of it went in:
+
+- A native build under ASan and UBSan compressed 24 files at block sizes 1, 5
+  and 9, identical to the host's `bzip2` each time. The files ranged from empty
+  to a megabyte of zeros, a 1.5 MB word list and incompressible noise.
+- The same build decompressed 1,200 bit-flipped and truncated streams. None
+  crashed, and each was refused with a reason.
+
+libbzip2's licence asks that an altered version be plainly marked.
+`src/bzip2/bzip2.h` says it is altered, `LICENSE` is the original, and the SDK
+installs it as `share/doc/braam/bzip2-LICENSE`. `examples/bzpipe` is `zpipe`'s
+twin. The `sdk` test round-trips `/etc/help` through it, and it makes the host
+`bzip2 -9`'s bytes on a 1.2 MB file under the kernel.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

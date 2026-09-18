@@ -11,13 +11,16 @@ C++20, compiled to wasm32, deployable as a static site with no server and no
 special HTTP headers. No libc under the system, no Emscripten, no `xterm.js` —
 nothing is linked that is not in this tree. A *ported* program may opt into
 `braam::compat` ([doc/Compat.md](doc/Compat.md)); nothing in this tree does.
-Only four parts are not wholly ours:
+Only five parts are not wholly ours:
 
 - `src/math/` is musl's libm, vendored under an MIT licence.
 - `src/compat/cwidth.cpp` is Markus Kuhn's `wcwidth` intervals, under his own
   grant.
 - `src/zlib/` is zlib 1.3.2.1 rewritten in C++, under zlib's licence. That
   licence asks that an altered version say so, and `src/zlib/LICENSE` does.
+- `src/bzip2/` is libbzip2 1.0.8 rewritten in C++, under Julian Seward's
+  licence, which asks the same. `src/bzip2/LICENSE` is the original, and each
+  source file says what it was translated from.
 - `test/unit/att/` is AT&T's `regex(3)` conformance corpus, under Glenn
   Fowler's grant. It is test data, linked into nothing that ships.
 
@@ -96,12 +99,13 @@ make clean
 - Version = `BRAAM_VERSION_BASE` ([src/kernel/version.h](src/kernel/version.h),
   hand-edited) + commit count + short hash. `tools/version.py` is the one
   implementation and runs at *build* time; `tools/release.py` imports it.
-- **The eight publisher tools in `tools/` are hand-run; no build step calls
+- **The nine publisher tools in `tools/` are hand-run; no build step calls
   them**: `ed25519.py` (the one place a key is read, and the only thing needing
   `cryptography`), `signindex.py`, `mkanchor.py`, `mkpkg.py`, `mkindex.py`,
-  `mkrepo.py` (regenerates `test/unit/repo.data` under keys it destroys) and
-  `mkmathdata.py` (regenerates `test/unit/math.data` from the host's own libm)
-  and `mkzlibdata.py` (`test/unit/zlib.data` from the host's own zlib).
+  `mkrepo.py` (regenerates `test/unit/repo.data` under keys it destroys),
+  `mkmathdata.py` (regenerates `test/unit/math.data` from the host's own libm),
+  `mkzlibdata.py` (`test/unit/zlib.data` from the host's own zlib) and
+  `mkbzip2data.py` (`test/unit/bzip2.data` from the host's own libbzip2).
   `mkindex.py` derives Package_Formats.md §6.1's `cmd:` names from each
   package's `bin/`, so no publisher writes one down. **No private key** goes in
   the tree, in anything built from it, or inside `rootfs.zip`.
@@ -191,9 +195,9 @@ from `/bin/pkg` (`src/cmd/pkg/host.cpp`), the kernel's own services from the
 suite (`test/unit/fakehost.h`) — which is how a check that must be tested keeps
 out of the half that cannot be. `pkg/unzip.cpp`, `store.cpp`, `host.cpp` and
 `install.cpp` stay out, and `sh/glob.cpp` and `sh/condrun.cpp` with them,
-because they walk the store. `braam_math`, `braam_regex` and `braam_zlib` are
-*linked* instead: each links `braam_flags` alone and has no syscall to hide, as
-`braam_ui` does not. Anything
+because they walk the store. `braam_math`, `braam_regex`, `braam_zlib` and
+`braam_bzip2` are *linked* instead: each links `braam_flags` alone and has no
+syscall to hide, as `braam_ui` does not. Anything
 needing a program to run belongs in `test/system/`, as a file and a line in
 `run.mjs`'s table. [doc/Testing.md](doc/Testing.md) is the whole of both suites.
 
@@ -412,6 +416,7 @@ argue in Concept.md first.
   `src/math/` (musl's libm, vendored, plus its `strtod` and `printf` engines);
   `src/regex/` (POSIX regular expressions, one file, opted into by name);
   `src/zlib/` (zlib's deflate and inflate in C++, opted into by name);
+  `src/bzip2/` (libbzip2 in C++, opted into by name);
   `src/user/` (exec and the syscall dispatcher, console, pipes, `ProcFs`, boot
   and init); `src/proc/` (a process binary's runtime); `src/compat/` (the opt-in
   port kit, linked by nothing in this tree); `src/cmd/` (one file per program,
@@ -430,10 +435,12 @@ argue in Concept.md first.
   same shape once more**, reaching `kernel/alloc.h` alone, with `-fno-builtin`
   for its window loops. **Its deflate is zlib's to the byte** —
   `test/unit/zlib.data` holds it to that — so a change to its heuristics is a
-  regression even when the round trip still passes. There is **no `long
-  double`** on this target — it is 113-bit quad and every operation on one is
-  a compiler-rt link error — so musl's `*l.c`, `nexttoward.c` and
-  `nexttowardf.c` stay upstream.
+  regression even when the round trip still passes. **`braam_bzip2` is the
+  same again**, its output libbzip2's to the byte by `test/unit/bzip2.data`.
+  Its one private header, `bzlib_private.h`, is kept out of the SDK by the
+  install rule's `*_private.h` pattern. There is **no `long double`** on this
+  target — it is 113-bit quad and every operation on one is a compiler-rt link
+  error — so musl's `*l.c`, `nexttoward.c` and `nexttowardf.c` stay upstream.
 - **The builtin table is an explicit array and must stay one.** `--gc-sections`
   never extracts an unreferenced archive member, so a self-registering builtin
   would be dropped silently.

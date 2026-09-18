@@ -39,9 +39,8 @@ guard, and it is tested.
 `strtod` families, `qsort`/`mergesort`/`bsearch`,
 `snprintf`/`vsnprintf`/`sprintf`, `errno`, `strerror`, `getenv`, the calendar
 (`<time.h>`), the wide half (`<wchar.h>`, `<wctype.h>`), `fnmatch`,
-`<sys/queue.h>`, `<regex.h>` and `<zlib.h>`. Group A has no syscall, which is
-why
-`braam_compat_pure` links
+`<sys/queue.h>`, `<regex.h>`, `<zlib.h>` and `<bzlib.h>`. Group A has no
+syscall, which is why `braam_compat_pure` links
 into `tests.wasm` the way `braam_math` does: a syscall in it is a link error.
 
 Group A does reach the tree's *pure* primitives and leaves them undefined in the
@@ -181,6 +180,19 @@ freestanding `<endian.h>` arrived only in clang 23.
     take zlib too.
   - `inflateBack*`, `inflateResetKeep` and `get_crc_table` are absent as well.
   - `zlibCompileFlags()` sets bit 16, "no gz* compression".
+- **`<bzlib.h>` is libbzip2 1.0.8's C API over `braam::bzip2`**, and its output
+  is libbzip2's, byte for byte. The API includes `bz_stream` with
+  `BZ2_bzCompress` and `BZ2_bzDecompress` and their `Init` and `End`, and the
+  two `BuffToBuff` one-shots, all with libbzip2's return codes.
+
+  `cbzlib.cpp` is an adapter only, as `czlib.cpp` is, and three things differ
+  from libbzip2:
+  - `bzalloc`, `bzfree` and `opaque` are accepted and never called.
+  - `verbosity` is accepted and prints nothing.
+  - `BZFILE` and everything taking one, `BZ2_bzRead` to `BZ2_bzerror`, is
+    `BRAAM_ABSENT`. A `.bz2` file is `BZ2_bzDecompress()` over bytes `b_read`
+    gave. After `BZ_STREAM_END`, while bytes remain, it is `End` and `Init`
+    again, since `bzip2` may write one stream after another.
 - **`strerror` returns the POSIX *name***, `"ENOENT"`. Every byte of English
   prose a Unix libc spends here stays unspent. It is **not** `error_name()` in
   `kernel/result.h`, which answers prose — `"not found"` — and is what the rest
@@ -322,6 +334,9 @@ arm costs, since `--gc-sections` drops the rest:
 | `uncompress` | +22,632 |
 | `compress2` | +31,247 |
 | `compress2` and `uncompress` | +48,525 |
+| `BZ2_bzBuffToBuffCompress` | +19,072 |
+| `BZ2_bzBuffToBuffDecompress` | +21,397 |
+| both | +39,380 |
 
 `<sys/queue.h>` is macros, so its 107 bytes are the caller's own loop. `fnmatch`
 carries the twelve `ctype` predicates because a POSIX character class names them

@@ -82,6 +82,7 @@ add_subdirectory(src/ui)
 add_subdirectory(src/math)
 add_subdirectory(src/regex)
 add_subdirectory(src/zlib)
+add_subdirectory(src/bzip2)
 add_subdirectory(src/user)
 add_subdirectory(src/proc)
 add_subdirectory(src/compat)
@@ -91,6 +92,7 @@ add_subdirectory(src/compat)
 add_library(braam::math  ALIAS braam_math)
 add_library(braam::regex ALIAS braam_regex)
 add_library(braam::zlib  ALIAS braam_zlib)
+add_library(braam::bzip2 ALIAS braam_bzip2)
 add_library(braam::proc  ALIAS braam_proc)
 add_library(braam::ui    ALIAS braam_ui)
 add_library(braam::flags ALIAS braam_flags)
@@ -110,9 +112,10 @@ add_subdirectory(src/cmd)
 
 # Built like any other program, and not packed into the archive: they are the
 # SDK's worked examples, and compiling them here is what keeps them from
-# rotting. zpipe is braam::zlib's in-tree caller.
+# rotting. zpipe is braam::zlib's in-tree caller, bzpipe braam::bzip2's.
 add_subdirectory(examples/hello)
 add_subdirectory(examples/zpipe)
+add_subdirectory(examples/bzpipe)
 
 # The port kit's worked examples, and the in-tree callers that keep it
 # building: portlet is Group A, portio is Group B.
@@ -187,14 +190,15 @@ add_custom_target(serve
 # The SDK — doc/Programming_Manual.md. The libraries a program may link and no
 # others: braam_core, braam_fs, braam_svc and braam_user each carry a host
 # import no binary may have.
-install(TARGETS braam_proc braam_ui braam_math braam_regex braam_zlib braam_flags
-                braam_compat braam_compat_pure braam_compat_proc
+install(TARGETS braam_proc braam_ui braam_math braam_regex braam_zlib braam_bzip2
+                braam_flags braam_compat braam_compat_pure braam_compat_proc
                 braam_compat_float braam_compat_nofloat braam_portflags
         EXPORT braam-targets
         ARCHIVE DESTINATION ${BRAAM_INSTALL_LIBDIR})
 set_target_properties(braam_math  PROPERTIES EXPORT_NAME math)
 set_target_properties(braam_regex PROPERTIES EXPORT_NAME regex)
 set_target_properties(braam_zlib  PROPERTIES EXPORT_NAME zlib)
+set_target_properties(braam_bzip2 PROPERTIES EXPORT_NAME bzip2)
 set_target_properties(braam_proc  PROPERTIES EXPORT_NAME proc)
 set_target_properties(braam_ui    PROPERTIES EXPORT_NAME ui)
 set_target_properties(braam_flags PROPERTIES EXPORT_NAME flags)
@@ -212,14 +216,16 @@ install(EXPORT braam-targets
 # behind. Layout preserved: an include within a directory is a bare name.
 # math/musl and math/cvt are excluded: they answer <stdint.h>, <float.h> and
 # <math.h> for the vendored sources, and define errno and the character classes
-# as they need them. Those names under include/braam/ would be a trap.
-foreach(dir kernel fs proc ui math regex zlib compat)
+# as they need them. Those names under include/braam/ would be a trap. A header
+# named *_private.h is shared between a library's sources and is not its API.
+foreach(dir kernel fs proc ui math regex zlib bzip2 compat)
     install(DIRECTORY src/${dir}/
             DESTINATION ${BRAAM_INSTALL_INCLUDEDIR}/${dir}
             FILES_MATCHING PATTERN "*.h"
             PATTERN "musl" EXCLUDE
             PATTERN "cvt" EXCLUDE
-            PATTERN "include" EXCLUDE)
+            PATTERN "include" EXCLUDE
+            PATTERN "*_private.h" EXCLUDE)
 endforeach()
 # compat/include/ holds the same trapping names, and ships anyway because it is
 # one level further down: include/braam/ is on braam::flags' path and
@@ -251,7 +257,8 @@ install(PROGRAMS tools/stamp.py tools/mkpkg.py tools/pack.py
                  tools/ed25519.py tools/signindex.py
                  tools/mkindex.py tools/mkanchor.py
         DESTINATION ${BRAAM_INSTALL_LIBEXECDIR})
-install(DIRECTORY examples/hello examples/zpipe DESTINATION ${BRAAM_INSTALL_EXAMPLESDIR})
+install(DIRECTORY examples/hello examples/zpipe examples/bzpipe
+        DESTINATION ${BRAAM_INSTALL_EXAMPLESDIR})
 
 # The headless harness, for a program's own tests, and the kernel and archive
 # it boots. The import closure keeps its relative layout: harness.mjs reaches
@@ -264,6 +271,7 @@ install(FILES web/abi.js web/fs.js web/host.js web/proc.js web/svc.js
         DESTINATION ${BRAAM_INSTALL_HARNESSDIR}/web)
 install(FILES doc/Programming_Manual.md LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR})
 install(FILES src/zlib/LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR} RENAME zlib-LICENSE)
+install(FILES src/bzip2/LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR} RENAME bzip2-LICENSE)
 
 # Last, and said where it is read: the toolchain file is the one thing a
 # consumer has to name, and only on the first configure.
@@ -291,6 +299,8 @@ add_custom_target(release
             --require ${BRAAM_INSTALL_INCLUDEDIR}/proc/io.h
             --require ${BRAAM_INSTALL_LIBDIR}/libbraam_zlib.a
             --require ${BRAAM_INSTALL_INCLUDEDIR}/zlib/zlib.h
+            --require ${BRAAM_INSTALL_LIBDIR}/libbraam_bzip2.a
+            --require ${BRAAM_INSTALL_INCLUDEDIR}/bzip2/bzip2.h
             --require ${BRAAM_INSTALL_HARNESSDIR}/test/system/harness.mjs
             --require ${BRAAM_INSTALL_HARNESSDIR}/web/kernel.wasm
             --require ${BRAAM_INSTALL_HARNESSDIR}/web/rootfs.zip

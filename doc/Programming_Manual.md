@@ -32,12 +32,13 @@ Either way, this is what you get:
 
 | Path | What it is |
 | --- | --- |
-| `include/braam/{kernel,fs,proc,ui,math,regex,zlib}/` | the headers a program includes |
+| `include/braam/{kernel,fs,proc,ui,math,regex,zlib,bzip2}/` | the headers a program includes |
 | `lib/braam/libbraam_proc.a` | the process runtime: the allocator, the strings, the task scheduler, the syscall wrappers |
 | `lib/braam/libbraam_ui.a` | the layout layer, for a program that paints |
 | `lib/braam/libbraam_math.a` | musl's libm, for a program that asks for it (§6) |
 | `lib/braam/libbraam_regex.a` | POSIX regular expressions, likewise (§6) |
 | `lib/braam/libbraam_zlib.a` | zlib's deflate and inflate, likewise (§6) |
+| `lib/braam/libbraam_bzip2.a` | libbzip2's compressor and decompressor, likewise (§6) |
 | `lib/braam/libbraam_compat_pure.a` | the opt-in port kit's pure half, for a *ported* C program (doc/Compat.md) |
 | `lib/braam/libbraam_compat_proc.a` | the same kit's blocking half — Group B's `b_*` family, over `braam::proc` |
 | `include/braam/compat/include/` | the kit's system header names — on a `PORT` target's path and no other's |
@@ -49,6 +50,7 @@ Either way, this is what you get:
 | `libexec/braam/mkindex.py` | the publisher's tools (§3.1): `mkanchor.py`, `signindex.py` and `ed25519.py` beside it |
 | `share/braam/examples/hello/` | the example below |
 | `share/braam/examples/zpipe/` | a second, which compresses with `braam::zlib` (§6) |
+| `share/braam/examples/bzpipe/` | a third, which compresses with `braam::bzip2` (§6) |
 | `share/braam/test/system/harness.mjs` | the headless harness (§3.3), with its fakes beside it |
 | `share/braam/web/` | the kernel and boot archive the harness runs, and the JS they need |
 | `share/doc/braam/Programming_Manual.md` | this file |
@@ -119,8 +121,8 @@ the build directory and configure again.
 
 `braam_add_program(NAME <n> SOURCES <...> [LIBS <...>])` is the same function
 `src/cmd/` builds the system's own thirty-six programs with. It links
-`braam::proc` and `braam::flags` — `braam::math`, `braam::regex` and
-`braam::zlib` are asked for by name — links
+`braam::proc` and `braam::flags` — `braam::math`, `braam::regex`,
+`braam::zlib` and `braam::bzip2` are asked for by name — links
 with `--import-memory` so the memory cap is the kernel's, and runs `stamp.py`
 over the result. `LIBS` names anything else the program is made of. The CMake
 target it defines is `bin_<name>` — the file is `<name>.wasm`, and the prefix is
@@ -752,7 +754,7 @@ already repaired its own grid by the time it reports one.
 
 ### Mathematics — `math/math.h` and `math/ftoa.h`
 
-One of the three libraries a program asks for by name, because most do not
+One of the four libraries a program asks for by name, because most do not
 want it:
 
 ```cmake
@@ -945,13 +947,84 @@ A `PORT` target reaches the same code as `<zlib.h>`: zlib's own C API, with
 `z_stream`, `deflateInit2` and `uncompress`. It needs no `LIBS` line
 (doc/Compat.md).
 
+### Compression again — `bzip2/bzip2.h`
+
+The fourth is libbzip2, rewritten in C++ from 1.0.8 as zlib was. The
+algorithms are Julian Seward's step for step, so **the output is libbzip2's,
+byte for byte**, for the same block size. The work factor changes nothing in
+it: it only chooses which of two sorts builds the same order.
+`examples/bzpipe` is the worked example:
+
+```cmake
+braam_add_program(NAME bzpipe SOURCES bzpipe.cpp LIBS braam::bzip2)
+```
+
+A `BzCompressor` and a `BzDecompressor` are stepped exactly as zlib's pair is,
+over a span of input and a span of output:
+
+```cpp
+BzCompressor c;
+if (c.init(9).is_err())                      // block size, in units of 100 KB
+    co_return 1;
+Span<const u8> in = bytes;
+Span<u8> out(buf, sizeof buf);
+BzStatus s = c.step(in, out, last ? BzAction::Finish : BzAction::Run);
+```
+
+`BzStatus` names libbzip2's return codes:
+
+| `BzStatus` | libbzip2's code | Meaning |
+| --- | --- | --- |
+| `Ok` | `BZ_RUN_OK`, `BZ_OK` | the call made progress; a flush that finished |
+| `More` | `BZ_FLUSH_OK`, `BZ_FINISH_OK` | a flush or finish is under way |
+| `End` | `BZ_STREAM_END` | the stream is complete |
+| `Stuck` | — | the call could not move |
+| `Corrupt` | `BZ_DATA_ERROR` | bad data; `why()` says what was wrong |
+| `NotBzip2` | `BZ_DATA_ERROR_MAGIC` | the input does not begin `BZh1` to `BZh9` |
+| `NoMemory` | `BZ_MEM_ERROR` | the heap ran out |
+| `Misuse` | `BZ_SEQUENCE_ERROR` | the stream's state forbids the call |
+
+Four things are bzip2's own:
+
+- **A flush or finish is repeated until it is done**: `More` means call again
+  with more room, the same action, and the input as the last call left it.
+  libbzip2 counts what it was given when the flush began, so different input
+  is `Misuse`.
+- **A flush ends a block, and is not a sync point.** The block's last bits
+  wait in the compressor for the next one, so the output so far does not
+  decompress to the input so far, as a zlib `Sync` flush's does.
+- **A decompressor stops at the end of one stream**, with `in` just past it.
+  `bzip2` files are often several streams in a row, so `init()` again while
+  bytes remain; `bzpipe -d` does, and so does `bzip2_uncompress`.
+- **`init(true)` is libbzip2's small mode**, which decompresses at about half
+  the speed in two thirds of the memory.
+
+`bz_crc_update(0, bytes)` is bzip2's CRC-32, which is not zlib's: it runs most
+significant bit first. The one-shots are `bzip2_compress(bytes, block_size)`
+and `bzip2_uncompress(bytes, limit)`, with the same `limit` as zlib's.
+
+**The state lives on the heap, and there is a lot of it.** A compressor at
+block size 9 is 7.6 MB, about 800 KB per unit of block size. A decompressor is
+3.7 MB at 9, or 2.4 MB in small mode. The memory cap is 100 MB (§7), so a
+program holding several at once should choose a smaller block size.
+
+**The calls are synchronous, and a block is the unit of work.** A step that
+fills a block sorts it before returning, which at block size 9 is 900 KB of
+input sorted in one call. Stepping a chunk at a time, as `bzpipe` does, keeps
+each step to at most one block.
+
+Not here: `BZ2_bzopen`, `BZ2_bzRead` and the rest of the `BZFILE` half, and
+the verbosity that printed to stderr. A `PORT` target reaches the same code as
+`<bzlib.h>`: libbzip2's own C API, with `bz_stream`, `BZ2_bzCompress` and
+`BZ2_bzBuffToBuffDecompress`. It needs no `LIBS` line (doc/Compat.md).
+
 ### What the headers do *not* contain
 
 `include/braam/kernel/` and `include/braam/fs/` are shipped because the
 libraries' headers include them, and they are worth reading — `str.h`,
 `string.h`, `vec.h`, `span.h`, `result.h`, `fmt.h`, `text.h`, `path.h` and
-`math/math.h` are the whole standard library here, with `regex/regex.h` and
-`zlib/zlib.h` beside them. But the parts of them that
+`math/math.h` are the whole standard library here, with `regex/regex.h`,
+`zlib/zlib.h` and `bzip2/bzip2.h` beside them. But the parts of them that
 name the scheduler, the host imports or the VFS belong to the kernel and have
 nothing behind them in a program: reaching one is a link error, which is the
 intended answer.
@@ -969,7 +1042,7 @@ link error or a trap rather than a warning:
   needing a compiler-rt builtin — 128-bit division, an outlined `memcpy`,
   anything `long double` — will not link. There *is* a libm, `braam::math`,
   there are regular expressions, `braam::regex`, and there is compression,
-  `braam::zlib`; §6.
+  `braam::zlib` and `braam::bzip2`; §6.
   A program being **ported** from Unix may opt into `braam::compat`, which
   changes nothing for one that does not: doc/Compat.md.
 - **Never `new` anything.** `operator new` returns null on failure and there are

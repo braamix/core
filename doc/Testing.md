@@ -89,7 +89,14 @@ the levels, strategies, windows and memory levels, 300 cases or so.
 `test_zlib.cpp` asserts that `braam::zlib`'s deflate makes each of them byte for
 byte. The inputs are generated from one LCG on both sides and pinned by their
 own CRCs, and the tool refuses zlib-ng, whose streams are valid but different.
-Those three are the cases in the tree with an oracle outside themselves.
+`bzip2.data` is the same once more, from `tools/mkbzip2data.py` over the host's
+libbzip2 through Python's `bz2`: ten inputs at every block size, 90 cases, each
+a length and bzip2's own CRC. The tool refuses any libbzip2 but 1.0.x. It also
+stores two streams whole, which `test_bzip2.cpp` decompresses. One is
+`sample3.bz2` from the bzip2 distribution. The other is a randomised block, the
+kind only bzip2 0.9.0 wrote, which the tool builds and the host's libbzip2
+reads back before the file is written.
+Those four are the cases in the tree with an oracle outside themselves.
 Regenerate any of them by re-running its tool, never by hand.
 
 **`rootfs.zip` is `braam::zlib`'s second oracle.** `test_zip.cpp` already reads

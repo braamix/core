@@ -18,6 +18,7 @@
 #include <wchar.h>
 #include <wctype.h>
 #include <zlib.h>
+#include <bzlib.h>
 
 #include "compat/cenv.h"
 #include "compat/cerr.h"
@@ -927,6 +928,114 @@ void test_zlib_c()
     CHECK_EQ(deflateEnd(&d), Z_DATA_ERROR);
 }
 
+// libbzip2's C API over braam::bzip2: the one-shots' return codes, and a
+// bz_stream driven the way libbzip2's own dlltest.c drives one.
+void test_bzip2_c()
+{
+    CHECK(strcmp(BZ2_bzlibVersion(), "1.0.8, 13-Jul-2019") == 0);
+
+    static char text[6000], packed[7000], back[6000];
+    for (int i = 0; i < 6000; i++)
+        text[i] = "the stream of words, "[i % 21];
+
+    unsigned plen = sizeof packed;
+    CHECK_EQ(BZ2_bzBuffToBuffCompress(packed, &plen, text, sizeof text, 9, 0, 0), BZ_OK);
+    CHECK(plen < 200 && memcmp(packed, "BZh9", 4) == 0);
+    unsigned blen = sizeof back;
+    CHECK_EQ(BZ2_bzBuffToBuffDecompress(back, &blen, packed, plen, 0, 0), BZ_OK);
+    CHECK(blen == sizeof text && memcmp(back, text, sizeof text) == 0);
+    blen = sizeof back;
+    CHECK_EQ(BZ2_bzBuffToBuffDecompress(back, &blen, packed, plen, 1, 0), BZ_OK);
+    CHECK(blen == sizeof text && memcmp(back, text, sizeof text) == 0);
+
+    blen = sizeof back - 1;
+    CHECK_EQ(BZ2_bzBuffToBuffDecompress(back, &blen, packed, plen, 0, 0), BZ_OUTBUFF_FULL);
+    blen = sizeof back;
+    CHECK_EQ(BZ2_bzBuffToBuffDecompress(back, &blen, packed, plen / 2, 0, 0), BZ_UNEXPECTED_EOF);
+    blen = sizeof back; // cut in the trailer: every byte out, as libbzip2 reports it
+    CHECK_EQ(BZ2_bzBuffToBuffDecompress(back, &blen, packed, plen - 1, 0, 0), BZ_OUTBUFF_FULL);
+    char junk[] = "BZh0....";
+    CHECK_EQ(BZ2_bzBuffToBuffDecompress(back, &blen, junk, 8, 0, 0), BZ_DATA_ERROR_MAGIC);
+    packed[12] ^= 1; // the block CRC
+    CHECK_EQ(BZ2_bzBuffToBuffDecompress(back, &blen, packed, plen, 0, 0), BZ_DATA_ERROR);
+    packed[12] ^= 1;
+    unsigned tiny = 20;
+    CHECK_EQ(BZ2_bzBuffToBuffCompress(packed + 1000, &tiny, text, sizeof text, 9, 0, 0),
+             BZ_OUTBUFF_FULL);
+    CHECK_EQ(BZ2_bzBuffToBuffCompress(packed, &tiny, text, sizeof text, 10, 0, 0),
+             BZ_PARAM_ERROR);
+    CHECK_EQ(BZ2_bzBuffToBuffDecompress(back, &blen, packed, plen, 2, 0), BZ_PARAM_ERROR);
+
+    // Run in pieces, a flush, then finish into a few bytes of room at a
+    // time: BZ_FLUSH_OK and BZ_FINISH_OK until each is done.
+    bz_stream c = {};
+    CHECK_EQ(BZ2_bzCompressInit(&c, 1, 0, 30), BZ_OK);
+    c.next_out  = packed;
+    c.avail_out = sizeof packed;
+    for (int at = 0; at < 3000; at += 1000) {
+        c.next_in  = text + at;
+        c.avail_in = 1000;
+        CHECK_EQ(BZ2_bzCompress(&c, BZ_RUN), BZ_RUN_OK);
+        CHECK_EQ(c.avail_in, 0);
+    }
+    CHECK_EQ(BZ2_bzCompress(&c, BZ_RUN), BZ_PARAM_ERROR); // nothing to do
+    unsigned room = c.avail_out;
+    c.avail_out   = 4;
+    CHECK_EQ(BZ2_bzCompress(&c, BZ_FLUSH), BZ_FLUSH_OK);
+    c.avail_in = 1;
+    CHECK_EQ(BZ2_bzCompress(&c, BZ_FLUSH), BZ_SEQUENCE_ERROR); // input changed
+    c.avail_in  = 0;
+    c.avail_out = room - 4;
+    CHECK_EQ(BZ2_bzCompress(&c, BZ_FLUSH), BZ_RUN_OK);
+    c.next_in  = text + 3000;
+    c.avail_in = 3000;
+    int rc;
+    do {
+        room        = c.avail_out;
+        c.avail_out = room < 5 ? room : 5;
+        unsigned rest = room - c.avail_out;
+        rc            = BZ2_bzCompress(&c, BZ_FINISH);
+        c.avail_out += rest;
+    } while (rc == BZ_FINISH_OK);
+    CHECK_EQ(rc, BZ_STREAM_END);
+    CHECK_EQ(BZ2_bzCompress(&c, BZ_FINISH), BZ_SEQUENCE_ERROR);
+    CHECK_EQ(c.total_in_lo32, sizeof text);
+    CHECK_EQ(c.total_in_hi32, 0);
+    plen = c.total_out_lo32;
+    CHECK(c.next_out == packed + plen);
+    CHECK_EQ(BZ2_bzCompressEnd(&c), BZ_OK);
+    CHECK_EQ(BZ2_bzCompressEnd(&c), BZ_PARAM_ERROR);
+
+    // A byte in and a byte out.
+    bz_stream d = {};
+    CHECK_EQ(BZ2_bzDecompressInit(&d, 0, 0), BZ_OK);
+    d.next_in  = packed;
+    d.next_out = back;
+    rc         = BZ_OK;
+    while (rc == BZ_OK) {
+        d.avail_in  = d.total_in_lo32 < plen ? 1 : 0;
+        d.avail_out = 1;
+        rc          = BZ2_bzDecompress(&d);
+    }
+    CHECK_EQ(rc, BZ_STREAM_END);
+    CHECK_EQ(d.total_in_lo32, plen);
+    CHECK_EQ(d.total_out_lo32, sizeof text);
+    CHECK(memcmp(back, text, sizeof text) == 0);
+    CHECK_EQ(BZ2_bzDecompress(&d), BZ_SEQUENCE_ERROR);
+
+    // A copied struct is not the stream its state belongs to.
+    bz_stream moved;
+    memcpy(&moved, &d, sizeof d);
+    CHECK_EQ(BZ2_bzDecompress(&moved), BZ_PARAM_ERROR);
+    CHECK_EQ(BZ2_bzCompressEnd(&d), BZ_PARAM_ERROR);
+    CHECK_EQ(BZ2_bzDecompressEnd(&d), BZ_OK);
+
+    CHECK_EQ(BZ2_bzCompressInit(&c, 0, 0, 30), BZ_PARAM_ERROR);
+    CHECK_EQ(BZ2_bzCompressInit(&c, 9, 0, 251), BZ_PARAM_ERROR);
+    CHECK_EQ(BZ2_bzDecompressInit(&d, 5, 0), BZ_PARAM_ERROR);
+    CHECK_EQ(BZ2_bzDecompressInit(&d, 0, 2), BZ_PARAM_ERROR);
+}
+
 } // namespace
 
 void test_compat()
@@ -953,4 +1062,5 @@ void test_compat()
     test_queue();
     test_bmode();
     test_zlib_c();
+    test_bzip2_c();
 }
