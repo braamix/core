@@ -739,9 +739,11 @@ awaitable with no destructor is a use-after-free.
 
 ### 8.2 Coroutine frame allocation is the hot path
 Frames are heap-allocated per call, so the allocator is built with this as its
-primary workload. A frame is rounded up to a power of two and shares a 64 KiB
-span with others of its size up to 32 KiB; one past that costs whole spans, so long-lived state
-belongs in a heap block the frame points at.
+primary workload. Up to 512 bytes a block is a power-of-two size class with no
+header, taken and returned in O(1); up to 32 KiB it is first fit in a shared
+arena behind a 16-byte tag; past that it is whole 64 KiB spans. A frame belongs
+in the first tier, so long-lived state belongs in a heap block the frame points
+at.
 
 ### 8.3 Never let an import return data synchronously
 Beyond the sanctioned exceptions (§2.2). One exception is pragmatic; a class of

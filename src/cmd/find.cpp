@@ -53,7 +53,7 @@ struct FindCand {
 };
 
 // Everything that outlives an await, in one heap block: a coroutine frame past
-// 512 bytes costs a whole 64 KiB span.
+// 512 bytes is an arena block rather than a size class.
 struct Finder {
     Vec<FindNode> nodes;
     u32 root    = 0;

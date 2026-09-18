@@ -553,6 +553,64 @@ a broken tree. A `package.json` in `web/` would cure the import and not the
 decompressor, and would ship with the site; `test/CMakeLists.txt` refuses an
 older Node when configuring instead, naming the version it found.
 
+## The allocator grew an arena between the classes and the spans
+
+v0.1's allocator had ten size classes up to 512 bytes and gave anything larger
+whole 64 KiB spans. That cliff shaped code all over the tree: frames were kept
+under 512 bytes, `FS_BLOCK` was set to 512, and replies took two round trips.
+It was also paid for where nobody looked. One kernel coroutine has a 1,480-byte
+frame, and over a run of the system suite it is allocated 142,752 times, each
+time a span taken off the free runs and put back.
+
+The first fix made the classes powers of two up to 32 KiB. That removed the
+cliff, but it put a second problem into the range that used to be recycled: a
+span that has served a class keeps that class for the life of the heap. A burst
+of 8 KiB blocks, freed, left spans that no 1 MiB `Vec` could ever use, and the
+kernel's heap lives as long as the tab.
+
+So there are now three tiers. Up to 512 bytes nothing changed in kind: a
+power-of-two class, no header, O(1), and `span_class[p >> 16]` for `free`. Above
+32 KiB nothing changed at all. Between them is an **arena**: spans tagged
+`SPAN_ARENA`, holding blocks of any size, each behind a 16-byte boundary tag
+(size, the size of the block below, and a live/free word). Allocation is first
+fit over an address-ordered free list, a free merges with both neighbours, and a
+span that empties goes back to the free runs, bar one that is kept so a block
+allocated and freed in a loop does not claim and return a span on every turn.
+The tag's live word keeps `heap_free`'s "not an allocation" panic working.
+
+A single first-fit heap with no classes was considered and rejected. It merges
+everything, which fixes stranding completely, but it puts a header on every
+16-byte block, which is what the v0.1 design was built to avoid. First fit is
+also at its worst on a stream of small short-lived blocks, and frames are
+exactly that.
+
+The choice was measured, not argued. The system suite was run once with every
+heap traced — 14 kernel instances and 3,166 process heaps, 4.6 million
+operations — and the one trace was replayed against each candidate, every block
+stamped and checked:
+
+| | v0.1 | pow2 to 32 KiB | arena, v0.1 classes | arena, pow2 classes |
+|---|---|---|---|---|
+| ns per operation | 5.9 | 5.0 | 5.3 | 5.3 |
+| kernel peak in use, KiB (2,556 requested) | 4,315 | 2,574 | 2,572 | 2,573 |
+| kernel peak reserved, KiB | 5,056 | 4,416 | 4,352 | 4,160 |
+| processes, summed peak reserved, MiB | 1,534 | 1,216 | 1,497 | 1,202 |
+
+The one surprise is the last row. v0.1's in-between classes (48, 96, 192, 384)
+cost more than they save: most processes are small, and a small heap's
+footprint is mostly one span for each class it touches, so more classes means
+more spans. The small classes are therefore powers of two. A 33-byte block
+wastes 31 bytes, and a 16-entry table replaces the old linear search for the
+class.
+
+First fit on the arena does not show up in the timings: fewer than one
+allocation in nine is above 512 bytes, and the arena's free list stays short.
+Against v0.1 the arena saves only a little on this workload, because the suite's
+commands are short-lived; what it buys is structural, since arena memory merges
+and returns to the free runs where `pow2`'s never does. What does not change: a
+frame past 512 bytes is still worth moving to the heap. It no longer costs a
+span, but it leaves the O(1) path for a list walk, on every call.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

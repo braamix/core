@@ -10,8 +10,8 @@
 
 namespace {
 
-// The walk's state, off the coroutine frame: a frame past 512 bytes costs a
-// whole 64 KiB span.
+// The walk's state, off the coroutine frame: a frame past 512 bytes is an
+// arena block rather than a size class.
 struct CompWork {
     Vec<String> names;
     Vec<DirEntry> ents;

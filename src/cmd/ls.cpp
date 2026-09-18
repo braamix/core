@@ -39,9 +39,9 @@ constexpr Str USAGE =
 constexpr usize STAMP_W  = 12;
 constexpr i64 STAMP_NEAR = 15778476; // six months in seconds
 
-// Everything that outlives an await. A coroutine frame past 512 bytes costs a
-// whole 64 KiB span, so the entries, the recursion and the row being built live
-// in one heap block instead.
+// Everything that outlives an await. A coroutine frame past 512 bytes is an
+// arena block rather than a size class, so the entries, the recursion and the
+// row being built live in one heap block instead.
 struct Lister {
     bool detail  = false; // -l
     bool columns = false; // -C, or a terminal with no layout flag given

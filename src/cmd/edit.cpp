@@ -18,7 +18,7 @@
 namespace {
 
 // The whole of the editor's state, in a heap block: in the coroutine frame it
-// would cost a 64 KiB span (Concept.md §8.2).
+// would push the frame into the arena (Concept.md §8.2).
 struct Editor {
     TextBuf buf;
     TextView view;

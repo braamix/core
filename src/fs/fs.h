@@ -48,7 +48,7 @@ enum : u32 {
 };
 
 // Files are read and written a block at a time. 512 is the allocator's top size
-// class: a byte more costs a whole 64 KiB span (Concept.md §8.2).
+// class: a byte more is an arena block (Concept.md §8.2).
 constexpr usize FS_BLOCK = 512;
 
 // The longest link target, and the most links a path may cross before the walk

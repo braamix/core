@@ -7,8 +7,8 @@
 
 namespace {
 
-// The walk's state, off the coroutine frame: a frame past 512 bytes costs a
-// whole 64 KiB span.
+// The walk's state, off the coroutine frame: a frame past 512 bytes is an
+// arena block rather than a size class.
 struct Walk {
     Vec<String> at;   // the prefixes matched so far, each ending in '/' or empty
     Vec<String> next; // what this component makes of them

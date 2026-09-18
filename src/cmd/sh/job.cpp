@@ -37,8 +37,8 @@ struct Saved {
 };
 
 // Everything a running pipeline owns, on the heap rather than in run_line's
-// frame: the allocator's top size class is 512 bytes and a frame past it costs
-// a whole 64 KiB span (Concept.md §8.2). One per pipeline, not per line:
+// frame: the allocator's top size class is 512 bytes and a frame past it is
+// an arena block (Concept.md §8.2). One per pipeline, not per line:
 // two live at once the moment a substitution runs a pipeline inside a word.
 struct Run {
     const Tree *t = nullptr; // borrowed: run_line outlives every Run under it

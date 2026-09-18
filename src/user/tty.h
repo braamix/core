@@ -51,7 +51,7 @@ using KeyRing = Channel<Key, KEY_RING>;
 // editor stays killable.
 //
 // The ring is a heap block because a KeyRing inside a coroutine frame would
-// push it past the allocator's top size class and cost a whole 64 KiB span.
+// push it past the allocator's top size class and into the arena.
 struct KeyInput {
     KeyInput(Term &t, u32 pid);
 

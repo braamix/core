@@ -7,7 +7,7 @@
 struct HeapStats {
     usize spans;          // 64 KiB spans claimed from linear memory
     usize bytes_reserved; // spans * SPAN_SIZE
-    usize bytes_in_use;   // sum of the size classes of live blocks
+    usize bytes_in_use;   // sum of the blocks behind live allocations
     usize allocs;
     usize frees;
     usize frames; // allocations through the nothrow new: coroutine frames only
@@ -26,7 +26,8 @@ HeapStats heap_stats();
 // The span-aligned address the heap actually starts at.
 usize heap_origin();
 
-// Size class a request of n bytes lands in, or n rounded up to whole spans.
+// Usable bytes a request of n gets: its size class, n rounded up to 16 in the
+// arena, or n rounded up to whole spans.
 usize heap_block_size(usize n);
 
 // Bytes behind a live allocation. Zero for null; traps on anything else that

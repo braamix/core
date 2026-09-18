@@ -5,22 +5,24 @@ void test_alloc()
 {
     test_begin("alloc");
 
-    // Size classes round up as documented, and large requests take whole spans.
+    // Size classes round up as documented, a middle request to 16 bytes, and
+    // large requests take whole spans.
     CHECK_EQ(heap_block_size(1), 16);
     CHECK_EQ(heap_block_size(16), 16);
     CHECK_EQ(heap_block_size(17), 32);
     CHECK_EQ(heap_block_size(33), 64);
     CHECK_EQ(heap_block_size(100), 128);
+    CHECK_EQ(heap_block_size(200), 256);
+    CHECK_EQ(heap_block_size(385), 512);
     CHECK_EQ(heap_block_size(512), 512);
-    CHECK_EQ(heap_block_size(513), 1024);
-    CHECK_EQ(heap_block_size(1000), 1024);
-    CHECK_EQ(heap_block_size(4097), 8192);
+    CHECK_EQ(heap_block_size(513), 528);
+    CHECK_EQ(heap_block_size(1000), 1008);
     CHECK_EQ(heap_block_size(32768), 32768);
     CHECK_EQ(heap_block_size(32769), 65536);
     CHECK_EQ(heap_block_size(65537), 131072);
 
-    // A middle class shares its span: a thousand kilobyte blocks are a
-    // megabyte and a half, not sixty-four.
+    // Middle blocks share a span: a thousand of a kilobyte are sixteen spans,
+    // not a thousand, and they give all but one back when freed.
     usize held = heap_stats().bytes_reserved;
     void **kb  = static_cast<void **>(heap_alloc(1000 * sizeof(void *)));
     CHECK(kb != nullptr);
@@ -28,15 +30,40 @@ void test_alloc()
         kb[i] = heap_alloc(1000);
         CHECK(kb[i] != nullptr);
         CHECK_EQ(reinterpret_cast<usize>(kb[i]) & 15u, 0);
-        static_cast<u8 *>(kb[i])[999] = u8(i);
+        CHECK(heap_usable_size(kb[i]) >= 1000);
+        for (usize j = 0; j < 1000; j++)
+            static_cast<u8 *>(kb[i])[j] = u8(i);
     }
     CHECK(heap_stats().bytes_reserved - held <= 20 * 65536);
-    for (usize i = 0; i < 1000; i++) {
-        CHECK_EQ(static_cast<u8 *>(kb[i])[999], u8(i));
-        CHECK_EQ(heap_usable_size(kb[i]), 1024);
+    bool whole = true;
+    for (usize i = 0; i < 1000; i += 2) // evens first, so odds merge both ways
+        for (usize j = 0; j < 1000; j++)
+            if (static_cast<u8 *>(kb[i])[j] != u8(i))
+                whole = false;
+    CHECK(whole);
+    for (usize i = 0; i < 1000; i += 2)
         heap_free(kb[i]);
-    }
+    for (usize i = 1; i < 1000; i += 2)
+        heap_free(kb[i]);
     heap_free(kb);
+    usize grown = heap_stats().bytes_reserved;
+    void *after = heap_alloc(12 * 65536); // fits only in the spans given back
+    CHECK(after != nullptr);
+    CHECK_EQ(heap_stats().bytes_reserved, grown);
+    heap_free(after);
+
+    // A freed middle block is reused by a smaller request, and the rest of it
+    // stays free for another.
+    u8 *m1 = static_cast<u8 *>(heap_alloc(4000));
+    u8 *m2 = static_cast<u8 *>(heap_alloc(4000));
+    heap_free(m1);
+    u8 *m3 = static_cast<u8 *>(heap_alloc(1000));
+    u8 *m4 = static_cast<u8 *>(heap_alloc(1000));
+    CHECK(m3 == m1);
+    CHECK(m4 > m3 && m4 < m2);
+    heap_free(m3);
+    heap_free(m4);
+    heap_free(m2);
 
     // Every block is 16-aligned, and distinct.
     void *p[64];

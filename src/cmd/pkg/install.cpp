@@ -40,7 +40,7 @@ struct Broken {
     Str name, version, script;
 };
 
-// Everything one run holds: a frame past 512 bytes costs a 64 KiB span.
+// Everything one run holds: a frame past 512 bytes is an arena block.
 struct Txn {
     CheckedIndex index;
 

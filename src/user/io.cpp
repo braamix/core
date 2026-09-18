@@ -69,7 +69,7 @@ Result<String> file_read(void *ctx)
         return Err(Error::Closed);
 
     // One block per read: FS_BLOCK is the allocator's top size class, so the
-    // chunk this hands to a pipe costs one block and not a whole span
+    // chunk this hands to a pipe is a size class and not an arena block
     // (Concept.md §8.2). Reading is synchronous, so the staging buffer can sit
     // on the stack rather than in a frame.
     u8 block[FS_BLOCK];
@@ -133,7 +133,7 @@ Task<Result<String>> read_file(Str path)
     i32 fd = CO_TRY(co_await t);
 
     // The staging block is on the heap rather than in this frame: FS_BLOCK is
-    // the allocator's top size class, and a frame that big costs a whole span
+    // the allocator's top size class, and a frame that big is an arena block
     // (Concept.md §8.2).
     u8 *block = static_cast<u8 *>(heap_alloc(FS_BLOCK));
     String out;

@@ -593,8 +593,9 @@ Four rules, all of which bite:
   decided by one `tty_of` on the first flush. `stderr` is unbuffered and
   allocates nothing. `set_buffering` overrides all of it.
 - **The buffer is 512 bytes and the block is heap, but a `char buf[4096]` of
-  your own is not.** It makes the coroutine frame that holds it an 8 KiB block.
-  Read into a small span and let the `File` do the buffering, or say
+  your own is not.** It moves the coroutine frame that holds it out of the size
+  classes and into the arena, on every call. Read into a small buffer and let
+  the `File` do the buffering, or say
   `reserve(SYS_READ_MAX)`, which is one span exactly — `/bin/cat` does both.
 
 ### `proc/time.h` — the calendar
@@ -843,9 +844,10 @@ link error or a trap rather than a warning:
 - **A namespace-scope global must be trivially destructible.** A non-trivial
   destructor pulls in `__cxa_atexit`, which nothing provides. Make the state a
   POD, or put it behind a pointer built on first use.
-- **Keep coroutine frames small.** A frame is rounded up to a power of two,
-  and one past 32 KiB costs whole 64 KiB spans. Long-lived state
-  belongs in a heap block the frame points at, not in the frame.
+- **Keep coroutine frames small.** Up to 512 bytes a frame is a size class
+  taken in O(1); past it, first fit in the allocator's arena, and past 32 KiB
+  whole 64 KiB spans. Long-lived state belongs in a heap block the frame points
+  at, not in the frame.
 - **The memory cap is 100 MB**, and it is the kernel's number, not the binary's:
   `--import-memory` with no declared maximum means the host supplies the
   `Memory` and its ceiling.

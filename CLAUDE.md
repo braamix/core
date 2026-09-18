@@ -222,9 +222,10 @@ Further constraints, easy to violate by habit:
 - **Every awaitable is cancellation-aware**; `CancelToken` participates in every
   `await_suspend`, and **every awaiter deregisters in its destructor**
   (`sched_unwait` from `~Awaiter`).
-- **Coroutine frame allocation is the hot path.** A frame past 512 bytes costs a
-  whole 64 KiB span; long-lived state belongs in a heap block the frame points
-  at. `FS_BLOCK` is 512 for the same reason.
+- **Coroutine frame allocation is the hot path.** Up to 512 bytes a frame is a
+  headerless size class; past it, a first-fit arena block behind a 16-byte tag,
+  and past 32 KiB whole 64 KiB spans (§8.2). Long-lived state belongs in a heap
+  block the frame points at. `FS_BLOCK` is 512, the top size class.
 - **A per-item loop is an awaiter, not a `Task`.** A `Task` that answers without
   suspending resumes its awaiter on the awaiter's own stack, so a loop that
   calls one per item never reaches the trampoline and the shadow stack grows a
