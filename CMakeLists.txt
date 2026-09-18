@@ -27,6 +27,7 @@ set(BRAAM_INSTALL_LIBDIR      lib/braam)
 set(BRAAM_INSTALL_CMAKEDIR    lib/cmake/braam)
 set(BRAAM_INSTALL_LIBEXECDIR  libexec/braam)
 set(BRAAM_INSTALL_EXAMPLESDIR share/braam/examples)
+set(BRAAM_INSTALL_HARNESSDIR  share/braam)
 set(BRAAM_INSTALL_DOCDIR      share/doc/braam)
 
 # Flags shared by every wasm target.
@@ -229,7 +230,8 @@ set(BRAAM_CONFIG ${CMAKE_BINARY_DIR}/gen/cmake/braamConfig.cmake)
 configure_package_config_file(
     cmake/braamConfig.cmake.in ${BRAAM_CONFIG}
     INSTALL_DESTINATION ${BRAAM_INSTALL_CMAKEDIR}
-    PATH_VARS BRAAM_INSTALL_INCLUDEDIR BRAAM_INSTALL_LIBEXECDIR BRAAM_INSTALL_EXAMPLESDIR)
+    PATH_VARS BRAAM_INSTALL_INCLUDEDIR BRAAM_INSTALL_LIBEXECDIR BRAAM_INSTALL_EXAMPLESDIR
+              BRAAM_INSTALL_HARNESSDIR)
 install(FILES ${BRAAM_CONFIG}
               cmake/BraamProgram.cmake
               cmake/wasm32-unknown-unknown.cmake
@@ -244,6 +246,16 @@ install(PROGRAMS tools/stamp.py tools/mkpkg.py tools/pack.py
                  tools/mkindex.py tools/mkanchor.py
         DESTINATION ${BRAAM_INSTALL_LIBEXECDIR})
 install(DIRECTORY examples/hello DESTINATION ${BRAAM_INSTALL_EXAMPLESDIR})
+
+# The headless harness, for a program's own tests, and the kernel and archive
+# it boots. The import closure keeps its relative layout: harness.mjs reaches
+# ../fakefs.mjs and ../../web/fs.js, and web/ is build/web/'s shape.
+install(FILES test/system/harness.mjs DESTINATION ${BRAAM_INSTALL_HARNESSDIR}/test/system)
+install(FILES test/fakefs.mjs test/fakesvc.mjs test/fakeworker.mjs
+        DESTINATION ${BRAAM_INSTALL_HARNESSDIR}/test)
+install(FILES web/abi.js web/fs.js web/host.js web/proc.js web/svc.js
+              $<TARGET_FILE:kernel> ${CMAKE_BINARY_DIR}/web/rootfs.zip
+        DESTINATION ${BRAAM_INSTALL_HARNESSDIR}/web)
 install(FILES doc/Programming_Manual.md LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR})
 
 # Last, and said where it is read: the toolchain file is the one thing a
@@ -270,6 +282,9 @@ add_custom_target(release
             --require ${BRAAM_INSTALL_CMAKEDIR}/braamConfig.cmake
             --require ${BRAAM_INSTALL_LIBDIR}/libbraam_proc.a
             --require ${BRAAM_INSTALL_INCLUDEDIR}/proc/io.h
+            --require ${BRAAM_INSTALL_HARNESSDIR}/test/system/harness.mjs
+            --require ${BRAAM_INSTALL_HARNESSDIR}/web/kernel.wasm
+            --require ${BRAAM_INSTALL_HARNESSDIR}/web/rootfs.zip
     DEPENDS web
     VERBATIM
     COMMENT "Packing the site and the SDK into deployable archives")

@@ -6,15 +6,16 @@ of it; [Release_Notes.md](Release_Notes.md) holds the arguments.
 
 ---
 
-## 1. The three cases
+## 1. The four cases
 
-`make run` is `ctest`, and there are three names:
+`make run` is `ctest`, and there are four names:
 
 | Name | What runs | What it proves |
 |---|---|---|
 | `system` | `test/run.mjs --kernel kernel.wasm rootfs.zip <bin>...` under Node | the shipping kernel, booted, driven by keystrokes, running real programs |
 | `unit` | `test/run.mjs --tests tests.wasm rootfs.zip` under Node | the kernel's own code, called directly, below the level of a program |
 | `size` | `tools/size_budget.txt` | `kernel.wasm` is inside its budget |
+| `sdk` | `test/sdk.mjs` on the SDK installed into `build/sdk-check/` | the harness, kernel and archive the SDK ships boot and run `hello`: nothing the harness imports was left out |
 
 One at a time: `ctest --test-dir build -R system --output-on-failure`.
 

@@ -47,6 +47,8 @@ Either way, this is what you get:
 | `libexec/braam/mkpkg.py` | the package builder (§3.1), with `pack.py` beside it |
 | `libexec/braam/mkindex.py` | the publisher's tools (§3.1): `mkanchor.py`, `signindex.py` and `ed25519.py` beside it |
 | `share/braam/examples/hello/` | the example below |
+| `share/braam/test/system/harness.mjs` | the headless harness (§3.3), with its fakes beside it |
+| `share/braam/web/` | the kernel and boot archive the harness runs, and the JS they need |
 | `share/doc/braam/Programming_Manual.md` | this file |
 
 You also need what Braam itself needs: a clang with the wasm32 target and
@@ -239,6 +241,52 @@ terminal saying *reload to start again* and nothing else running. It is
 naming a program withholds boot's own report of the browser, the machine and the
 store, and the `unpacked N files` the first visit would say. One line is left
 above it, that braam booted at all, and `/proc/host` still answers the rest.
+
+### 3.3 Testing it headlessly
+
+The SDK carries Braam's own test harness and the kernel and boot archive of the
+same release, so a program can be tested under Node with nothing else. The
+harness is `share/braam/test/system/harness.mjs`; `find_package(braam)` sets
+`BRAAM_HARNESS`, `BRAAM_KERNEL` and `BRAAM_ROOTFS` to it and the two files it
+boots, which are `share/braam/web/kernel.wasm` and `rootfs.zip`. Node 22.12 or
+later.
+
+```js
+const H = await import(`${sdk}/share/braam/test/system/harness.mjs`);
+await H.init(`${sdk}/share/braam/web/kernel.wasm`, `${sdk}/share/braam/web/rootfs.zip`);
+H.kernel().init(0);                     // without it the kernel traps
+H.run(0);                               // boot; -1 once the kernel is idle
+H.regrid(80, 24, "no screen");          // terminal 0, and a shell on it
+H.store.files.set("/bin/hello", new Uint8Array(readFileSync("hello.wasm")));
+H.type("hello >/tmp/o");
+H.press(H.KEY.ENTER);
+for (let now = 1, d = H.run(now); d !== -1; d = H.run(now)) now += d > 0 ? d : 1;
+H.store.files.get("/tmp/o");            // "Hello, world!\n", as bytes
+```
+
+**Plant, do not pack.** `exec` takes any path carrying a well-formed stamp, and
+`/bin` is ordinary store content once boot has unpacked the archive, so
+`store.files` is where a binary, its data and its input go, and where its
+output is read back. Test a program that reads and writes through files
+redirected on its command line rather than through the grid: a long transcript
+does not fit on 24 rows, and a program reading a file behaves as it will in a
+pipe. `screen()`, `row()` and `rows()` read the grid when that is the point.
+
+**`run(now)` pumps until the kernel is idle** and returns the delay to the next
+timer, or −1 when there is none; that is how a test waits, and there is no
+sleep. **The clock is frozen**: `now` is what the test says it is, so
+`proc_now()` measures nothing and anything that times itself has to be checked
+in a browser.
+
+**The keyboard is a 64-key channel** and `type()` posts a whole line without
+checking, so keep a command line under sixty characters. `press(code, CTRL)`
+between two `run`s is a `^C` — but a signal is delivered where a process
+parks, and a program that computes without parking finishes inside one `run`.
+Aim one at such a program by queueing two lines before the first tick: the job
+in the background, and `kill -INT %1` behind it.
+
+The harness is one session per Node process. The exported names are part of
+the SDK: a change to them is a release note.
 
 ---
 

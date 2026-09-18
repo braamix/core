@@ -159,3 +159,14 @@ add_test(NAME unit
             ${CMAKE_BINARY_DIR}/web/rootfs.zip)
 
 add_test(NAME size COMMAND ${BRAAM_SIZE_BUDGET_CHECK})
+
+# The SDK installed into a stage of its own, and its harness run from there:
+# what an out-of-tree program's tests get is checked, not the source tree.
+set(BRAAM_SDK_CHECK ${CMAKE_BINARY_DIR}/sdk-check)
+add_test(NAME sdk-install
+    COMMAND ${CMAKE_COMMAND} --install ${CMAKE_BINARY_DIR} --prefix ${BRAAM_SDK_CHECK})
+set_tests_properties(sdk-install PROPERTIES FIXTURES_SETUP sdk)
+add_test(NAME sdk
+    COMMAND ${BRAAM_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/sdk.mjs ${BRAAM_SDK_CHECK}
+            $<TARGET_FILE:bin_hello>)
+set_tests_properties(sdk PROPERTIES FIXTURES_REQUIRED sdk)
