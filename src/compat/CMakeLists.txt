@@ -2,8 +2,8 @@
 # src/cmd/ has no libc, and include/ is not on braam::flags' path. A program
 # asks for it by name, and one that does not is byte-for-byte unchanged.
 
-# Group A: pure computation. Links braam_flags, braam_math and braam_regex
-# alone — no syscall, no host import — which is what lets tests.wasm link it,
+# Group A: pure computation. Links braam_flags, braam_math, braam_regex and
+# braam_zlib alone — no syscall, no host import — which is what lets tests.wasm link it,
 # exactly as it does braam_math.
 #
 # ctime.cpp, cwchar.cpp and cwctype.cpp reference civil()/civil_secs() and the
@@ -37,7 +37,8 @@ add_library(braam_compat_pure STATIC
     ctime.cpp
     cwchar.cpp
     cwctype.cpp
-    cwidth.cpp)
+    cwidth.cpp
+    czlib.cpp)
 
 # PUBLIC: a memcpy compiled with the builtin recognised becomes a call to
 # itself, and clang turns a consumer's `while (w[n]) n++` into a wcslen call.
@@ -51,7 +52,7 @@ target_include_directories(braam_compat_pure INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${BRAAM_INSTALL_INCLUDEDIR}/compat/include>)
 target_include_directories(braam_compat_pure PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(braam_compat_pure PUBLIC braam_math braam_regex braam_flags)
+target_link_libraries(braam_compat_pure PUBLIC braam_math braam_regex braam_zlib braam_flags)
 
 # snprintf's float arm, and the stub that stands where it would be: 5 KB every
 # port paid for %d alone, since --gc-sections works at function granularity.

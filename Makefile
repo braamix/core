@@ -38,8 +38,8 @@ endif
 	 trap "kill $$! 2>/dev/null" EXIT INT TERM; \
 	 cmake --build $(BUILD) --target serve
 
-# The SDK — headers, the two libraries a program links, the CMake package and
-# the hello example. See doc/Programming_Manual.md.
+# The SDK — headers, the libraries a program links, the CMake package, the
+# examples and the test harness. See doc/Programming_Manual.md.
 install: all
 	@cmake --install $(BUILD) --prefix $(PREFIX)
 

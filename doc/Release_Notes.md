@@ -592,6 +592,86 @@ past the declared size, so the last growth lands on exactly `S` and the pair
 alive at once is under twice it, where a doubling past it could be three times.
 `index.cpp` bounds an index body through the same sink and gets the same.
 
+## zlib, rewritten rather than vendored
+
+`braam::zlib` is the SDK's third library beside `braam::math` and
+`braam::regex`. Until now a program could inflate only through `Sys::Inflate`,
+which is the host's `DecompressionStream`. It could compress nothing, and it
+could not compute a CRC-32 or an Adler-32 without writing its own. A port that
+speaks gzip, zlib or PNG had nothing to link.
+
+**It is a rewrite of zlib 1.3.2.1 in C++, not zlib's C with a prologue.**
+musl's libm went the vendored way, but zlib does not fit that shape. Its
+`zutil.h` wants `<string.h>` and `<stdlib.h>` unless it is built `Z_SOLO`, and
+`Z_SOLO` makes `compress()` and a zero `zalloc` fail outright. So vendoring
+would have meant either shim headers answering libc names inside the library,
+or an API that refuses its own defaults.
+
+The rewrite keeps the algorithms step for step: inflate's modes, the fast path,
+the table builder, deflate's hash chains, the lazy match and the block choice.
+It changes the rest:
+
+- Its types are the tree's: `Span`, `Str`, `Result` and `heap_alloc`.
+- The fixed Huffman tables and trees.c's static trees are built at compile time
+  by the same code that builds the dynamic ones, rather than carried as
+  generated headers.
+- deflate.c and trees.c are one file, so there is no private header for the
+  install glob to ship.
+
+**Byte-identity is the oracle, and that is why the translation is so literal.**
+A deflate may choose any valid encoding, so a round trip proves only that
+inflate undoes deflate. `tools/mkzlibdata.py` therefore records what the host's
+zlib makes of eight inputs across every level, strategy, window and memory
+level. `test_zlib.cpp` requires the same bytes, which pins every heuristic.
+
+The host's zlib was 1.2.12, and it agreed on all 300 cases. So the two changes
+the byte-identity has to allow for were known in advance:
+
+- **The gzip OS byte.** macOS writes 19 and this writes 3, Unix. The tool
+  normalises it before taking the CRC.
+- **Level 0's stored blocks.** They are cut to whatever output room deflate is
+  given, and Python grows that room as it goes. So level 0 is recorded only for
+  inputs that fit Python's first output block.
+
+The tool refuses zlib-ng, whose streams are valid but not zlib's.
+
+**The API is Braam's, and zlib's C API is the port kit's.** A native caller
+gets two objects, `Deflater` and `Inflater`, stepped over a span in and a span
+out. Their status is a `ZStatus` that names zlib's return codes rather than
+numbering them. A `PORT` target gets `<zlib.h>`, zlib's own `z_stream` API,
+from `czlib.cpp`. That file is an adapter: the stream's fields are copied in
+before each call and out after. `gz_header` and `ZHeader` are the same layout,
+asserted, so a header pointer passes through unchanged.
+
+`zalloc` and `zfree` are accepted and never called. A port that counts its
+allocations through them sees nothing, but none of the ports in view does.
+
+**`Sys::Inflate` stays.** The kernel does not link `braam::zlib`, and a leaf
+library that the kernel reached would stop being a leaf. The host's inflate is
+also native and already streams out of a descriptor. What changed for `/bin/pkg`
+is only the unit suite: `test_zip.cpp` now inflates every entry of `rootfs.zip`
+a second time, with this code, and compares the two answers. So Python's
+deflate is checked against two independent inflates.
+
+**`gz*` is absent**, each function a compile error that names its replacement.
+`gzopen` is a file, and a file here is a coroutine (Compat.md §4). A
+synchronous `gzread` over it would be the blocking call the port kit exists to
+refuse. A gzip file is `inflate()` with `windowBits` 31 over bytes the program
+read. `inflateBack` goes too: it is a second inflate driven by callbacks, and
+`inflate()` does the same work.
+
+**Every call is synchronous.** Nothing in zlib waits, so `step` computes and
+returns. A caller with megabytes steps a chunk at a time, as `examples/zpipe`
+does, and the event loop turns between the chunks. This is the same bargain as
+`regexec`.
+
+The zlib licence asks that an altered version say so. `src/zlib/LICENSE` says
+it and keeps the original notice. The SDK installs that file as
+`share/doc/braam/zlib-LICENSE`, and each source file names the zlib file it was
+translated from. `examples/zpipe` is zlib's own example rewritten. It is the
+in-tree caller that keeps the SDK side building, and the `sdk` test
+round-trips `/etc/help` through it under the installed harness.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

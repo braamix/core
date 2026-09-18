@@ -39,7 +39,8 @@ guard, and it is tested.
 `strtod` families, `qsort`/`mergesort`/`bsearch`,
 `snprintf`/`vsnprintf`/`sprintf`, `errno`, `strerror`, `getenv`, the calendar
 (`<time.h>`), the wide half (`<wchar.h>`, `<wctype.h>`), `fnmatch`,
-`<sys/queue.h>` and `<regex.h>`. Group A has no syscall, which is why
+`<sys/queue.h>`, `<regex.h>` and `<zlib.h>`. Group A has no syscall, which is
+why
 `braam_compat_pure` links
 into `tests.wasm` the way `braam_math` does: a syscall in it is a link error.
 
@@ -163,6 +164,23 @@ freestanding `<endian.h>` arrived only in clang 23.
   system's own library and not a Group A translation unit — the flag surface,
   the two departures from POSIX and what it costs are in
   Programming_Manual.md §6.
+- **`<zlib.h>` is zlib 1.3.2.1's C API over `braam::zlib`**, and deflate's
+  output is zlib's, byte for byte. The API includes:
+  - `z_stream`, `deflateInit2`, `inflateInit2` and every flush;
+  - dictionaries, `gz_header`, `deflateParams`, `inflateSync` and the copies;
+  - `compress2` and `uncompress2`, with zlib's return codes;
+  - `crc32` and `adler32` with their `_combine` forms.
+
+  `czlib.cpp` is an adapter only. A `z_stream`'s state holds the library's
+  `Deflater` or `Inflater`, and the stream's fields are copied in before each
+  call and out after. Four things differ from zlib:
+  - `zalloc`, `zfree` and `opaque` are accepted and never called; the heap
+    serves every allocation.
+  - The whole of `gz*` is `BRAAM_ABSENT`, a compile error at the call. A gzip
+    file is `inflate()` with `windowBits` 31 over bytes `b_read` gave, or 47 to
+    take zlib too.
+  - `inflateBack*`, `inflateResetKeep` and `get_crc_table` are absent as well.
+  - `zlibCompileFlags()` sets bit 16, "no gz* compression".
 - **`strerror` returns the POSIX *name***, `"ENOENT"`. Every byte of English
   prose a Unix libc spends here stays unspent. It is **not** `error_name()` in
   `kernel/result.h`, which answers prose — `"not found"` — and is what the rest
@@ -300,6 +318,10 @@ arm costs, since `--gc-sections` drops the rest:
 | `gmtime_r`, `strftime` | +4,337 |
 | `strtod` | +6,898 |
 | `regcomp`, `regexec` and `regerror` | +16,865 |
+| `crc32` | +4,564 |
+| `uncompress` | +22,632 |
+| `compress2` | +31,247 |
+| `compress2` and `uncompress` | +48,525 |
 
 `<sys/queue.h>` is macros, so its 107 bytes are the caller's own loop. `fnmatch`
 carries the twelve `ctype` predicates because a POSIX character class names them

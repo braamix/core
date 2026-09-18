@@ -32,11 +32,12 @@ Either way, this is what you get:
 
 | Path | What it is |
 | --- | --- |
-| `include/braam/{kernel,fs,proc,ui,math,regex}/` | the headers a program includes |
+| `include/braam/{kernel,fs,proc,ui,math,regex,zlib}/` | the headers a program includes |
 | `lib/braam/libbraam_proc.a` | the process runtime: the allocator, the strings, the task scheduler, the syscall wrappers |
 | `lib/braam/libbraam_ui.a` | the layout layer, for a program that paints |
 | `lib/braam/libbraam_math.a` | musl's libm, for a program that asks for it (§6) |
 | `lib/braam/libbraam_regex.a` | POSIX regular expressions, likewise (§6) |
+| `lib/braam/libbraam_zlib.a` | zlib's deflate and inflate, likewise (§6) |
 | `lib/braam/libbraam_compat_pure.a` | the opt-in port kit's pure half, for a *ported* C program (doc/Compat.md) |
 | `lib/braam/libbraam_compat_proc.a` | the same kit's blocking half — Group B's `b_*` family, over `braam::proc` |
 | `include/braam/compat/include/` | the kit's system header names — on a `PORT` target's path and no other's |
@@ -47,6 +48,7 @@ Either way, this is what you get:
 | `libexec/braam/mkpkg.py` | the package builder (§3.1), with `pack.py` beside it |
 | `libexec/braam/mkindex.py` | the publisher's tools (§3.1): `mkanchor.py`, `signindex.py` and `ed25519.py` beside it |
 | `share/braam/examples/hello/` | the example below |
+| `share/braam/examples/zpipe/` | a second, which compresses with `braam::zlib` (§6) |
 | `share/braam/test/system/harness.mjs` | the headless harness (§3.3), with its fakes beside it |
 | `share/braam/web/` | the kernel and boot archive the harness runs, and the JS they need |
 | `share/doc/braam/Programming_Manual.md` | this file |
@@ -117,8 +119,8 @@ the build directory and configure again.
 
 `braam_add_program(NAME <n> SOURCES <...> [LIBS <...>])` is the same function
 `src/cmd/` builds the system's own thirty-six programs with. It links
-`braam::proc` and `braam::flags` — `braam::math` and `braam::regex` are asked
-for by name — links
+`braam::proc` and `braam::flags` — `braam::math`, `braam::regex` and
+`braam::zlib` are asked for by name — links
 with `--import-memory` so the memory cap is the kernel's, and runs `stamp.py`
 over the result. `LIBS` names anything else the program is made of. The CMake
 target it defines is `bin_<name>` — the file is `<name>.wasm`, and the prefix is
@@ -750,8 +752,8 @@ already repaired its own grid by the time it reports one.
 
 ### Mathematics — `math/math.h` and `math/ftoa.h`
 
-One of the two libraries a program asks for by name, because most do not want
-it:
+One of the three libraries a program asks for by name, because most do not
+want it:
 
 ```cmake
 braam_add_program(NAME plot SOURCES plot.cpp LIBS braam::math)
@@ -805,7 +807,7 @@ twelve transcendentals at once 24 KB.
 
 ### Regular expressions — `regex/regex.h`
 
-The other, and it is POSIX's own three functions rather than a spelling of our
+The second, and it is POSIX's own three functions rather than a spelling of our
 own:
 
 ```cmake
@@ -859,13 +861,97 @@ Not here: a locale, and GNU's `\|`, `\+` and `\?` in a BRE. The whole engine is
 A `PORT` target reaches the same three functions as `<regex.h>` and needs no
 `LIBS` line, the kit carrying it (doc/Compat.md).
 
+### Compression — `zlib/zlib.h`
+
+The third is zlib's deflate and inflate, rewritten in C++ from zlib 1.3.2.1.
+The algorithms are Gailly's and Adler's step for step, so **deflate's output is
+zlib's, byte for byte**, for the same level, strategy, window and memory level.
+It reads and writes all three formats: raw deflate, the zlib wrapper and the
+gzip one. `examples/zpipe` is the worked example:
+
+```cmake
+braam_add_program(NAME zpipe SOURCES zpipe.cpp LIBS braam::zlib)
+```
+
+A `Deflater` and an `Inflater` are each stepped over a span of input and a span
+of output. `step` advances both spans past what it used:
+
+```cpp
+Deflater d;
+if (d.init(6, ZFormat::Gzip).is_err())       // level, format, window, memory
+    co_return 1;
+Span<const u8> in = bytes;                   // what there is so far
+Span<u8> out(buf, sizeof buf);
+ZStatus s = d.step(in, out, last ? ZFlush::Finish : ZFlush::None);
+// write out what went into buf; step again while `out` came back full
+```
+
+`ZStatus` is zlib's return code, spelled out:
+
+| `ZStatus` | zlib's code | Meaning |
+| --- | --- | --- |
+| `Ok` | `Z_OK` | the call made progress |
+| `End` | `Z_STREAM_END` | the stream is complete |
+| `NeedDict` | `Z_NEED_DICT` | a zlib stream wants its dictionary |
+| `Stuck` | `Z_BUF_ERROR` | the call could not move |
+| `Corrupt` | `Z_DATA_ERROR` | bad data; `why()` gives zlib's own message |
+| `NoMemory` | `Z_MEM_ERROR` | the heap ran out |
+| `Misuse` | `Z_STREAM_ERROR` | the stream's state forbids the call |
+
+`Stuck` is not an error: it is a call that had no input to take or no room to
+fill. Under `Finish`, inflate answers `Stuck` until the stream ends.
+`ZFormat::Auto` lets an inflater take zlib and gzip alike, by the header.
+
+Everything else zlib's API does is here as well:
+
+- a preset dictionary, set with `set_dictionary`;
+- the flushes `Partial`, `Sync`, `Full` and `Block`;
+- a gzip header's fields, through `ZHeader`;
+- a new level mid-stream, with `params`;
+- `copy_from`, `sync`, `prime`, `bound` and `bound_any`.
+
+The two checks are free functions:
+
+- `crc32_update(0, bytes)` is the CRC-32 of `bytes`.
+- `adler32_update(1, bytes)` is the Adler-32.
+- `crc32_combine` and `adler32_combine` join two checks.
+
+For a whole buffer at once there are two one-shots:
+
+- `zlib_compress(bytes, format, level)` compresses it.
+- `zlib_uncompress(bytes, format, limit)` decompresses it. It refuses a stream
+  that would inflate past `limit`, because a small input may claim a large
+  output.
+
+Each returns a `Result<String>`.
+
+**The state lives on the heap, never in a frame.** An `Inflater` is about
+7 KiB, plus a window of 2^`window_bits` bytes made on first need. A `Deflater`
+is 2^(`window_bits`+2) + 2^(`mem_level`+9) bytes, which is 262 KiB at the
+defaults of 15 and 8. A smaller window or memory level shrinks it, at some cost
+in ratio. Either object is move-only and frees its state when it goes.
+
+**The calls are synchronous.** A step computes and returns and never awaits,
+so a large buffer is best stepped a chunk at a time, as `zpipe` does, to keep
+the event loop turning.
+
+The kernel does not use any of this. `Sys::Inflate`, the host's own
+`DecompressionStream`, remains what `/bin/pkg` and `/bin/unzip` call.
+
+Not here: `gzopen` and the rest of `gz*`, which are files rather than streams.
+A gzip file is `ZFormat::Gzip` over bytes you read yourself.
+
+A `PORT` target reaches the same code as `<zlib.h>`: zlib's own C API, with
+`z_stream`, `deflateInit2` and `uncompress`. It needs no `LIBS` line
+(doc/Compat.md).
+
 ### What the headers do *not* contain
 
 `include/braam/kernel/` and `include/braam/fs/` are shipped because the
 libraries' headers include them, and they are worth reading — `str.h`,
 `string.h`, `vec.h`, `span.h`, `result.h`, `fmt.h`, `text.h`, `path.h` and
-`math/math.h` are the whole standard library here, with `regex/regex.h` beside
-them. But the parts of them that
+`math/math.h` are the whole standard library here, with `regex/regex.h` and
+`zlib/zlib.h` beside them. But the parts of them that
 name the scheduler, the host imports or the VFS belong to the kernel and have
 nothing behind them in a program: reaching one is a link error, which is the
 intended answer.
@@ -881,8 +967,9 @@ link error or a trap rather than a warning:
 - **No libc by default.** No `malloc`, no `memcpy` you did not write, no
   `<cstring>`. `-nostdlib -nostdinc++` is not negotiable, and a construct
   needing a compiler-rt builtin — 128-bit division, an outlined `memcpy`,
-  anything `long double` — will not link. There *is* a libm, `braam::math`, and
-  there are regular expressions, `braam::regex`; §6.
+  anything `long double` — will not link. There *is* a libm, `braam::math`,
+  there are regular expressions, `braam::regex`, and there is compression,
+  `braam::zlib`; §6.
   A program being **ported** from Unix may opt into `braam::compat`, which
   changes nothing for one that does not: doc/Compat.md.
 - **Never `new` anything.** `operator new` returns null on failure and there are

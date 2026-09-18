@@ -17,6 +17,7 @@
 #include <time.h>
 #include <wchar.h>
 #include <wctype.h>
+#include <zlib.h>
 
 #include "compat/cenv.h"
 #include "compat/cerr.h"
@@ -803,6 +804,129 @@ void test_queue()
     CHECK_EQ(sum, 6);
 }
 
+// zlib's C API over braam::zlib: the one-shots' return codes, and a
+// z_stream a port drives the way zlib's own examples do.
+void test_zlib_c()
+{
+    CHECK(zlibVersion()[0] == '1');
+    CHECK_EQ(crc32(0L, Z_NULL, 0), 0);
+    CHECK_EQ(adler32(0L, Z_NULL, 0), 1);
+    CHECK_EQ(crc32(0L, reinterpret_cast<const Bytef *>("123456789"), 9), 0xcbf43926);
+    CHECK(strcmp(zError(Z_DATA_ERROR), "data error") == 0);
+
+    static Bytef text[6000], packed[7000], back[6000];
+    for (int i = 0; i < 6000; i++)
+        text[i] = Bytef("the stream of words, "[i % 21]);
+
+    uLongf plen = compressBound(sizeof text);
+    CHECK(plen <= sizeof packed);
+    CHECK_EQ(compress2(packed, &plen, text, sizeof text, 9), Z_OK);
+    CHECK(plen < 200);
+    uLongf blen = sizeof back;
+    CHECK_EQ(uncompress(back, &blen, packed, plen), Z_OK);
+    CHECK(blen == sizeof text && memcmp(back, text, sizeof text) == 0);
+
+    blen = sizeof back - 1;
+    CHECK_EQ(uncompress(back, &blen, packed, plen), Z_BUF_ERROR);
+    blen = sizeof back;
+    CHECK_EQ(uncompress(back, &blen, packed, plen - 1), Z_DATA_ERROR);
+    uLongf tiny = 4;
+    CHECK_EQ(compress(packed + 1000, &tiny, text, sizeof text), Z_BUF_ERROR);
+
+    // A gzip stream, inflated a byte in and a byte out, as windowBits 47
+    // detects it. Z_BUF_ERROR is not fatal: it is only a call that could not
+    // move.
+    z_stream d = {};
+    CHECK_EQ(deflateInit2(&d, 6, Z_DEFLATED, 31, 8, Z_DEFAULT_STRATEGY), Z_OK);
+    d.next_in   = text;
+    d.avail_in  = sizeof text;
+    d.next_out  = packed;
+    d.avail_out = sizeof packed;
+    CHECK_EQ(deflate(&d, Z_FINISH), Z_STREAM_END);
+    CHECK_EQ(d.total_in, sizeof text);
+    CHECK_EQ(d.adler, crc32(0L, text, sizeof text));
+    CHECK_EQ(d.data_type, Z_TEXT);
+    uLong glen = d.total_out;
+    CHECK_EQ(deflateEnd(&d), Z_OK);
+
+    z_stream in = {};
+    CHECK_EQ(inflateInit2(&in, 47), Z_OK);
+    in.next_in  = packed;
+    in.next_out = back;
+    int rc      = Z_OK;
+    while (rc == Z_OK || rc == Z_BUF_ERROR) {
+        in.avail_in  = in.total_in < glen ? 1 : 0;
+        in.avail_out = 1;
+        rc           = inflate(&in, Z_NO_FLUSH);
+    }
+    CHECK_EQ(rc, Z_STREAM_END);
+    CHECK_EQ(in.total_out, sizeof text);
+    CHECK(memcmp(back, text, sizeof text) == 0);
+    CHECK(in.msg == Z_NULL);
+
+    // A copied struct is not the stream its state belongs to.
+    z_stream moved;
+    memcpy(&moved, &in, sizeof in);
+    CHECK_EQ(inflate(&moved, Z_NO_FLUSH), Z_STREAM_ERROR);
+    CHECK_EQ(inflateEnd(&in), Z_OK);
+
+    // zlib's message on a bad header, and its codes for misuse.
+    z_stream bad = {};
+    CHECK_EQ(inflateInit(&bad), Z_OK);
+    Bytef junk[4] = { 0x78, 0x9d, 0, 0 };
+    Bytef out[16];
+    bad.next_in   = junk;
+    bad.avail_in  = sizeof junk;
+    bad.next_out  = out;
+    bad.avail_out = sizeof out;
+    CHECK_EQ(inflate(&bad, Z_NO_FLUSH), Z_DATA_ERROR);
+    CHECK(bad.msg && strcmp(bad.msg, "incorrect header check") == 0);
+    CHECK_EQ(inflateEnd(&bad), Z_OK);
+    CHECK_EQ(inflateEnd(&bad), Z_STREAM_ERROR);
+    CHECK_EQ(deflateInit_(&bad, 6, "2.0", int(sizeof bad)), Z_VERSION_ERROR);
+    CHECK_EQ(deflateInit2(&bad, 6, Z_DEFLATED, 40, 8, 0), Z_STREAM_ERROR);
+    CHECK_EQ(inflateInit2(&bad, 48), Z_STREAM_ERROR);
+
+    // A gzip header through gz_header, and an unfinished deflateEnd.
+    gz_header h = {};
+    Bytef name[] = "name.txt";
+    h.name       = name;
+    h.time       = 42;
+    CHECK_EQ(deflateInit2(&d, 1, Z_DEFLATED, 31, 8, Z_DEFAULT_STRATEGY), Z_OK);
+    CHECK_EQ(deflateSetHeader(&d, &h), Z_OK);
+    d.next_in   = text;
+    d.avail_in  = sizeof text;
+    d.next_out  = packed;
+    d.avail_out = sizeof packed;
+    CHECK_EQ(deflate(&d, Z_FINISH), Z_STREAM_END);
+    glen = d.total_out;
+    CHECK_EQ(deflateEnd(&d), Z_OK);
+
+    gz_header r  = {};
+    Bytef rname[16];
+    r.name       = rname;
+    r.name_max   = sizeof rname;
+    CHECK_EQ(inflateInit2(&in, 31), Z_OK);
+    CHECK_EQ(inflateGetHeader(&in, &r), Z_OK);
+    in.next_in   = packed;
+    in.avail_in  = uInt(glen);
+    in.next_out  = back;
+    in.avail_out = sizeof back;
+    CHECK_EQ(inflate(&in, Z_FINISH), Z_STREAM_END);
+    CHECK_EQ(r.done, 1);
+    CHECK_EQ(r.time, 42);
+    CHECK(strcmp(reinterpret_cast<char *>(rname), "name.txt") == 0);
+    CHECK_EQ(inflateEnd(&in), Z_OK);
+
+    CHECK_EQ(deflateInit(&d, Z_DEFAULT_COMPRESSION), Z_OK);
+    d.next_in   = text;
+    d.avail_in  = sizeof text;
+    d.next_out  = packed;
+    d.avail_out = 8;
+    CHECK_EQ(deflate(&d, Z_NO_FLUSH), Z_OK);
+    CHECK_EQ(deflateEnd(&d), Z_DATA_ERROR);
+}
+
 } // namespace
 
 void test_compat()
@@ -828,4 +952,5 @@ void test_compat()
     test_fnmatch();
     test_queue();
     test_bmode();
+    test_zlib_c();
 }

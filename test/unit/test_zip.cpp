@@ -8,6 +8,7 @@
 #include "kernel/fmt.h"
 #include "kernel/sched.h"
 #include "svc/net.h"
+#include "zlib/zlib.h"
 
 namespace {
 
@@ -200,6 +201,7 @@ Str text_of(const Vec<u8> &v)
 }
 
 u32 compared; // entries checked against the manifest
+u32 inflated; // of them, deflated entries braam::zlib inflated too
 bool rootfs_ok;
 Buf<128> rootfs_why; // whichever entry disagreed, or how the read failed
 
@@ -216,6 +218,7 @@ void blame(Str what, Str who)
 Task<i32> ask_rootfs()
 {
     compared  = 0;
+    inflated  = 0;
     rootfs_ok = false;
     blame("nothing ran", "");
 
@@ -273,6 +276,21 @@ Task<i32> ask_rootfs()
         if (hex_of(d).str() != line) {
             blame("bytes web/fs.js did not give", e.name);
             co_return 1;
+        }
+
+        // Python's deflate, inflated by this tree's inflate rather than the host's.
+        if (e.method == ZIP_DEFLATE) {
+            Result<String> packed = Err(Error::NoMemory);
+            if (Task<Result<String>> t = zip_packed(src, e))
+                packed = co_await t;
+            Result<String> ours = Err(Error::NoMemory);
+            if (packed.is_ok())
+                ours = zlib_uncompress(packed.value().str(), ZFormat::Raw, usize(e.size));
+            if (ours.is_err() || ours.value().str() != body.value().str()) {
+                blame("bytes braam::zlib did not give", e.name);
+                co_return 1;
+            }
+            inflated++;
         }
         compared++;
     }
@@ -527,6 +545,7 @@ void test_zip()
     CHECK_EQ(sched_tick(0), -1);
     test_check(rootfs_ok, rootfs_why.str(), __FILE_NAME__, __LINE__);
     CHECK_EQ(compared, 61);
+    CHECK_EQ(inflated, 61); // pack.py deflates every entry
     CHECK_EQ(jsref_live(), live);
     CHECK_EQ(host_orphans(), 0);
     vfs_reset();

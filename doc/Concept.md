@@ -181,11 +181,15 @@ About 1,500 lines: an allocator — a bump arena plus size-class free lists over
 `Result<T, E>`, `Option<T>` and `HashMap<K, V>`. Coroutine frames go through the
 allocator, so it is built for that workload (§8.2).
 
-Two libraries sit beside that, opted into by name, carrying no host import, and
-not linked by the kernel: `braam::math` is musl's libm, vendored, so that a Unix
-port has `<cmath>` to link against, and `braam::regex` is POSIX regular
-expressions, ours, written for an editor and lifted out of it when a second
-program wanted them.
+Three libraries sit beside that. Each is opted into by name, carries no host
+import, and is not linked by the kernel:
+
+- `braam::math` is musl's libm, vendored, so that a Unix port has `<cmath>` to
+  link against.
+- `braam::regex` is POSIX regular expressions. It is ours, written for an editor
+  and lifted out of it when a second program wanted them.
+- `braam::zlib` is zlib's deflate and inflate, rewritten in C++. Its output is
+  zlib's, byte for byte.
 
 Beside them, and linked by nothing here, is the opt-in port kit `braam::compat`
 (doc/Compat.md), for a program being ported from Unix.
@@ -704,10 +708,14 @@ the keystroke that produces the event (§3.5).
 ## 7. Repository layout
 
 The kernel is the bottom tier. `braam_fs` and `braam_svc` are siblings above it
-and below userland, depending on neither each other nor upwards. `braam_ui` and
-`braam_math` are in neither hierarchy, and the kernel does not link them at all,
-because the programs that paint and calculate are binaries. `src/proc/` is a
-*different binary's* runtime, sharing a few headers with the kernel, not code.
+and below userland, depending on neither each other nor upwards.
+
+`braam_ui`, `braam_math`, `braam_regex` and `braam_zlib` are in neither
+hierarchy, and the kernel does not link them at all, because the programs that
+paint, calculate, match and compress are binaries.
+
+`src/proc/` is a *different binary's* runtime, sharing a few headers with the
+kernel, not code.
 
 | Path | What is in it |
 |---|---|
@@ -718,11 +726,14 @@ because the programs that paint and calculate are binaries. `src/proc/` is a
 | `src/svc/` | the host services of §6 |
 | `src/ui/` | the layout layer over a `Grid` (§3.5) |
 | `src/math/` | musl's libm, vendored (§3.2) |
+| `src/regex/` | POSIX regular expressions (§3.2) |
+| `src/zlib/` | zlib's deflate and inflate, rewritten in C++ (§3.2) |
 | `src/user/` | exec, the syscall dispatcher, the console, pipes, `/proc`, boot and init |
 | `src/proc/` | a process binary's whole runtime: `_start`, syscalls, stdio |
+| `src/compat/` | the opt-in port kit, `braam::compat` (doc/Compat.md) |
 | `src/cmd/` | one file per program; the shell and the package manager are directories |
 | `rootfs/` | what the boot archive carries: `/bin`, `/etc`, `/README` |
-| `examples/` | the SDK's worked example, and an ordinary build target |
+| `examples/` | the SDK's worked examples, and ordinary build targets |
 | `test/` | the two suites, the Node driver, and the fakes they run against |
 | `web/` | the embedding API, the workers, the host shim, the renderer |
 | `tools/` | build scripts, and the ones a package publisher signs with |

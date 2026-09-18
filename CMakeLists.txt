@@ -81,6 +81,7 @@ add_subdirectory(src/svc)
 add_subdirectory(src/ui)
 add_subdirectory(src/math)
 add_subdirectory(src/regex)
+add_subdirectory(src/zlib)
 add_subdirectory(src/user)
 add_subdirectory(src/proc)
 add_subdirectory(src/compat)
@@ -89,6 +90,7 @@ add_subdirectory(src/compat)
 # imports, so this tree aliases them to the same names.
 add_library(braam::math  ALIAS braam_math)
 add_library(braam::regex ALIAS braam_regex)
+add_library(braam::zlib  ALIAS braam_zlib)
 add_library(braam::proc  ALIAS braam_proc)
 add_library(braam::ui    ALIAS braam_ui)
 add_library(braam::flags ALIAS braam_flags)
@@ -106,9 +108,11 @@ include(cmake/BraamProgram.cmake)
 
 add_subdirectory(src/cmd)
 
-# Built like any other program, and not packed into the archive: it is the SDK's
-# worked example, and compiling it here is what keeps it from rotting.
+# Built like any other program, and not packed into the archive: they are the
+# SDK's worked examples, and compiling them here is what keeps them from
+# rotting. zpipe is braam::zlib's in-tree caller.
 add_subdirectory(examples/hello)
+add_subdirectory(examples/zpipe)
 
 # The port kit's worked examples, and the in-tree callers that keep it
 # building: portlet is Group A, portio is Group B.
@@ -180,15 +184,17 @@ add_custom_target(serve
     USES_TERMINAL
     COMMENT "Serving ${CMAKE_BINARY_DIR}/web at http://localhost:8080/")
 
-# The SDK — doc/Programming_Manual.md. Three libraries and no more: braam_core,
-# braam_fs, braam_svc and braam_user each carry a host import no binary may have.
-install(TARGETS braam_proc braam_ui braam_math braam_regex braam_flags
+# The SDK — doc/Programming_Manual.md. The libraries a program may link and no
+# others: braam_core, braam_fs, braam_svc and braam_user each carry a host
+# import no binary may have.
+install(TARGETS braam_proc braam_ui braam_math braam_regex braam_zlib braam_flags
                 braam_compat braam_compat_pure braam_compat_proc
                 braam_compat_float braam_compat_nofloat braam_portflags
         EXPORT braam-targets
         ARCHIVE DESTINATION ${BRAAM_INSTALL_LIBDIR})
 set_target_properties(braam_math  PROPERTIES EXPORT_NAME math)
 set_target_properties(braam_regex PROPERTIES EXPORT_NAME regex)
+set_target_properties(braam_zlib  PROPERTIES EXPORT_NAME zlib)
 set_target_properties(braam_proc  PROPERTIES EXPORT_NAME proc)
 set_target_properties(braam_ui    PROPERTIES EXPORT_NAME ui)
 set_target_properties(braam_flags PROPERTIES EXPORT_NAME flags)
@@ -207,7 +213,7 @@ install(EXPORT braam-targets
 # math/musl and math/cvt are excluded: they answer <stdint.h>, <float.h> and
 # <math.h> for the vendored sources, and define errno and the character classes
 # as they need them. Those names under include/braam/ would be a trap.
-foreach(dir kernel fs proc ui math regex compat)
+foreach(dir kernel fs proc ui math regex zlib compat)
     install(DIRECTORY src/${dir}/
             DESTINATION ${BRAAM_INSTALL_INCLUDEDIR}/${dir}
             FILES_MATCHING PATTERN "*.h"
@@ -245,7 +251,7 @@ install(PROGRAMS tools/stamp.py tools/mkpkg.py tools/pack.py
                  tools/ed25519.py tools/signindex.py
                  tools/mkindex.py tools/mkanchor.py
         DESTINATION ${BRAAM_INSTALL_LIBEXECDIR})
-install(DIRECTORY examples/hello DESTINATION ${BRAAM_INSTALL_EXAMPLESDIR})
+install(DIRECTORY examples/hello examples/zpipe DESTINATION ${BRAAM_INSTALL_EXAMPLESDIR})
 
 # The headless harness, for a program's own tests, and the kernel and archive
 # it boots. The import closure keeps its relative layout: harness.mjs reaches
@@ -257,6 +263,7 @@ install(FILES web/abi.js web/fs.js web/host.js web/proc.js web/svc.js
               $<TARGET_FILE:kernel> ${CMAKE_BINARY_DIR}/web/rootfs.zip
         DESTINATION ${BRAAM_INSTALL_HARNESSDIR}/web)
 install(FILES doc/Programming_Manual.md LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR})
+install(FILES src/zlib/LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR} RENAME zlib-LICENSE)
 
 # Last, and said where it is read: the toolchain file is the one thing a
 # consumer has to name, and only on the first configure.
@@ -282,6 +289,8 @@ add_custom_target(release
             --require ${BRAAM_INSTALL_CMAKEDIR}/braamConfig.cmake
             --require ${BRAAM_INSTALL_LIBDIR}/libbraam_proc.a
             --require ${BRAAM_INSTALL_INCLUDEDIR}/proc/io.h
+            --require ${BRAAM_INSTALL_LIBDIR}/libbraam_zlib.a
+            --require ${BRAAM_INSTALL_INCLUDEDIR}/zlib/zlib.h
             --require ${BRAAM_INSTALL_HARNESSDIR}/test/system/harness.mjs
             --require ${BRAAM_INSTALL_HARNESSDIR}/web/kernel.wasm
             --require ${BRAAM_INSTALL_HARNESSDIR}/web/rootfs.zip
