@@ -844,8 +844,8 @@ link error or a trap rather than a warning:
   destructor pulls in `__cxa_atexit`, which nothing provides. Make the state a
   POD, or put it behind a pointer built on first use.
 - **Keep coroutine frames small.** A frame is rounded up to a power of two,
-  and one past 32 KiB costs whole 64 KiB spans. Long-lived state
-  belongs in a heap block the frame points at, not in the frame.
+  and one past 32 KiB costs whole 64 KiB spans. Long-lived state belongs in a
+  heap block the frame points at, not in the frame.
 - **The memory cap is 100 MB**, and it is the kernel's number, not the binary's:
   `--import-memory` with no declared maximum means the host supplies the
   `Memory` and its ceiling.

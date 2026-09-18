@@ -553,6 +553,45 @@ a broken tree. A `package.json` in `web/` would cure the import and not the
 decompressor, and would ship with the site; `test/CMakeLists.txt` refuses an
 older Node when configuring instead, naming the version it found.
 
+## Size classes are powers of two, up to half a span
+
+The allocator had ten small classes, 16 to 512 in steps of about half, and
+everything past 512 bytes took whole 64 KiB spans. That was sized for coroutine
+frames (Concept.md §8.2) and was right for them, but a ported program allocates
+in the middle: a kilobyte buffer, a 4 KiB node, a hash table of a few thousand
+bytes. Each of those cost 64 KiB, so a thousand one-kilobyte blocks held
+64 MB of spans — most of a process's 100 MB — for 1 MB of data.
+
+The classes are now the powers of two from 16 to 32 KiB, twelve of them. Half a
+span is the ceiling because it is the largest class of which a span still holds
+two; one past it takes whole spans as before, where rounding up to 64 KiB wastes
+at most half. A thousand one-kilobyte blocks now take sixteen spans, and
+`test_alloc` holds it to twenty.
+
+Powers of two make `class_of` a count of leading zeros rather than a loop over a
+table, and it runs on every allocation. The price is the classes that went: 48,
+96, 192 and 384 now round to 64, 128, 256 and 512, so the worst internal waste
+below 512 rises from a third to a half. `FS_BLOCK`, `FILE_BUF` and `PATH_MAX`
+stay 512, which is still a class exactly — what changed is only that it is no
+longer the top one, and a frame a byte past it now costs 1 KiB instead of 64.
+
+## `PACKAGE_MAX` is 50 MiB, and a fetched archive grows to its size once
+
+`PACKAGE_MAX` was 4 MiB, set at 0.4 when a process had 16 MB and the archive is
+held whole. 0.9 raised the process to 100 MB and the stage cap with it, but left
+this bound where it was, and a port of an interpreter with its library does not
+fit in four. It is now 50 MiB, the same as `UNPACK_MAX`, so the bound on what
+arrives no longer refuses a package the bound on what it unpacks to admits.
+
+A 50 MiB archive in a 100 MiB process leaves little room for a second copy.
+`ZipSink` gathers the body in a `String`, whose capacity doubles, and at the top
+of a doubling the old buffer and the new one are both alive — 32 MiB and 64 MiB
+for a 50 MiB archive, which is nearly all of the process before a byte is
+hashed. `ZipSink::take` now reserves for itself: it doubles as before, but never
+past the declared size, so the last growth lands on exactly `S` and the pair
+alive at once is under twice it, where a doubling past it could be three times.
+`index.cpp` bounds an index body through the same sink and gets the same.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

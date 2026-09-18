@@ -1282,10 +1282,10 @@ not move because the VFS's did; `vfs_flags` (`src/user/syscall.cpp:33-47`) maps
 between them one bit at a time.
 
 `SYS_CHUNK` is what a read yields when the caller names no length; `FS_BLOCK` is
-the allocator's top size class, and it is the largest a *small* allocation can
-be. `SYS_READ_MAX` is what a caller may name, and it is `65536 - 4` so that the
-four-byte status and a full read together are one span exactly — the reply is a
-`String`, whose capacity doubles, so a byte more would take two.
+one of the allocator's size classes exactly, so a chunk wastes nothing in its
+block. `SYS_READ_MAX` is what a caller may name, and it is `65536 - 4` so that
+the four-byte status and a full read together are one span exactly — the reply
+is a `String`, whose capacity doubles, so a byte more would take two.
 
 ### Errors
 

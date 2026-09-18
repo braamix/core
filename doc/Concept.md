@@ -740,8 +740,8 @@ awaitable with no destructor is a use-after-free.
 ### 8.2 Coroutine frame allocation is the hot path
 Frames are heap-allocated per call, so the allocator is built with this as its
 primary workload. A frame is rounded up to a power of two and shares a 64 KiB
-span with others of its size up to 32 KiB; one past that costs whole spans, so long-lived state
-belongs in a heap block the frame points at.
+span with others of its size up to 32 KiB; one past that costs whole spans, so
+long-lived state belongs in a heap block the frame points at.
 
 ### 8.3 Never let an import return data synchronously
 Beyond the sanctioned exceptions (§2.2). One exception is pragmatic; a class of
