@@ -39,9 +39,9 @@ guard, and it is tested.
 `strtod` families, `qsort`/`mergesort`/`bsearch`,
 `snprintf`/`vsnprintf`/`sprintf`, `errno`, `strerror`, `getenv`, the calendar
 (`<time.h>`), the wide half (`<wchar.h>`, `<wctype.h>`), `fnmatch`,
-`<sys/queue.h>`, `<regex.h>`, `<zlib.h>`, `<bzlib.h>` and `<lzma.h>`. Group A
-has no syscall, which is why `braam_compat_pure` links
-into `tests.wasm` the way `braam_math` does: a syscall in it is a link error.
+`<sys/queue.h>`, `<regex.h>`, `<zlib.h>`, `<bzlib.h>`, `<lzma.h>` and
+`<zstd.h>`. Group A has no syscall, which is why `braam_compat_pure` links into
+`tests.wasm` the way `braam_math` does: a syscall in it is a link error.
 
 Group A does reach the tree's *pure* primitives and leaves them undefined in the
 archive, for the final link to answer: `cenv_intern.cpp` calls `heap_alloc`,
@@ -207,6 +207,20 @@ freestanding `<endian.h>` arrived only in clang 23.
     a system it cannot ask.
   - A null `lzma_allocator` means the heap, so a buffer liblzma hands back, as
     `lzma_str_from_filters` does, goes to the kit's `free()` as usual.
+- **`<zstd.h>` and `<zstd_errors.h>` are libzstd 1.6.0's own headers**, over
+  `braam::zstd`, vendored verbatim as liblzma is. There is no adapter, and the
+  whole API is there: the one-shots, `ZSTD_compressStream2` and
+  `ZSTD_decompressStream`, every parameter, prepared dictionaries, skippable
+  frames, and the static-linking half behind `ZSTD_STATIC_LINKING_ONLY`. What
+  a full build has and this does not:
+  - `ZSTD_c_nbWorkers` accepts 0 alone, as in any build without
+    `ZSTD_MULTITHREAD`.
+  - `<zdict.h>` is absent: there is no dictionary builder, though a dictionary
+    built elsewhere loads as usual.
+  - Frames from before 1.0 (magic numbers `0xFD2FB521` to `0xFD2FB527`) are
+    refused as `prefix_unknown`.
+  - A null `ZSTD_customMem` means the heap. libzstd frees what it allocates
+    itself and hands back nothing for `free()`.
 - **`strerror` returns the POSIX *name***, `"ENOENT"`. Every byte of English
   prose a Unix libc spends here stays unspent. It is **not** `error_name()` in
   `kernel/result.h`, which answers prose — `"not found"` — and is what the rest
@@ -356,12 +370,19 @@ arm costs, since `--gc-sections` drops the rest:
 | `lzma_auto_decoder` and `lzma_code` | +61,133 |
 | `lzma_easy_buffer_encode` | +72,023 |
 | `lzma_easy_buffer_encode` and `lzma_stream_buffer_decode` | +100,929 |
+| `ZSTD_decompress` | +56,727 |
+| `ZSTD_createDCtx` and `ZSTD_decompressStream` | +61,130 |
+| `ZSTD_compress` | +320,385 |
+| `ZSTD_compress` and `ZSTD_decompress` | +368,952 |
 
 `<sys/queue.h>` is macros, so its 107 bytes are the caller's own loop. `fnmatch`
 carries the twelve `ctype` predicates because a POSIX character class names them
 through a table, which `--gc-sections` cannot see past. `strtod` is the largest
 by far — musl's `__floatscan` — which is why `cstrtod.cpp` is a translation
-unit of its own: a port naming only `strtol` does not pay it.
+unit of its own: a port naming only `strtol` does not pay it. `ZSTD_compress`
+is the outlier among the libraries: the level is chosen at run time, so every
+strategy's match finders come with it, and a port that only reads `.zst` should
+name the decompressor alone.
 
 Group B, the same way, over a `PORT` program that does nothing at all — no
 write, so **5,603 bytes** rather than the 7,353 above. Its arms are much larger

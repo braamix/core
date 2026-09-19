@@ -11,7 +11,7 @@ C++20, compiled to wasm32, deployable as a static site with no server and no
 special HTTP headers. No libc under the system, no Emscripten, no `xterm.js` —
 nothing is linked that is not in this tree. A *ported* program may opt into
 `braam::compat` ([doc/Compat.md](doc/Compat.md)); nothing in this tree does.
-Only six parts are not wholly ours:
+Only seven parts are not wholly ours:
 
 - `src/math/` is musl's libm, vendored under an MIT licence.
 - `src/compat/cwidth.cpp` is Markus Kuhn's `wcwidth` intervals, under his own
@@ -24,6 +24,9 @@ Only six parts are not wholly ours:
 - `src/lzma/liblzma/` and `src/lzma/common/` are liblzma 5.8.4, vendored
   verbatim under the BSD Zero Clause License (`src/lzma/COPYING.0BSD`), and so
   is the test corpus inside `test/unit/xz.data`.
+- `src/zstd/lib/` is zstd 1.6.0's `lib/`, vendored verbatim under its BSD
+  licence (`src/zstd/LICENSE`), and so are the golden files inside
+  `test/unit/zstd.data`.
 - `test/unit/att/` is AT&T's `regex(3)` conformance corpus, under Glenn
   Fowler's grant. It is test data, linked into nothing that ships.
 
@@ -102,15 +105,16 @@ make clean
 - Version = `BRAAM_VERSION_BASE` ([src/kernel/version.h](src/kernel/version.h),
   hand-edited) + commit count + short hash. `tools/version.py` is the one
   implementation and runs at *build* time; `tools/release.py` imports it.
-- **The ten publisher tools in `tools/` are hand-run; no build step calls
+- **The eleven publisher tools in `tools/` are hand-run; no build step calls
   them**: `ed25519.py` (the one place a key is read, and the only thing needing
   `cryptography`), `signindex.py`, `mkanchor.py`, `mkpkg.py`, `mkindex.py`,
   `mkrepo.py` (regenerates `test/unit/repo.data` under keys it destroys),
   `mkmathdata.py` (regenerates `test/unit/math.data` from the host's own libm),
   `mkzlibdata.py` (`test/unit/zlib.data` from the host's own zlib),
-  `mkbzip2data.py` (`test/unit/bzip2.data` from the host's own libbzip2) and
+  `mkbzip2data.py` (`test/unit/bzip2.data` from the host's own libbzip2),
   `mkxzdata.py` (`test/unit/xz.data` from the host's own liblzma, which must be
-  5.8.4, and xz's test corpus).
+  5.8.4, and xz's test corpus) and `mkzstddata.py` (`test/unit/zstd.data` from
+  `src/zstd/lib` itself, built for the host, and zstd's golden files).
   `mkindex.py` derives Package_Formats.md §6.1's `cmd:` names from each
   package's `bin/`, so no publisher writes one down. **No private key** goes in
   the tree, in anything built from it, or inside `rootfs.zip`.
@@ -131,7 +135,9 @@ make clean
   freestanding headers plus `src/lzma/sys/`, which answers `<config.h>`,
   `<stdlib.h>`, `<string.h>` and `<assert.h>` for them alone and is never
   installed. **Their re-sync is a copy with no edit at all**; what was left
-  upstream is listed in `src/lzma/CMakeLists.txt`.
+  upstream is listed in `src/lzma/CMakeLists.txt`. **`src/zstd/lib/` is
+  a third** of the same kind, with `src/zstd/sys/` answering `<string.h>` and
+  `<stdlib.h>`, and its re-sync is a copy as well.
 
 ### Toolchain
 
@@ -206,8 +212,8 @@ suite (`test/unit/fakehost.h`) — which is how a check that must be tested keep
 out of the half that cannot be. `pkg/unzip.cpp`, `store.cpp`, `host.cpp` and
 `install.cpp` stay out, and `sh/glob.cpp` and `sh/condrun.cpp` with them,
 because they walk the store. `braam_math`, `braam_regex`, `braam_zlib`,
-`braam_bzip2` and `braam_lzma` are *linked* instead: each links `braam_flags`
-alone and has no syscall to hide, as `braam_ui` does not. Anything
+`braam_bzip2`, `braam_lzma` and `braam_zstd` are *linked* instead: each links
+`braam_flags` alone and has no syscall to hide, as `braam_ui` does not. Anything
 needing a program to run belongs in `test/system/`, as a file and a line in
 `run.mjs`'s table. [doc/Testing.md](doc/Testing.md) is the whole of both suites.
 
@@ -428,6 +434,7 @@ argue in Concept.md first.
   `src/zlib/` (zlib's deflate and inflate in C++, opted into by name);
   `src/bzip2/` (libbzip2 in C++, opted into by name);
   `src/lzma/` (liblzma, vendored, and a C++ pair over it, opted into by name);
+  `src/zstd/` (libzstd, vendored, its own C API only, opted into by name);
   `src/user/` (exec and the syscall dispatcher, console, pipes, `ProcFs`, boot
   and init); `src/proc/` (a process binary's runtime); `src/compat/` (the opt-in
   port kit, linked by nothing in this tree); `src/cmd/` (one file per program,
@@ -454,9 +461,13 @@ argue in Concept.md first.
   (`src/lzma/sys.cpp`), which stand on `kernel/alloc.h` alone, renamed so that
   a port linking the kit's own `malloc` and `strlen` does not collide with
   them. Its headers are installed by name, never by the directory glob, which
-  would ship `sys/string.h`. There is **no `long double`** on this
-  target — it is 113-bit quad and every operation on one is a compiler-rt link
-  error — so musl's `*l.c`, `nexttoward.c` and `nexttowardf.c` stay upstream.
+  would ship `sys/string.h`. **`braam_zstd` is `braam_lzma`'s shape without the
+  C++ pair**: `zstd_sys_malloc` and three more in `src/zstd/sys.cpp`, and
+  `zstd/zstd.h`, `lib/zstd.h` and `lib/zstd_errors.h` installed by name. It
+  is built with no threads, no legacy formats and no dictionary builder. There
+  is **no `long double`** on this target — it is 113-bit quad and every
+  operation on one is a compiler-rt link error — so musl's `*l.c`,
+  `nexttoward.c` and `nexttowardf.c` stay upstream.
 - **The builtin table is an explicit array and must stay one.** `--gc-sections`
   never extracts an unreferenced archive member, so a self-registering builtin
   would be dropped silently.

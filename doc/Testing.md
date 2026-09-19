@@ -108,7 +108,25 @@ byte at a time. The two differ once: a `.lzma` of known size that also ends in
 a marker is refused unless the end of input comes with the marker.
 `test_lzma.cpp` requires the same bytes from the encoder and the same answers
 from the decoder, through the C API and through `XzDecoder`.
-Those five are the cases in the tree with an oracle outside themselves.
+`zstd.data` is from `tools/mkzstddata.py`, and its oracle is the nearest of
+the six. The tool compiles `src/zstd/lib` itself with the host's `cc`, under
+the same defines, because the host's libzstd is some other release. Through
+ctypes it records the length and CRC-32 of 290 frames:
+
+- ten generated inputs and upstream's two small `golden-compression` files;
+- sixteen levels, which reach all nine strategies;
+- six sets of parameters: the checksum, no content size, a 1 KiB window, long
+  distance matching, `btultra2` forced, and the smallest target block size;
+- a raw dictionary, and upstream's `golden-dictionaries` one.
+
+That proves the port and not the algorithms, since both sides are the same C.
+Its halves are `sys/`, the defines, the heap and the 32-bit `size_t`. The
+algorithms have upstream's golden files for an oracle. The tool stores six of
+them whole, three good frames and three corrupt ones. For each it records the
+`ZSTD_ErrorCode` the decoder ended on, and the output. `test_zstd.cpp`
+requires the same frames, the same answers whole and a byte at a time, and
+round trips through each path a program takes.
+Those six are the cases in the tree with an oracle outside themselves.
 Regenerate any of them by re-running its tool, never by hand.
 
 **`rootfs.zip` is `braam::zlib`'s second oracle.** `test_zip.cpp` already reads

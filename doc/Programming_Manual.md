@@ -32,7 +32,7 @@ Either way, this is what you get:
 
 | Path | What it is |
 | --- | --- |
-| `include/braam/{kernel,fs,proc,ui,math,regex,zlib,bzip2,lzma}/` | the headers a program includes |
+| `include/braam/{kernel,fs,proc,ui,math,regex,zlib,bzip2,lzma,zstd}/` | the headers a program includes |
 | `lib/braam/libbraam_proc.a` | the process runtime: the allocator, the strings, the task scheduler, the syscall wrappers |
 | `lib/braam/libbraam_ui.a` | the layout layer, for a program that paints |
 | `lib/braam/libbraam_math.a` | musl's libm, for a program that asks for it (§6) |
@@ -40,6 +40,7 @@ Either way, this is what you get:
 | `lib/braam/libbraam_zlib.a` | zlib's deflate and inflate, likewise (§6) |
 | `lib/braam/libbraam_bzip2.a` | libbzip2's compressor and decompressor, likewise (§6) |
 | `lib/braam/libbraam_lzma.a` | liblzma, for `.xz`, `.lzma` and `.lz`, likewise (§6) |
+| `lib/braam/libbraam_zstd.a` | libzstd, for Zstandard, likewise (§6) |
 | `lib/braam/libbraam_compat_pure.a` | the opt-in port kit's pure half, for a *ported* C program (doc/Compat.md) |
 | `lib/braam/libbraam_compat_proc.a` | the same kit's blocking half — Group B's `b_*` family, over `braam::proc` |
 | `include/braam/compat/include/` | the kit's system header names — on a `PORT` target's path and no other's |
@@ -53,6 +54,7 @@ Either way, this is what you get:
 | `share/braam/examples/zpipe/` | a second, which compresses with `braam::zlib` (§6) |
 | `share/braam/examples/bzpipe/` | a third, which compresses with `braam::bzip2` (§6) |
 | `share/braam/examples/xzpipe/` | a fourth, which compresses with `braam::lzma` (§6) |
+| `share/braam/examples/zstdpipe/` | a fifth, which compresses with `braam::zstd` (§6) |
 | `share/braam/test/system/harness.mjs` | the headless harness (§3.3), with its fakes beside it |
 | `share/braam/web/` | the kernel and boot archive the harness runs, and the JS they need |
 | `share/doc/braam/Programming_Manual.md` | this file |
@@ -123,8 +125,8 @@ the build directory and configure again.
 
 `braam_add_program(NAME <n> SOURCES <...> [LIBS <...>])` is the same function
 `src/cmd/` builds the system's own thirty-six programs with. It links
-`braam::proc` and `braam::flags` — `braam::math`, `braam::regex`,
-`braam::zlib`, `braam::bzip2` and `braam::lzma` are asked for by name — links
+`braam::proc` and `braam::flags` — `braam::math`, `braam::regex`, `braam::zlib`,
+`braam::bzip2`, `braam::lzma` and `braam::zstd` are asked for by name — links
 with `--import-memory` so the memory cap is the kernel's, and runs `stamp.py`
 over the result. `LIBS` names anything else the program is made of. The CMake
 target it defines is `bin_<name>` — the file is `<name>.wasm`, and the prefix is
@@ -1098,16 +1100,98 @@ one short.
 A `PORT` target reaches the same C API as `<lzma.h>`, and it needs no `LIBS`
 line (doc/Compat.md).
 
+### Compression a fourth time — `zstd/zstd.h`
+
+The sixth is libzstd 1.6.0, for Zstandard (RFC 8878). Like liblzma it is
+vendored verbatim, so **the output is libzstd's, byte for byte**. Unlike
+liblzma it has no Braam-shaped pair over it: `zstd/zstd.h` is libzstd's own C
+API, and a program calls it as any C program would. `examples/zstdpipe` is the
+worked example:
+
+```cmake
+braam_add_program(NAME zstdpipe SOURCES zstdpipe.cpp LIBS braam::zstd)
+```
+
+A stream is a context and two cursors, `ZSTD_inBuffer` and `ZSTD_outBuffer`,
+each a pointer, a size and a position the call advances:
+
+```cpp
+ZSTD_CCtx *c = ZSTD_createCCtx();
+ZSTD_CCtx_setParameter(c, ZSTD_c_compressionLevel, 19);
+ZSTD_inBuffer src  = { chunk, n, 0 };
+ZSTD_outBuffer dst = { buf, sizeof buf, 0 };
+size_t left = ZSTD_compressStream2(c, &dst, &src, last ? ZSTD_e_end : ZSTD_e_continue);
+if (ZSTD_isError(left))
+    ...                                // ZSTD_getErrorCode(left) says which
+```
+
+Under `ZSTD_e_end` the call is repeated until it answers 0. The one-shots are
+`ZSTD_compress` and `ZSTD_decompress`. The frame queries are
+`ZSTD_getFrameContentSize` and `ZSTD_findFrameCompressedSize`, and the
+dictionaries are `ZSTD_createCDict` and `ZSTD_createDDict`. Everything else
+is in upstream's header, which is its own manual. The half of it behind
+`ZSTD_STATIC_LINKING_ONLY` is safe to use here: libzstd is always linked
+statically, and the release is pinned.
+
+Three things bite:
+
+- **`ZSTD_decompressStream` answers 0 when a frame ends, and not after.**
+  Called again with no input, it answers the size of the next frame's header,
+  as if one were coming. A loop that stops on "input used up and 0" is right;
+  one that calls once more at end of input and then tests for 0 calls a good
+  stream cut short. A stream may be several frames, and one call reads them all
+  as one output.
+- **An error name is a C string.** `ZSTD_getErrorName` answers `const char *`.
+  `Str(const char *)` and a loop counting to the NUL are both a call to
+  `strlen`, which nothing here defines. `zstdpipe` counts in a function marked
+  `__attribute__((no_builtin("strlen")))`.
+- **There are no threads**, so `ZSTD_c_nbWorkers` accepts 0 alone. The
+  dictionary builder (`zdict.h`), the pre-1.0 formats and `ZBUFF_*` are not
+  here either.
+
+**The state lives on the heap, and the level decides how much.** What
+`ZSTD_estimateCStreamSize` gives, for a source of unknown size, as a stream
+has:
+
+| Level | Window | Compression, stream | Compression, one-shot |
+| --- | --- | --- | --- |
+| 1 | 512 KiB | 1.3 MiB | 0.6 MiB |
+| 3 (the default) | 2 MiB | 3.5 MiB | 1.2 MiB |
+| 9 | 4 MiB | 16.7 MiB | 12.5 MiB |
+| 12 | 4 MiB | 52.7 MiB | 48.5 MiB |
+| 19 | 8 MiB | 89.5 MiB | 81.2 MiB |
+| 20 | 32 MiB | 193.5 MiB | 161.2 MiB |
+
+A source of known size, pledged or whole, shrinks the window to fit it. The
+memory cap is 100 MiB (§7), so level 19 fits only in a program that holds
+little else, and 20 to 22 fit in none. A decoder is 94 KiB plus the window,
+so 8 MiB reads anything level 19 wrote. It will take a window up to 128 MiB
+unless `ZSTD_d_windowLogMax` says less, and such a window cannot be had here.
+Set that parameter, and a frame that asks for more fails with
+`frameParameter_windowTooLarge` rather than an allocation failure.
+
+**The compressor is large.** Naming `ZSTD_compress` links every strategy's
+match finders, 320 KB, because the level is chosen at run time.
+`ZSTD_decompress` is 57 KB. A program that only reads `.zst` should not name
+the compressor at all.
+
+**The calls are synchronous.** A step does all the work its buffers allow
+before returning, so stepping a chunk at a time, as `zstdpipe` does, keeps each
+one short.
+
+A `PORT` target reaches the same C API as `<zstd.h>` and `<zstd_errors.h>`,
+and it needs no `LIBS` line (doc/Compat.md).
+
 ### What the headers do *not* contain
 
 `include/braam/kernel/` and `include/braam/fs/` are shipped because the
 libraries' headers include them, and they are worth reading — `str.h`,
 `string.h`, `vec.h`, `span.h`, `result.h`, `fmt.h`, `text.h`, `path.h` and
 `math/math.h` are the whole standard library here, with `regex/regex.h`,
-`zlib/zlib.h`, `bzip2/bzip2.h` and `lzma/xz.h` beside them. But the parts of
-them that name the scheduler, the host imports or the VFS belong to the kernel
-and have nothing behind them in a program: reaching one is a link error, which
-is the intended answer.
+`zlib/zlib.h`, `bzip2/bzip2.h`, `lzma/xz.h` and `zstd/zstd.h` beside them. But
+the parts of them that name the scheduler, the host imports or the VFS belong to
+the kernel and have nothing behind them in a program: reaching one is a link
+error, which is the intended answer.
 
 ---
 
@@ -1122,7 +1206,7 @@ link error or a trap rather than a warning:
   needing a compiler-rt builtin — 128-bit division, an outlined `memcpy`,
   anything `long double` — will not link. There *is* a libm, `braam::math`,
   there are regular expressions, `braam::regex`, and there is compression,
-  `braam::zlib`, `braam::bzip2` and `braam::lzma`; §6.
+  `braam::zlib`, `braam::bzip2`, `braam::lzma` and `braam::zstd`; §6.
   A program being **ported** from Unix may opt into `braam::compat`, which
   changes nothing for one that does not: doc/Compat.md.
 - **Never `new` anything.** `operator new` returns null on failure and there are

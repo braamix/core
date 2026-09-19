@@ -1,15 +1,19 @@
 // The harness as the SDK installs it: imported from <prefix>/share/braam, it
 // boots the kernel and archive installed beside it and runs examples/hello,
-// then round trips through examples/zpipe, examples/bzpipe and examples/xzpipe,
-// the callers of braam::zlib, braam::bzip2 and braam::lzma.
+// then round trips through examples/zpipe, examples/bzpipe, examples/xzpipe and
+// examples/zstdpipe, the callers of braam::zlib, braam::bzip2, braam::lzma and
+// braam::zstd. zstdpipe's frame is also read back by Node's own zstd, when this
+// Node has one.
 // A file the harness comes to import and the install rules miss fails here.
 //
-//     node test/sdk.mjs <prefix> <hello.wasm> <zpipe.wasm> <bzpipe.wasm> <xzpipe.wasm>
+//     node test/sdk.mjs <prefix> <hello.wasm> <zpipe.wasm> <bzpipe.wasm> <xzpipe.wasm> \
+//         <zstdpipe.wasm>
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import * as zlib from "node:zlib";
 
-const [prefix, hello, zpipe, bzpipe, xzpipe] = process.argv.slice(2).map((p) => resolve(p));
+const [prefix, hello, zpipe, bzpipe, xzpipe, zstdpipe] = process.argv.slice(2).map((p) => resolve(p));
 const HARNESS = join(prefix, "share/braam");
 
 const die = (msg) => {
@@ -75,4 +79,23 @@ if (XZ_MAGIC.some((c, i) => x[i] !== c) || x.length >= help.length)
 if (Buffer.compare(Buffer.from(w), Buffer.from(help)) !== 0)
     die(`xzpipe -d gave back ${w.length} bytes, not /etc/help's ${help.length}`);
 
-console.log("sdk ok: the installed harness boots, runs hello, and round-trips zpipe, bzpipe and xzpipe");
+H.store.files.set("/bin/zstdpipe", new Uint8Array(readFileSync(zstdpipe)));
+line("zstdpipe </etc/help >/tmp/s", "zstdpipe");
+line("zstdpipe -d </tmp/s >/tmp/t", "zstdpipe -d");
+const s = file("/tmp/s");
+const t = file("/tmp/t");
+const ZSTD_MAGIC = [0x28, 0xb5, 0x2f, 0xfd];
+if (ZSTD_MAGIC.some((c, i) => s[i] !== c) || s.length >= help.length)
+    die(`zstdpipe made ${s.length} bytes of no zstd frame`);
+if (Buffer.compare(Buffer.from(t), Buffer.from(help)) !== 0)
+    die(`zstdpipe -d gave back ${t.length} bytes, not /etc/help's ${help.length}`);
+let nodeZstd = "Node has no zstd to check it against";
+if (zlib.zstdDecompressSync) {
+    const back = zlib.zstdDecompressSync(s);
+    if (Buffer.compare(back, Buffer.from(help)) !== 0)
+        die(`Node's zstd read ${back.length} bytes from zstdpipe, not /etc/help's ${help.length}`);
+    nodeZstd = "Node's zstd agrees";
+}
+
+console.log("sdk ok: the installed harness boots, runs hello, and round-trips zpipe, bzpipe, " +
+            `xzpipe and zstdpipe; ${nodeZstd}`);

@@ -900,6 +900,116 @@ says where the code came from. `examples/xzpipe` is `bzpipe`'s twin, with a
 preset flag. The `sdk` test round-trips `/etc/help` through it under the
 installed harness and checks the `.xz` magic.
 
+## libzstd, vendored with nothing over it
+
+`braam::zstd` is the SDK's sixth library, libzstd 1.6.0, for Zstandard (RFC
+8878). It is the format most archives and packages now choose, and the host
+cannot help: `DecompressionStream` knows gzip and deflate and nothing else.
+
+**It is vendored, as liblzma is, and for the same reason.** Its core is 35,000
+lines of C, and it already expects to be built without a libc. `zstd_deps.h`
+names every libc dependency, and the Linux kernel builds zstd by replacing that
+one file. Replacing it here would be an edit to re-apply at every release.
+Instead, `src/zstd/sys/` answers `<string.h>` and `<stdlib.h>` for the vendored
+sources alone, as `src/lzma/sys/` does, and `zstd_deps.h` includes those as
+upstream wrote it. `XXH_NO_STDLIB` keeps xxHash's own `<stdlib.h>` out, and
+`DEBUGLEVEL=0` keeps `assert` and stdio out. **No line of upstream is changed.**
+`src/zstd/lib/` is upstream's `lib/` less four directories and its build
+files, and a re-sync is a copy.
+
+- **Four functions are renamed, not defined.** `memcmp`, `malloc`, `calloc`
+  and `free` become `zstd_sys_*`, in `sys.cpp` over `heap_alloc` and
+  `heap_free`, for the reason liblzma's are. `memcpy`, `memmove` and `memset`
+  are the builtins, and the archive's only undefined symbols outside itself
+  are the heap's two.
+- **Left upstream: `dictBuilder/`, `legacy/`, `deprecated/` and the amd64
+  assembly.** The dictionary builder wants `qsort_r`, `clock()` and `fprintf`,
+  and training a dictionary is a job for the machine that publishes the data,
+  not the tab that reads it. A dictionary trained elsewhere loads as usual. The
+  pre-1.0 formats have not been written since 1.0, in 2016. `ZBUFF_*` is an
+  older streaming API that upstream marks deprecated.
+- **There are no threads.** `zstdmt_compress.c`, `pool.c` and `threading.c`
+  are compiled anyway, because `zstd_compress.c` names `ZSTDMT_*`
+  unconditionally. Without `ZSTD_MULTITHREAD` each is its single-threaded
+  build, and `ZSTD_c_nbWorkers` has an upper bound of 0.
+
+**The API is libzstd's, with no pair over it.** zlib, bzip2 and liblzma each
+got a Braam-shaped pair, because each C API is a struct of pointers and counts
+that the caller keeps in step, with return codes that mean different things in
+different states. zstd's streaming API is already the pair's shape: two
+cursors, `ZSTD_inBuffer` and `ZSTD_outBuffer`, that the call advances, and one
+`size_t` answer that is either an error or a hint. A wrapper would restate it.
+So native code includes `zstd/zstd.h`, a one-line forward to `lib/zstd.h`, and
+a port includes `<zstd.h>`, which forwards to the same place.
+
+Two traps come with using a C API directly, and the manual names both:
+
+- **The hint after a frame ends is the next frame's.** `ZSTD_decompressStream`
+  answers 0 when a frame is complete. Called once more with no input, it
+  answers the size of a frame header, as if another frame were coming.
+  `zstdpipe` did exactly that at end of input and called its good streams cut
+  short, before the loop learned to stop on 0. A frame whose output was an
+  exact multiple of the buffer would have tripped it anywhere.
+- **`ZSTD_getErrorName` answers a C string.** `Str(const char *)` is
+  `__builtin_strlen`, which is a call at run time, and a loop counting to the
+  NUL is recognised back into one. Nothing defines `strlen` for a program that
+  is not a port, so this is a link error. `zstdpipe` counts inside
+  `__attribute__((no_builtin("strlen")))`, the narrowest answer that leaves
+  `braam_add_program` unchanged.
+
+**The oracle is the same C, built for the host.** The host's libzstd is 1.5.7,
+and a different release makes different bytes. The `zstd` command also pledges
+the size it knows, so even the same release would disagree with a stream.
+`tools/mkzstddata.py` therefore compiles `src/zstd/lib` with the host's `cc`,
+under the defines CMake gives it, and records 290 frames through ctypes:
+
+- twelve inputs, among them upstream's two small `golden-compression` files;
+- sixteen levels, from −5 to 19, which reach all nine strategies;
+- six sets of parameters: the checksum, no content size, a 1 KiB window, long
+  distance matching, `btultra2` forced, and the smallest target block size;
+- a raw dictionary, and upstream's golden one.
+
+All 290 agreed on the first build. That proves the port, not the algorithms:
+`sys/`, the defines, the heap, and 32-bit `size_t` against the host's 64-bit.
+The compressor tests `MEM_32bits()` or `MEM_64bits()` thirteen times, and none
+of them changed a byte here. The algorithms' oracle is upstream's own golden
+files. The tool stores the six small ones whole, three good frames and three
+corrupt ones, and records what the decoder made of each, whole and a byte at a
+time. `block-128k.zst` and the two large compression inputs are left out for
+size.
+
+**Two decoders that are not this one agree with it.** The host's `zstd` 1.5.7
+reads what `zstdpipe` wrote at levels 1, 3, 9 and 19, and `zstdpipe -d` reads
+what it wrote. That was checked by hand. The `sdk` test hands `zstdpipe`'s
+frame of `/etc/help` to Node's own zstd, in `node:zlib` in recent releases
+(1.5.7 in the Node this was written with). On a Node without it, the test says
+so and skips that half.
+
+**The memory is libzstd's, and level 19 is the last that fits.** A compressing
+stream of unknown size needs 3.5 MiB at level 3, 52.7 MiB at 12, 89.5 MiB at 19
+and 193.5 MiB at 20, as `ZSTD_estimateCStreamSize` gives them under the
+kernel. The cap is 100 MiB, so `zstdpipe` stops at 19. It compresses at 19
+under the headless harness, with the harness binding the same memory maximum
+the browser does. A decoder is 94 KiB plus the window, 8 MiB for level 19.
+libzstd's default ceiling on a window is 128 MiB, which a process cannot have,
+so a program reading untrusted frames should set `ZSTD_d_windowLogMax`. Then a
+frame that asks for too much fails as `frameParameter_windowTooLarge`, not as
+an allocation failure.
+
+**The compressor is 320 KB.** The level is a run-time value, so
+`ZSTD_compress` reaches every strategy's match finders, each inlined several
+times over. The decompressor is 57 KB, and `zstdpipe` is 415 KB. upstream's
+`ZSTD_EXCLUDE_*_BLOCK_COMPRESSOR` would cut the compressor down, but it applies
+to the whole library, so a program could no longer ask for the levels it
+removes. A program that only reads `.zst` pays for the decompressor alone.
+
+libzstd is dual-licensed, BSD or GPLv2, and this tree takes the BSD licence.
+`src/zstd/LICENSE` is upstream's `LICENSE` under a line saying which files are
+vendored and that none is altered. The SDK installs it as
+`share/doc/braam/zstd-LICENSE`. `examples/zstdpipe` is `xzpipe`'s twin with a
+level flag. The `sdk` test round-trips `/etc/help` through it under the
+installed harness, checks the magic, and hands the frame to Node.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

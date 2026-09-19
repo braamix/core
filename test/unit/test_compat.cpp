@@ -20,6 +20,8 @@
 #include <zlib.h>
 #include <bzlib.h>
 #include <lzma.h>
+#include <zstd.h>
+#include <zstd_errors.h>
 
 #include "compat/cenv.h"
 #include "compat/cerr.h"
@@ -1037,6 +1039,40 @@ void test_bzip2_c()
     CHECK_EQ(BZ2_bzDecompressInit(&d, 0, 2), BZ_PARAM_ERROR);
 }
 
+// zstd's own API, as a port includes it: the one-shots, a stream a byte at a
+// time, and an error by its code.
+void test_zstd_c()
+{
+    CHECK(strcmp(ZSTD_versionString(), "1.6.0") == 0);
+
+    static char text[6000], packed[7000], back[6000];
+    for (int i = 0; i < 6000; i++)
+        text[i] = "the stream of words, "[i % 21];
+
+    size_t plen = ZSTD_compress(packed, sizeof packed, text, sizeof text, 3);
+    CHECK(!ZSTD_isError(plen) && plen < 200 && memcmp(packed, "\x28\xb5\x2f\xfd", 4) == 0);
+    CHECK_EQ(ZSTD_getFrameContentSize(packed, plen), sizeof text);
+    CHECK_EQ(ZSTD_decompress(back, sizeof back, packed, plen), sizeof text);
+    CHECK(memcmp(back, text, sizeof text) == 0);
+    size_t r = ZSTD_decompress(back, sizeof back - 1, packed, plen);
+    CHECK(ZSTD_isError(r) && ZSTD_getErrorCode(r) == ZSTD_error_dstSize_tooSmall);
+    CHECK(strlen(ZSTD_getErrorName(r)) > 0);
+
+    ZSTD_DCtx *d       = ZSTD_createDCtx();
+    ZSTD_inBuffer in   = { packed, 0, 0 };
+    ZSTD_outBuffer out = { back, 0, 0 };
+    size_t hint        = 1;
+    while (hint != 0 && !ZSTD_isError(hint) && in.pos < plen) {
+        in.size  = in.pos + 1;
+        out.size = out.pos < sizeof back ? out.pos + 1 : out.pos;
+        hint     = ZSTD_decompressStream(d, &out, &in);
+    }
+    CHECK_EQ(hint, 0);
+    CHECK_EQ(out.pos, sizeof text);
+    CHECK(memcmp(back, text, sizeof text) == 0);
+    ZSTD_freeDCtx(d);
+}
+
 // liblzma's own API, as a port includes it: the buffer calls, a stream fed a
 // byte at a time, and a string liblzma allocates handed to free().
 void test_lzma_c()
@@ -1132,4 +1168,5 @@ void test_compat()
     test_zlib_c();
     test_bzip2_c();
     test_lzma_c();
+    test_zstd_c();
 }

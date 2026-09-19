@@ -42,6 +42,7 @@ void test_attregex();
 void test_zlib();
 void test_bzip2();
 void test_lzma();
+void test_zstd();
 void test_compat();
 void test_solve();
 void test_plan();
@@ -145,6 +146,7 @@ BRAAM_EXPORT("run_tests") u32 run_tests()
     test_zlib();
     test_bzip2();
     test_lzma();
+    test_zstd();
     test_compat(); // after alloc, text, time and ftoa: malloc stands on the
                    // heap, strtol on scan_i64's grammar, mktime on civil_secs
     test_encode();
