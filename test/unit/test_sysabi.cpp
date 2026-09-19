@@ -102,6 +102,13 @@ void test_sysabi()
     CHECK_EQ(u32(Sys::Truncate), 31u);
     CHECK_EQ(u32(Sys::FStat), 33u);
     CHECK_EQ(u32(Sys::Mount), 34u);
+    CHECK_EQ(u32(Sys::Poll), 86u); // after the process family, and last
+
+    // Poll's flags are a revents word, so the three of them must not overlap
+    // and HUP must be outside what a caller may ask for.
+    CHECK_EQ(SYS_POLL_IN | SYS_POLL_OUT, SYS_POLL_ASKED);
+    CHECK(!(SYS_POLL_ASKED & SYS_POLL_HUP));
+    CHECK(SYS_POLL_FOREVER > SYS_POLL_MAX);
 
     // The synchronous half, which is five and was four. Nothing packs an
     // argument into these: sys() has three spare scalars, so sys_op() is the

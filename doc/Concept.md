@@ -535,6 +535,12 @@ must have a caller in the tree, and anything the kernel can publish as a file in
 `read`, `write` and `close` serve it and nothing is duplicated. The operations
 themselves are [System_Calls.md](System_Calls.md).
 
+One of them is there because a program cannot build it: `Poll` waits on several
+descriptors at once, and waiting is a registration on each channel, while a
+task's cancel state holds one suspension. So a program with two input pipes
+cannot ask which has bytes, however its own tasks are arranged, and a syscall
+is the only place the question can be answered.
+
 ### 4.4 Cost model
 
 Compilation is expensive; instantiation is cheap. The host caches the compiled

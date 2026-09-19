@@ -18,6 +18,7 @@ bool interruptible(Sys op)
     case Sys::Sleep:
     case Sys::Wait:
     case Sys::ClipRead:
+    case Sys::Poll:
         return true;
     default:
         return false;

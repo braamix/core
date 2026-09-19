@@ -7,6 +7,7 @@
 #include "kernel/alloc.h"
 #include "kernel/key.h"
 #include "kernel/sched.h"
+#include "poll.h"
 #include "proctab.h"
 #include "svc/net.h"
 #include "svc/svc.h"
@@ -1837,6 +1838,16 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             if (set)
                 p.caught = want;
             status = 0;
+            break;
+        }
+
+        // Which of several descriptors is ready. The one call that waits on
+        // more than one thing, and the one that answers about a descriptor
+        // without using it (poll.cpp).
+        case Sys::Poll: {
+            Result<usize> r = Err(Error::NoMemory);
+            CO_CALL(r, poll_wait(p, payload, reply));
+            status = r.is_err() ? -i32(r.error()) : i32(r.value());
             break;
         }
 

@@ -6,6 +6,7 @@ add_library(braam_user STATIC
     console.cpp
     exec.cpp
     io.cpp
+    poll.cpp
     procfs.cpp
     proctab.cpp
     syscall.cpp

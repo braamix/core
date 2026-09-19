@@ -261,7 +261,7 @@ it, and how much memory to give it. It lives in a wasm custom section named
 ```c
 struct ProcMeta {
     u32 magic;          // 0x6d617262, "bram"
-    u32 abi;            // PROC_ABI, currently 20
+    u32 abi;            // PROC_ABI, currently 21
     u32 flags;
     u32 initial_pages;
     u32 max_pages;
@@ -846,6 +846,7 @@ Reply is `i32 status` then data. A negative status is `-Error`. Served in
 | 83 | `Kill` | the pid | `u32 signal`, or empty for `SIG_KILL` | 0 | — |
 | 84 | `Fg` | a child's pid, or 0 to take the console back | — | 0 | — |
 | 85 | `SigAct` | — | `u32 mask`, or empty to ask | 0 | `u32`, the mask before |
+| 86 | `Poll` | — | `u32 timeout`, then `u32 fd, u32 events` pairs | how many are ready, 0 on timeout | `u32 revents` each |
 
 Every multi-byte field is little-endian, and a `u64` is a low word then a high
 word.
@@ -899,6 +900,46 @@ next read serves it first. That is what lets `/bin/sh`'s `read` take one line of
 a pipe without taking the next one, and it lives in the kernel because a buffer
 in a program outlives the descriptor number it was keyed to.
 
+**`Poll` is the only call that waits on more than one thing, and the only one
+that asks about a descriptor without using it.** Everything else in this table
+takes a descriptor and acts; `Read` is how a program learns that a pipe has
+bytes, and it consumes them. A program holding a child's stdout and its stderr
+could therefore only drain one of them, and deadlocked when the child filled
+the other. The kernel has to answer this because a program cannot: the waiting
+is a scheduler registration on each channel, and `CancelState::waiting` is one
+slot, so no arrangement of process-side tasks adds up to it.
+
+**Its payload is a timeout and then pairs**, `u32 fd` and `u32 events`, at most
+`SYS_POLL_MAX` of them; the data is a `u32 revents` for each pair in the same
+order, and the status is how many of those are non-zero, so a status of 0 is
+the timeout. `SYS_POLL_FOREVER` waits indefinitely and a timeout of 0 asks
+without waiting. `SYS_POLL_IN` is "a read would answer at once", which includes
+end of input, and `SYS_POLL_OUT` is "a write would not park". `SYS_POLL_HUP`
+cannot be asked for and is reported beside either: the far end has gone.
+
+**A direction a descriptor does not have is `Err(Invalid)` rather than a wait
+that never ends** — `SYS_POLL_OUT` on 0 or on a pipe's read end, `SYS_POLL_IN`
+on 1, 2 or a pipe's write end. A file is always ready both ways, because the
+VFS is synchronous and a file read never parks. A socket, a fetch body, an
+inflate stream and a picked file are `Err(Unsupported)`: they wait on a host
+call rather than on a channel, and there is nothing to arm. That is a boundary
+of the mechanism, not a policy, and it moves when something needs it to.
+
+**Every descriptor named is held for the length of the call**, in the direction
+it was named, by the same flags a `Read` or a `Write` holds; a descriptor
+somebody already holds is `Err(Busy)` and nothing is taken. Naming one twice in
+one call is the same answer, since the call is the other user. While a poll is
+parked, a `Read` of a descriptor in it is `Err(Perm)` exactly as a second read
+would be — which is the point, since a poll and a read arming the same channel
+would displace each other.
+
+**One token is armed on every channel named, and the timeout is a timer on the
+same waiter.** A channel that fires after the waiter has been resumed finds
+nothing listed, which is the late event `sched_wake` already answers false to.
+A wake that leaves nothing ready — a stray, or a peer that closed and reopened
+— re-arms with a fresh token and what is left of the timeout, so a poll never
+returns "ready" for something that is not.
+
 **`SigAct` carries its mask as a payload, which nothing else this small does.**
 The op word's argument is 24 bits and `SIG_WINCH` is bit 28, so the mask does
 not fit; it is a whole `u32` or it is wrong. It is one operation for the entire
@@ -909,9 +950,9 @@ runs, and a program that catches one and does nothing has ignored it. An empty
 payload asks without setting. A bit outside `SIG_CATCHABLE` is `Err(Invalid)`,
 which is how `SIG_KILL` stays undeclinable.
 
-**`Kill` grew a payload rather than an 86th operation**, since sending a signal
-is what killing already was: an empty payload still means `SIG_KILL`, so every
-caller that predates signals says the same thing it always did. The
+**`Kill` grew a payload rather than an operation of its own**, since sending a
+signal is what killing already was: an empty payload still means `SIG_KILL`, so
+every caller that predates signals says the same thing it always did. The
 authorisation is unchanged — the target must be a child of the caller — which
 is what keeps `kill %n` job-ids-only. `/bin/sh`'s `kill` and `trap` are the
 callers, and `less`, `edit` and `vmstat` call `SigAct` for `SIG_WINCH`.
@@ -1022,7 +1063,11 @@ and adding no reply, and `Inflate` from 15 to 16, taking 58 and an eighth handle
 kind. `Truncate` was the first to take an op and move nothing, and `FStat`
 followed it: op 33 inside 19. An operation purely added — no opcode, reply or
 flag changed — cannot be told apart by a binary that never issues it, and the
-number is what refuses a *stale* binary rather than what counts the table.)
+number is what refuses a *stale* binary rather than what counts the table.
+`Poll` moved it from 20 to 21, and the op is not why: `Error::Busy` is a
+sixteenth error value, and a program built against this SDK that polls on a
+0.9 kernel would be told `Unsupported` at run time, in the middle of a wait,
+rather than refused at exec where a version mismatch belongs.)
 That operation used to
 refuse a handle with
 `refs > 1`, meaning "nothing this process is inside a syscall on" — a second
@@ -1266,6 +1311,10 @@ failure.
 | `SYS_TTY_CONSOLE` | 1 | `Tty`'s flags word: this descriptor is the cell grid |
 | `SYS_WAIT_ANY` | 0 | `Wait`'s "whichever finishes first"; zero is never a pid |
 | `SYS_PID_MAX` | 999999 | the largest pid there is; above it are the scheduler's anonymous jobs |
+| `SYS_POLL_IN`/`OUT`/`HUP` | 1, 2, 4 | `Poll`'s events; `HUP` is reported, never asked for |
+| `SYS_POLL_ASKED` | 3 | what a caller may name; a bit outside it is `Err(Invalid)` |
+| `SYS_POLL_FOREVER` | 0xffffffff | `Poll`'s timeout for "however long that takes" |
+| `SYS_POLL_MAX` | 64 | descriptors one `Poll` may name |
 | `SYS_CHILD_MAX` | 16 | live children per process |
 | `SYS_PROC_DEPTH` | 16 | how deep a chain of spawns may go |
 

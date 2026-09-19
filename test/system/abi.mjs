@@ -71,7 +71,7 @@ export function check(binaries) {
         if (meta.length !== 1)
             fail(`${basename(binary)} carries ${meta.length} braam sections, expected 1`);
         const m = new Uint32Array(meta[0]);
-        if (m[0] !== 0x6d617262 || m[1] !== 20)
+        if (m[0] !== 0x6d617262 || m[1] !== 21)
             fail(`${basename(binary)}'s metadata is ${m[0].toString(16)}/${m[1]}`);
         if (m[4] !== 1600)
             fail(`${basename(binary)} asks for ${m[4]} pages, expected 1600`);

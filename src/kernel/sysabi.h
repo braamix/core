@@ -26,7 +26,7 @@ struct ProcMeta {
 
 constexpr Str PROC_SECTION   = "braam";
 constexpr u32 PROC_MAGIC     = 0x6d617262; // "bram"
-constexpr u32 PROC_ABI       = 20;
+constexpr u32 PROC_ABI       = 21;
 constexpr u32 PROC_PAGE      = 65536;
 constexpr u32 PROC_MAX_PAGES = 1600; // 100 MB, the ceiling the kernel imposes
 
@@ -202,6 +202,15 @@ enum class Sys : u32 {
     // as KeyClaim and Chdir are. A bit outside SIG_CATCHABLE is Err(Invalid).
     // The mask is a payload: SIG_WINCH is bit 28 and the arg field is 24.
     SigAct = 85, // payload = u32 mask, or empty to ask;  data = u32, the mask before
+
+    // Which of several descriptors is ready, answered without reading or
+    // writing one. The payload is a timeout in milliseconds, SYS_POLL_FOREVER
+    // to wait indefinitely and 0 to ask and not wait, then a u32 fd and a u32
+    // events for each descriptor; the data is a u32 revents for each, in the
+    // same order, and the status is how many of them are non-zero — so 0 is
+    // the timeout. Pipes, the stdio behind them and files answer; what waits
+    // on a host call rather than a channel is Err(Unsupported).
+    Poll = 86, // payload = u32 timeout, then u32 fd, u32 events pairs
 };
 
 // Signals (Concept.md §3.5), in Unix's numbers. A mask is 1u << n, so a number
@@ -348,6 +357,24 @@ constexpr usize SYS_SEEK_WORDS = 3;
 
 // Sys::Truncate's payload, in u32s: the length, low word then high.
 constexpr usize SYS_TRUNC_WORDS = 2;
+
+// Sys::Poll's events and revents. HUP is reported whether or not it was asked
+// for, as POSIX does: a descriptor whose far end has gone is ready for ever and
+// a caller that could not hear so would spin.
+enum : u32 {
+    SYS_POLL_IN  = 1, // a read would not park: bytes queued, or end of input
+    SYS_POLL_OUT = 2, // a write would not park
+    SYS_POLL_HUP = 4, // the far end is gone
+};
+
+constexpr u32 SYS_POLL_ASKED = SYS_POLL_IN | SYS_POLL_OUT;
+
+// Wait until something is ready, however long that takes.
+constexpr u32 SYS_POLL_FOREVER = 0xffffffff;
+
+// The most descriptors one call may name. A bound, because each one is armed
+// on its channel and disarmed again, and the reply is a word per pair.
+constexpr usize SYS_POLL_MAX = 64;
 
 // What one read yields when the caller names no length.
 constexpr u32 SYS_CHUNK = 512;
