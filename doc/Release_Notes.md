@@ -780,6 +780,126 @@ installs it as `share/doc/braam/bzip2-LICENSE`. `examples/bzpipe` is `zpipe`'s
 twin. The `sdk` test round-trips `/etc/help` through it, and it makes the host
 `bzip2 -9`'s bytes on a 1.2 MB file under the kernel.
 
+## liblzma, vendored rather than rewritten
+
+`braam::lzma` is the SDK's fifth library. It gives `.xz`, `.lzma` and, for
+reading, lzip's `.lz`. Like bzip2, the host has nothing to lend here:
+`DecompressionStream` knows gzip and deflate and nothing else.
+
+**It is liblzma 5.8.4 itself, not a rewrite, because liblzma does not have
+zlib's problem.** zlib and libbzip2 were rewritten because each wants
+`<stdlib.h>` in a way no build flag turns off. liblzma wants the same headers,
+`<stdlib.h>`, `<string.h>` and `<assert.h>`, all through one file,
+`sysdefs.h`. But it calls only six functions from them, and its
+single-threaded build already steps around `<signal.h>` on a wasm target. So
+the answer is musl's: vendor the C byte-identical, and answer the headers
+privately. About 20,000 lines of C in 76 files build with no line changed,
+and that pays for itself at every release: a re-sync is a copy.
+
+How it is laid out:
+
+- `src/lzma/liblzma/` is xz's `src/liblzma/` and `src/lzma/common/` the nine
+  files of xz's `src/common/` it includes, both under `-w` and a `DisableFormat`
+  `.clang-format`, as musl is. Every `.c` present is built.
+- What was left upstream is listed in `src/lzma/CMakeLists.txt`: the threaded
+  coders and their output queue, the table generators, the x86, ARM64 and
+  LoongArch CRC code, and the big-endian tables.
+- `src/lzma/sys/` answers `<config.h>`, `<stdlib.h>`, `<string.h>` and
+  `<assert.h>`. It is on the vendored C's include path alone and is never
+  installed.
+- `config.h` is a full single-threaded build: every filter, every match finder,
+  all four checks, and the lzip decoder. `HAVE_INTTYPES_H` stays undefined,
+  because clang's `<inttypes.h>` is an `include_next` into a libc.
+  `sysdefs.h` supplies the `PRI*` macros it would have wanted from it.
+
+**The six functions are renamed, not defined.** `sys/string.h` maps `memcpy`,
+`memmove` and `memset` to their builtins, which are bulk-memory instructions
+here. It maps `memcmp`, `memchr` and `strlen` to `lzma_sys_*` names, and
+`sys/stdlib.h` does the same for `malloc`, `calloc` and `free`. `sys.cpp`
+defines those six over `heap_alloc` and `heap_free`. Defining the libc names
+themselves would work until a port linked the kit, whose `malloc` and
+`strlen` are C-linkage definitions of the same names. The archive's only
+undefined symbols outside itself are `heap_alloc` and `heap_free`. Since both
+sides allocate on the one heap, a port may `free()` what liblzma hands back.
+
+**There are no threads, so the threaded API is a compile error.**
+`lzma_stream_encoder_mt`, its `_memusage`, and `lzma_stream_decoder_mt` are
+declared in upstream's header, and without `MYTHREAD_*` nothing defines them.
+`lzma/lzma.h` redeclares the three `unavailable`, naming the single-threaded
+calls. A port finds this out at the call, not at the link, as with zlib's
+`gz*`. `lzma_physmem` and `lzma_cputhreads` stay in and answer 0, liblzma's
+answer on a system it cannot ask.
+
+**The API is both, and neither restates the other.** zlib's and bzip2's C APIs
+are adapters over a native pair. Here the C API is the library, so native code
+may include `lzma/lzma.h` exactly as a port includes `<lzma.h>`. That header is
+a one-line forward to it. `lzma/xz.h` adds `XzEncoder` and `XzDecoder` in
+bzip2's shape, for the common case, with a status that names liblzma's return
+codes. Filter chains, raw streams and the index stay in the C API.
+
+The pair differs from liblzma in four places:
+
+- **`More`**, as bzip2 has. liblzma answers `LZMA_OK` both while a flush is
+  under way and after a plain run, and `LZMA_STREAM_END` when a flush is done.
+  So `step` says `More` during a flush or finish, `Ok` when a flush is done, and
+  `End` only for `Finish`.
+- **The decoder's `finish`.** Every `.xz` and `.lz` is read concatenated, as
+  `xz` and `lzip` read them, so the end of one stream is not the end of the
+  input. `LZMA_FINISH` is what says it is, and `step` takes it as a flag.
+- **A cut stream is `Corrupt`.** Under `finish`, liblzma reports a truncated
+  stream as `LZMA_BUF_ERROR`, the same code as a call that could not move. The
+  wrapper calls it `Corrupt` when there was room to write into.
+- **The encoder's `memusage()`.** `lzma_memusage` answers only for decoders, so
+  the encoder's figure is liblzma's own estimate for the preset, taken at
+  `init`.
+
+**Byte-identity is the oracle, and here it is identity with itself.** The host
+has the same liblzma. `tools/mkxzdata.py` records 141 streams through Python's
+`lzma`:
+
+- ten inputs at presets 0 to 6 and two extremes;
+- `.lzma` at three presets;
+- every check;
+- four filter chains, among them delta, x86 and SPARC.
+
+All agreed on the first build. That proves the build, not the algorithms: the
+`config.h`, the stub headers, the 32-bit `size_t` and the unaligned reads.
+Those are this port's own contribution, and the easiest place for it to be
+wrong. `xzpipe` under the kernel makes what `xz -T1` makes of
+`doc/Concept.md` at presets 0, 3 and 6. Plain `xz` records sizes in each block
+header, because 5.8 is threaded by default.
+
+**xz's own test corpus is the decoder's oracle.** Upstream ships 96 small files
+that are good, bad and unsupported, built by hand to reach each refusal. The
+tool stores all of them whole but one 51 KB TIFF. With each it records what the
+host's decoder made of the file whole and a byte at a time. It had to record
+both, because one file differs between the two, in liblzma and so here too.
+`good-known_size-with_eopm.lzma` declares its size and also carries an end
+marker. Fed whole with `LZMA_FINISH` it is good. Fed a byte at a time, it is
+`LZMA_DATA_ERROR` one byte before its end: the decoder reaches the declared size
+before `LZMA_FINISH` has said an end marker may follow. Three lzip files named
+`good` are refused as well, since they have trailing data. Upstream's README
+says so: they are good only for lzip before 1.20, and liblzma under
+`LZMA_CONCATENATED` agrees with lzip 1.20.
+
+**The memory is liblzma's, and the process cap decides the presets.** An
+encoder is 2.7 MiB at preset 0, 93 MiB at 6 and 673 MiB at 9. A process may
+have 1,600 pages, 100 MiB, so preset 6 (xz's default and `xzpipe`'s) fits with
+little to spare, and 7 to 9 do not fit at all. `xzpipe -7` says "out of memory"
+and exits 1. The heap's own ceiling is 256 MiB, so the unit suite stops its
+oracle at 6 too. A decoder needs the dictionary, which is 8 MiB at 6 and 64 MiB
+at 9, so it reads every preset's output.
+
+In the port kit, `lzma_crc32` is +8,611 bytes. That is slicing-by-eight tables
+where zlib has slicing-by-four. `lzma_stream_buffer_decode` is +56,874,
+`lzma_easy_buffer_encode` +72,023, and both +100,929. `xzpipe` is 142 KB.
+
+liblzma is under the BSD Zero Clause License, which asks nothing. The SDK
+installs `COPYING.0BSD` as `share/doc/braam/lzma-LICENSE` anyway, so the SDK
+says where the code came from. `examples/xzpipe` is `bzpipe`'s twin, with a
+preset flag. The `sdk` test round-trips `/etc/help` through it under the
+installed harness and checks the `.xz` magic.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

@@ -96,7 +96,19 @@ stores two streams whole, which `test_bzip2.cpp` decompresses. One is
 `sample3.bz2` from the bzip2 distribution. The other is a randomised block, the
 kind only bzip2 0.9.0 wrote, which the tool builds and the host's libbzip2
 reads back before the file is written.
-Those four are the cases in the tree with an oracle outside themselves.
+`xz.data` is from `tools/mkxzdata.py`, which asks the host's liblzma two ways.
+It refuses any release but the 5.8.4 vendored in `src/lzma/`. Through Python's
+`lzma` it records the length and CRC-32 of 141 streams. Those are ten inputs at
+presets 0 to 6 and two extremes as `.xz`, three presets as `.lzma`, the other
+three checks, and four filter chains spelled as `lzma_str_to_filters` takes
+them. Through ctypes it stores 96 files of xz's own test corpus whole, the
+good, the bad and the unsupported, all but one large TIFF. For each file it
+records what the host's decoder made of it twice: once whole, and once fed a
+byte at a time. The two differ once: a `.lzma` of known size that also ends in
+a marker is refused unless the end of input comes with the marker.
+`test_lzma.cpp` requires the same bytes from the encoder and the same answers
+from the decoder, through the C API and through `XzDecoder`.
+Those five are the cases in the tree with an oracle outside themselves.
 Regenerate any of them by re-running its tool, never by hand.
 
 **`rootfs.zip` is `braam::zlib`'s second oracle.** `test_zip.cpp` already reads

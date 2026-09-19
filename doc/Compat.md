@@ -39,8 +39,8 @@ guard, and it is tested.
 `strtod` families, `qsort`/`mergesort`/`bsearch`,
 `snprintf`/`vsnprintf`/`sprintf`, `errno`, `strerror`, `getenv`, the calendar
 (`<time.h>`), the wide half (`<wchar.h>`, `<wctype.h>`), `fnmatch`,
-`<sys/queue.h>`, `<regex.h>`, `<zlib.h>` and `<bzlib.h>`. Group A has no
-syscall, which is why `braam_compat_pure` links
+`<sys/queue.h>`, `<regex.h>`, `<zlib.h>`, `<bzlib.h>` and `<lzma.h>`. Group A
+has no syscall, which is why `braam_compat_pure` links
 into `tests.wasm` the way `braam_math` does: a syscall in it is a link error.
 
 Group A does reach the tree's *pure* primitives and leaves them undefined in the
@@ -193,6 +193,20 @@ freestanding `<endian.h>` arrived only in clang 23.
     `BRAAM_ABSENT`. A `.bz2` file is `BZ2_bzDecompress()` over bytes `b_read`
     gave. After `BZ_STREAM_END`, while bytes remain, it is `End` and `Init`
     again, since `bzip2` may write one stream after another.
+- **`<lzma.h>` is liblzma 5.8.4's own header**, over `braam::lzma`, which is
+  liblzma vendored verbatim rather than rewritten. There is no adapter: the
+  header forwards to `lzma/lzma.h`, and every call is liblzma's. The whole API
+  is there, including `lzma_stream`, the easy, raw and buffer encoders and
+  decoders, filter chains and `lzma_str_to_filters`, the index, and `.lzma`
+  and `.lz`. Three things differ from a threaded build:
+  - `lzma_stream_encoder_mt`, `lzma_stream_encoder_mt_memusage` and
+    `lzma_stream_decoder_mt` are each a compile error at the call. The
+    single-threaded `lzma_stream_encoder` and `lzma_stream_decoder` make the
+    same streams, less the block sizes the threaded encoder records.
+  - `lzma_physmem()` and `lzma_cputhreads()` answer 0, liblzma's own answer on
+    a system it cannot ask.
+  - A null `lzma_allocator` means the heap, so a buffer liblzma hands back, as
+    `lzma_str_from_filters` does, goes to the kit's `free()` as usual.
 - **`strerror` returns the POSIX *name***, `"ENOENT"`. Every byte of English
   prose a Unix libc spends here stays unspent. It is **not** `error_name()` in
   `kernel/result.h`, which answers prose — `"not found"` — and is what the rest
@@ -337,6 +351,11 @@ arm costs, since `--gc-sections` drops the rest:
 | `BZ2_bzBuffToBuffCompress` | +19,072 |
 | `BZ2_bzBuffToBuffDecompress` | +21,397 |
 | both | +39,380 |
+| `lzma_crc32` | +8,611 |
+| `lzma_stream_buffer_decode` | +56,874 |
+| `lzma_auto_decoder` and `lzma_code` | +61,133 |
+| `lzma_easy_buffer_encode` | +72,023 |
+| `lzma_easy_buffer_encode` and `lzma_stream_buffer_decode` | +100,929 |
 
 `<sys/queue.h>` is macros, so its 107 bytes are the caller's own loop. `fnmatch`
 carries the twelve `ctype` predicates because a POSIX character class names them

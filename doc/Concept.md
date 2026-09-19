@@ -181,7 +181,7 @@ About 1,500 lines: an allocator — a bump arena plus size-class free lists over
 `Result<T, E>`, `Option<T>` and `HashMap<K, V>`. Coroutine frames go through the
 allocator, so it is built for that workload (§8.2).
 
-Four libraries sit beside that. Each is opted into by name, carries no host
+Five libraries sit beside that. Each is opted into by name, carries no host
 import, and is not linked by the kernel:
 
 - `braam::math` is musl's libm, vendored, so that a Unix port has `<cmath>` to
@@ -192,6 +192,8 @@ import, and is not linked by the kernel:
   zlib's, byte for byte.
 - `braam::bzip2` is libbzip2, rewritten in C++ the same way. Its output is
   libbzip2's, byte for byte.
+- `braam::lzma` is liblzma, for `.xz`, `.lzma` and `.lz`. Like the libm it is
+  vendored rather than rewritten, with a C++ pair over its own C API.
 
 Beside them, and linked by nothing here, is the opt-in port kit `braam::compat`
 (doc/Compat.md), for a program being ported from Unix.
@@ -712,9 +714,9 @@ the keystroke that produces the event (§3.5).
 The kernel is the bottom tier. `braam_fs` and `braam_svc` are siblings above it
 and below userland, depending on neither each other nor upwards.
 
-`braam_ui`, `braam_math`, `braam_regex`, `braam_zlib` and `braam_bzip2` are in
-neither hierarchy, and the kernel does not link them at all, because the
-programs that paint, calculate, match and compress are binaries.
+`braam_ui`, `braam_math`, `braam_regex`, `braam_zlib`, `braam_bzip2` and
+`braam_lzma` are in neither hierarchy, and the kernel does not link them at all,
+because the programs that paint, calculate, match and compress are binaries.
 
 `src/proc/` is a *different binary's* runtime, sharing a few headers with the
 kernel, not code.
@@ -731,6 +733,7 @@ kernel, not code.
 | `src/regex/` | POSIX regular expressions (§3.2) |
 | `src/zlib/` | zlib's deflate and inflate, rewritten in C++ (§3.2) |
 | `src/bzip2/` | libbzip2, rewritten in C++ (§3.2) |
+| `src/lzma/` | liblzma, vendored, and a C++ pair over it (§3.2) |
 | `src/user/` | exec, the syscall dispatcher, the console, pipes, `/proc`, boot and init |
 | `src/proc/` | a process binary's whole runtime: `_start`, syscalls, stdio |
 | `src/compat/` | the opt-in port kit, `braam::compat` (doc/Compat.md) |

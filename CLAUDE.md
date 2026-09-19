@@ -11,7 +11,7 @@ C++20, compiled to wasm32, deployable as a static site with no server and no
 special HTTP headers. No libc under the system, no Emscripten, no `xterm.js` —
 nothing is linked that is not in this tree. A *ported* program may opt into
 `braam::compat` ([doc/Compat.md](doc/Compat.md)); nothing in this tree does.
-Only five parts are not wholly ours:
+Only six parts are not wholly ours:
 
 - `src/math/` is musl's libm, vendored under an MIT licence.
 - `src/compat/cwidth.cpp` is Markus Kuhn's `wcwidth` intervals, under his own
@@ -21,6 +21,9 @@ Only five parts are not wholly ours:
 - `src/bzip2/` is libbzip2 1.0.8 rewritten in C++, under Julian Seward's
   licence, which asks the same. `src/bzip2/LICENSE` is the original, and each
   source file says what it was translated from.
+- `src/lzma/liblzma/` and `src/lzma/common/` are liblzma 5.8.4, vendored
+  verbatim under the BSD Zero Clause License (`src/lzma/COPYING.0BSD`), and so
+  is the test corpus inside `test/unit/xz.data`.
 - `test/unit/att/` is AT&T's `regex(3)` conformance corpus, under Glenn
   Fowler's grant. It is test data, linked into nothing that ships.
 
@@ -99,13 +102,15 @@ make clean
 - Version = `BRAAM_VERSION_BASE` ([src/kernel/version.h](src/kernel/version.h),
   hand-edited) + commit count + short hash. `tools/version.py` is the one
   implementation and runs at *build* time; `tools/release.py` imports it.
-- **The nine publisher tools in `tools/` are hand-run; no build step calls
+- **The ten publisher tools in `tools/` are hand-run; no build step calls
   them**: `ed25519.py` (the one place a key is read, and the only thing needing
   `cryptography`), `signindex.py`, `mkanchor.py`, `mkpkg.py`, `mkindex.py`,
   `mkrepo.py` (regenerates `test/unit/repo.data` under keys it destroys),
   `mkmathdata.py` (regenerates `test/unit/math.data` from the host's own libm),
-  `mkzlibdata.py` (`test/unit/zlib.data` from the host's own zlib) and
-  `mkbzip2data.py` (`test/unit/bzip2.data` from the host's own libbzip2).
+  `mkzlibdata.py` (`test/unit/zlib.data` from the host's own zlib),
+  `mkbzip2data.py` (`test/unit/bzip2.data` from the host's own libbzip2) and
+  `mkxzdata.py` (`test/unit/xz.data` from the host's own liblzma, which must be
+  5.8.4, and xz's test corpus).
   `mkindex.py` derives Package_Formats.md §6.1's `cmd:` names from each
   package's `bin/`, so no publisher writes one down. **No private key** goes in
   the tree, in anything built from it, or inside `rootfs.zip`.
@@ -115,13 +120,18 @@ make clean
   are. `examples/hello/` is a build target for that reason.
 - `-Wall -Wextra -Wshadow` with `BRAAM_WERROR` **ON by default**; the tree is
   warning-clean. `-DBRAAM_WERROR=OFF` is for bisecting only. **`src/math/musl/`
-  and `src/math/cvt/` are the one exemption** — `-w` and a `DisableFormat`
+  and `src/math/cvt/` are one exemption** — `-w` and a `DisableFormat`
   `.clang-format`, so that a re-sync with upstream stays a clean diff. They are
   C, as `src/math/native.c` is, and are compiled against clang's freestanding
   headers plus [src/math/musl_prologue.h](src/math/musl_prologue.h), which is
   force-included and carries what neither clang nor `math/math.h` has. **A
   re-sync is a copy plus eleven deleted `#include` lines** — Release_Notes.md
-  lists them.
+  lists them. **`src/lzma/liblzma/` and `src/lzma/common/` are the other**, C
+  under the same `-w` and `.clang-format`, compiled against clang's
+  freestanding headers plus `src/lzma/sys/`, which answers `<config.h>`,
+  `<stdlib.h>`, `<string.h>` and `<assert.h>` for them alone and is never
+  installed. **Their re-sync is a copy with no edit at all**; what was left
+  upstream is listed in `src/lzma/CMakeLists.txt`.
 
 ### Toolchain
 
@@ -195,9 +205,9 @@ from `/bin/pkg` (`src/cmd/pkg/host.cpp`), the kernel's own services from the
 suite (`test/unit/fakehost.h`) — which is how a check that must be tested keeps
 out of the half that cannot be. `pkg/unzip.cpp`, `store.cpp`, `host.cpp` and
 `install.cpp` stay out, and `sh/glob.cpp` and `sh/condrun.cpp` with them,
-because they walk the store. `braam_math`, `braam_regex`, `braam_zlib` and
-`braam_bzip2` are *linked* instead: each links `braam_flags` alone and has no
-syscall to hide, as `braam_ui` does not. Anything
+because they walk the store. `braam_math`, `braam_regex`, `braam_zlib`,
+`braam_bzip2` and `braam_lzma` are *linked* instead: each links `braam_flags`
+alone and has no syscall to hide, as `braam_ui` does not. Anything
 needing a program to run belongs in `test/system/`, as a file and a line in
 `run.mjs`'s table. [doc/Testing.md](doc/Testing.md) is the whole of both suites.
 
@@ -417,6 +427,7 @@ argue in Concept.md first.
   `src/regex/` (POSIX regular expressions, one file, opted into by name);
   `src/zlib/` (zlib's deflate and inflate in C++, opted into by name);
   `src/bzip2/` (libbzip2 in C++, opted into by name);
+  `src/lzma/` (liblzma, vendored, and a C++ pair over it, opted into by name);
   `src/user/` (exec and the syscall dispatcher, console, pipes, `ProcFs`, boot
   and init); `src/proc/` (a process binary's runtime); `src/compat/` (the opt-in
   port kit, linked by nothing in this tree); `src/cmd/` (one file per program,
@@ -438,7 +449,12 @@ argue in Concept.md first.
   regression even when the round trip still passes. **`braam_bzip2` is the
   same again**, its output libbzip2's to the byte by `test/unit/bzip2.data`.
   Its one private header, `bzlib_private.h`, is kept out of the SDK by the
-  install rule's `*_private.h` pattern. There is **no `long double`** on this
+  install rule's `*_private.h` pattern. **`braam_lzma` is the same shape but
+  vendored**: liblzma's C reaches `lzma_sys_malloc` and five more
+  (`src/lzma/sys.cpp`), which stand on `kernel/alloc.h` alone, renamed so that
+  a port linking the kit's own `malloc` and `strlen` does not collide with
+  them. Its headers are installed by name, never by the directory glob, which
+  would ship `sys/string.h`. There is **no `long double`** on this
   target — it is 113-bit quad and every operation on one is a compiler-rt link
   error — so musl's `*l.c`, `nexttoward.c` and `nexttowardf.c` stay upstream.
 - **The builtin table is an explicit array and must stay one.** `--gc-sections`

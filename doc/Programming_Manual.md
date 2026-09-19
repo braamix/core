@@ -32,13 +32,14 @@ Either way, this is what you get:
 
 | Path | What it is |
 | --- | --- |
-| `include/braam/{kernel,fs,proc,ui,math,regex,zlib,bzip2}/` | the headers a program includes |
+| `include/braam/{kernel,fs,proc,ui,math,regex,zlib,bzip2,lzma}/` | the headers a program includes |
 | `lib/braam/libbraam_proc.a` | the process runtime: the allocator, the strings, the task scheduler, the syscall wrappers |
 | `lib/braam/libbraam_ui.a` | the layout layer, for a program that paints |
 | `lib/braam/libbraam_math.a` | musl's libm, for a program that asks for it (§6) |
 | `lib/braam/libbraam_regex.a` | POSIX regular expressions, likewise (§6) |
 | `lib/braam/libbraam_zlib.a` | zlib's deflate and inflate, likewise (§6) |
 | `lib/braam/libbraam_bzip2.a` | libbzip2's compressor and decompressor, likewise (§6) |
+| `lib/braam/libbraam_lzma.a` | liblzma, for `.xz`, `.lzma` and `.lz`, likewise (§6) |
 | `lib/braam/libbraam_compat_pure.a` | the opt-in port kit's pure half, for a *ported* C program (doc/Compat.md) |
 | `lib/braam/libbraam_compat_proc.a` | the same kit's blocking half — Group B's `b_*` family, over `braam::proc` |
 | `include/braam/compat/include/` | the kit's system header names — on a `PORT` target's path and no other's |
@@ -51,6 +52,7 @@ Either way, this is what you get:
 | `share/braam/examples/hello/` | the example below |
 | `share/braam/examples/zpipe/` | a second, which compresses with `braam::zlib` (§6) |
 | `share/braam/examples/bzpipe/` | a third, which compresses with `braam::bzip2` (§6) |
+| `share/braam/examples/xzpipe/` | a fourth, which compresses with `braam::lzma` (§6) |
 | `share/braam/test/system/harness.mjs` | the headless harness (§3.3), with its fakes beside it |
 | `share/braam/web/` | the kernel and boot archive the harness runs, and the JS they need |
 | `share/doc/braam/Programming_Manual.md` | this file |
@@ -122,7 +124,7 @@ the build directory and configure again.
 `braam_add_program(NAME <n> SOURCES <...> [LIBS <...>])` is the same function
 `src/cmd/` builds the system's own thirty-six programs with. It links
 `braam::proc` and `braam::flags` — `braam::math`, `braam::regex`,
-`braam::zlib` and `braam::bzip2` are asked for by name — links
+`braam::zlib`, `braam::bzip2` and `braam::lzma` are asked for by name — links
 with `--import-memory` so the memory cap is the kernel's, and runs `stamp.py`
 over the result. `LIBS` names anything else the program is made of. The CMake
 target it defines is `bin_<name>` — the file is `<name>.wasm`, and the prefix is
@@ -754,7 +756,7 @@ already repaired its own grid by the time it reports one.
 
 ### Mathematics — `math/math.h` and `math/ftoa.h`
 
-One of the four libraries a program asks for by name, because most do not
+One of the five libraries a program asks for by name, because most do not
 want it:
 
 ```cmake
@@ -1018,16 +1020,94 @@ the verbosity that printed to stderr. A `PORT` target reaches the same code as
 `<bzlib.h>`: libbzip2's own C API, with `bz_stream`, `BZ2_bzCompress` and
 `BZ2_bzBuffToBuffDecompress`. It needs no `LIBS` line (doc/Compat.md).
 
+### Compression a third time — `lzma/xz.h` and `lzma/lzma.h`
+
+The fifth is liblzma, from xz 5.8.4. Unlike zlib and libbzip2 it is not a
+rewrite but liblzma itself, vendored verbatim, so **the output is liblzma's,
+byte for byte**: what `xz -T1` writes at the same preset. It writes `.xz` and
+`.lzma`, and it reads those two and lzip's `.lz`. `examples/xzpipe` is the
+worked example:
+
+```cmake
+braam_add_program(NAME xzpipe SOURCES xzpipe.cpp LIBS braam::lzma)
+```
+
+It has two headers. `lzma/xz.h` is a Braam-shaped pair, an `XzEncoder` and an
+`XzDecoder`, stepped as zlib's pair is over a span of input and a span of
+output:
+
+```cpp
+XzEncoder e;
+if (e.init(6).is_err())                // preset 0..9, | XZ_PRESET_EXTREME
+    co_return 1;
+Span<const u8> in = bytes;
+Span<u8> out(buf, sizeof buf);
+XzStatus s = e.step(in, out, last ? XzAction::Finish : XzAction::Run);
+```
+
+`lzma/lzma.h` is liblzma's own C API, whole: filter chains, raw streams, the
+index, `lzma_str_to_filters`, everything the pair does not restate. Both
+headers reach the same code, so a program may use the pair and go to the C API
+for the rest. `XzStatus` names liblzma's return codes:
+
+| `XzStatus` | liblzma's code | Meaning |
+| --- | --- | --- |
+| `Ok` | `LZMA_OK` | the call made progress; a flush that finished |
+| `More` | `LZMA_OK` under a flush or `Finish` | a flush or finish is under way |
+| `End` | `LZMA_STREAM_END` | the stream is complete |
+| `Stuck` | `LZMA_BUF_ERROR` | the call could not move |
+| `Corrupt` | `LZMA_DATA_ERROR`; `LZMA_BUF_ERROR` under `finish` | bad data, or cut short |
+| `NotXz` | `LZMA_FORMAT_ERROR` | the input is not the format asked for |
+| `Unsupported` | `LZMA_OPTIONS_ERROR`, `LZMA_UNSUPPORTED_CHECK` | valid, but not supported |
+| `MemLimit` | `LZMA_MEMLIMIT_ERROR` | the stream needs more memory than the limit |
+| `NoMemory` | `LZMA_MEM_ERROR` | the heap ran out |
+| `Misuse` | `LZMA_PROG_ERROR` | the coder's state forbids the call |
+
+Four things are xz's own:
+
+- **A flush or finish is repeated until it is done**, as with bzip2, and the
+  input may not change meanwhile. Unlike bzip2's, a `SyncFlush` is a sync
+  point: everything so far decompresses. A `FullFlush` also ends the block.
+- **A decoder is told when the input ends.** `step(in, out, finish)` takes
+  `finish` true once `in` holds the last of it. `.xz` and `.lz` may be several
+  streams in a row, and the decoder reads them as one output. Only `finish`
+  tells it that no further stream follows, so `End` comes then and no sooner.
+  `.lzma` is one stream and may end first.
+- **A decoder may have a memory limit**, the second argument to `init()`, zero
+  meaning none. A stream that needs more is `MemLimit`, and `set_memlimit()`
+  then lets the same call carry on.
+- **There are no threads**, so `lzma_stream_encoder_mt` and
+  `lzma_stream_decoder_mt` are each a compile error at the call.
+  `lzma_physmem()` and `lzma_cputhreads()` answer 0.
+
+The one-shots are `xz_compress(bytes, preset, check)` and
+`xz_uncompress(bytes, limit)`, with the same `limit` as zlib's. The CRC-32 and
+CRC-64 are the C API's, `lzma_crc32` and `lzma_crc64`.
+
+**The state lives on the heap, and the preset decides how much.** An encoder
+takes 2.7 MiB at preset 0, 93 MiB at preset 6 (the default) and 673 MiB at
+9. `memusage()` gives the figure. A decoder takes about the dictionary, between
+256 KiB and 64 MiB. The memory cap is 100 MiB (§7), so preset 6 fits only in a
+program that holds little else, and 7 to 9 fit in none. Presets 0 to 3 stay
+under 32 MiB.
+
+**The calls are synchronous.** A step does all the work its buffers allow
+before returning, so stepping a chunk at a time, as `xzpipe` does, keeps each
+one short.
+
+A `PORT` target reaches the same C API as `<lzma.h>`, and it needs no `LIBS`
+line (doc/Compat.md).
+
 ### What the headers do *not* contain
 
 `include/braam/kernel/` and `include/braam/fs/` are shipped because the
 libraries' headers include them, and they are worth reading — `str.h`,
 `string.h`, `vec.h`, `span.h`, `result.h`, `fmt.h`, `text.h`, `path.h` and
 `math/math.h` are the whole standard library here, with `regex/regex.h`,
-`zlib/zlib.h` and `bzip2/bzip2.h` beside them. But the parts of them that
-name the scheduler, the host imports or the VFS belong to the kernel and have
-nothing behind them in a program: reaching one is a link error, which is the
-intended answer.
+`zlib/zlib.h`, `bzip2/bzip2.h` and `lzma/xz.h` beside them. But the parts of
+them that name the scheduler, the host imports or the VFS belong to the kernel
+and have nothing behind them in a program: reaching one is a link error, which
+is the intended answer.
 
 ---
 
@@ -1042,7 +1122,7 @@ link error or a trap rather than a warning:
   needing a compiler-rt builtin — 128-bit division, an outlined `memcpy`,
   anything `long double` — will not link. There *is* a libm, `braam::math`,
   there are regular expressions, `braam::regex`, and there is compression,
-  `braam::zlib` and `braam::bzip2`; §6.
+  `braam::zlib`, `braam::bzip2` and `braam::lzma`; §6.
   A program being **ported** from Unix may opt into `braam::compat`, which
   changes nothing for one that does not: doc/Compat.md.
 - **Never `new` anything.** `operator new` returns null on failure and there are

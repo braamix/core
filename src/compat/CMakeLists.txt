@@ -3,8 +3,9 @@
 # asks for it by name, and one that does not is byte-for-byte unchanged.
 
 # Group A: pure computation. Links braam_flags, braam_math, braam_regex,
-# braam_zlib and braam_bzip2 alone — no syscall, no host import — which is what
-# lets tests.wasm link it, exactly as it does braam_math.
+# braam_zlib, braam_bzip2 and braam_lzma alone — no syscall, no host import —
+# which is what lets tests.wasm link it, exactly as it does braam_math.
+# <lzma.h> is liblzma's own header, forwarded: there is no adapter to compile.
 #
 # ctime.cpp, cwchar.cpp and cwctype.cpp reference civil()/civil_secs() and the
 # UTF-8 codec, which live in braam_proc and braam_core. Those stay undefined in
@@ -54,7 +55,7 @@ target_include_directories(braam_compat_pure INTERFACE
     $<INSTALL_INTERFACE:${BRAAM_INSTALL_INCLUDEDIR}/compat/include>)
 target_include_directories(braam_compat_pure PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(braam_compat_pure PUBLIC braam_math braam_regex braam_zlib braam_bzip2
-                                               braam_flags)
+                                               braam_lzma braam_flags)
 
 # snprintf's float arm, and the stub that stands where it would be: 5 KB every
 # port paid for %d alone, since --gc-sections works at function granularity.

@@ -1,15 +1,15 @@
 // The harness as the SDK installs it: imported from <prefix>/share/braam, it
 // boots the kernel and archive installed beside it and runs examples/hello,
-// then round trips through examples/zpipe and examples/bzpipe, the callers of
-// braam::zlib and braam::bzip2.
+// then round trips through examples/zpipe, examples/bzpipe and examples/xzpipe,
+// the callers of braam::zlib, braam::bzip2 and braam::lzma.
 // A file the harness comes to import and the install rules miss fails here.
 //
-//     node test/sdk.mjs <prefix> <hello.wasm> <zpipe.wasm> <bzpipe.wasm>
+//     node test/sdk.mjs <prefix> <hello.wasm> <zpipe.wasm> <bzpipe.wasm> <xzpipe.wasm>
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const [prefix, hello, zpipe, bzpipe] = process.argv.slice(2).map((p) => resolve(p));
+const [prefix, hello, zpipe, bzpipe, xzpipe] = process.argv.slice(2).map((p) => resolve(p));
 const HARNESS = join(prefix, "share/braam");
 
 const die = (msg) => {
@@ -64,4 +64,15 @@ if (new TextDecoder().decode(b.subarray(0, 4)) !== "BZh9" || b.length >= help.le
 if (Buffer.compare(Buffer.from(v), Buffer.from(help)) !== 0)
     die(`bzpipe -d gave back ${v.length} bytes, not /etc/help's ${help.length}`);
 
-console.log("sdk ok: the installed harness boots, runs hello, and round-trips zpipe and bzpipe");
+H.store.files.set("/bin/xzpipe", new Uint8Array(readFileSync(xzpipe)));
+line("xzpipe </etc/help >/tmp/x", "xzpipe");
+line("xzpipe -d </tmp/x >/tmp/w", "xzpipe -d");
+const x = file("/tmp/x");
+const w = file("/tmp/w");
+const XZ_MAGIC = [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00];
+if (XZ_MAGIC.some((c, i) => x[i] !== c) || x.length >= help.length)
+    die(`xzpipe made ${x.length} bytes of no .xz stream`);
+if (Buffer.compare(Buffer.from(w), Buffer.from(help)) !== 0)
+    die(`xzpipe -d gave back ${w.length} bytes, not /etc/help's ${help.length}`);
+
+console.log("sdk ok: the installed harness boots, runs hello, and round-trips zpipe, bzpipe and xzpipe");

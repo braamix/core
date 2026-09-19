@@ -19,6 +19,7 @@
 #include <wctype.h>
 #include <zlib.h>
 #include <bzlib.h>
+#include <lzma.h>
 
 #include "compat/cenv.h"
 #include "compat/cerr.h"
@@ -1036,6 +1037,73 @@ void test_bzip2_c()
     CHECK_EQ(BZ2_bzDecompressInit(&d, 0, 2), BZ_PARAM_ERROR);
 }
 
+// liblzma's own API, as a port includes it: the buffer calls, a stream fed a
+// byte at a time, and a string liblzma allocates handed to free().
+void test_lzma_c()
+{
+    CHECK(strcmp(lzma_version_string(), "5.8.4") == 0);
+
+    static uint8_t text[6000], packed[7000], back[6000];
+    for (int i = 0; i < 6000; i++)
+        text[i] = uint8_t("the stream of words, "[i % 21]);
+
+    size_t plen = 0;
+    CHECK_EQ(lzma_easy_buffer_encode(1, LZMA_CHECK_CRC64, nullptr, text, sizeof text, packed, &plen,
+                                     sizeof packed),
+             LZMA_OK);
+    CHECK(plen < 200 && memcmp(packed,
+                               "\xfd"
+                               "7zXZ",
+                               6) == 0);
+
+    uint64_t limit = UINT64_MAX;
+    size_t in_pos = 0, out_pos = 0;
+    CHECK_EQ(lzma_stream_buffer_decode(&limit, 0, nullptr, packed, &in_pos, plen, back, &out_pos,
+                                       sizeof back),
+             LZMA_OK);
+    CHECK(in_pos == plen && out_pos == sizeof text && memcmp(back, text, sizeof text) == 0);
+    in_pos = out_pos = 0;
+    CHECK_EQ(lzma_stream_buffer_decode(&limit, 0, nullptr, packed, &in_pos, plen - 1, back,
+                                       &out_pos, sizeof back),
+             LZMA_DATA_ERROR);
+    in_pos = out_pos = 0;
+    CHECK_EQ(lzma_stream_buffer_decode(&limit, 0, nullptr, packed, &in_pos, plen, back, &out_pos,
+                                       sizeof back - 1),
+             LZMA_BUF_ERROR);
+    in_pos = out_pos = 0;
+    limit            = 1024;
+    CHECK_EQ(lzma_stream_buffer_decode(&limit, 0, nullptr, packed, &in_pos, plen, back, &out_pos,
+                                       sizeof back),
+             LZMA_MEMLIMIT_ERROR);
+    CHECK(limit > 1024); // what it would have taken
+
+    // A byte in and a byte out, the format left to the auto decoder.
+    lzma_stream d = LZMA_STREAM_INIT;
+    CHECK_EQ(lzma_auto_decoder(&d, UINT64_MAX, LZMA_CONCATENATED), LZMA_OK);
+    d.next_in    = packed;
+    d.next_out   = back;
+    lzma_ret ret = LZMA_OK;
+    while (ret == LZMA_OK) {
+        d.avail_in  = d.total_in < plen ? 1 : 0;
+        d.avail_out = 1;
+        ret         = lzma_code(&d, d.total_in < plen ? LZMA_RUN : LZMA_FINISH);
+    }
+    CHECK_EQ(ret, LZMA_STREAM_END);
+    CHECK_EQ(u32(d.total_out), sizeof text);
+    CHECK(memcmp(back, text, sizeof text) == 0);
+    lzma_end(&d);
+
+    // Allocated by liblzma's default, released by the kit's free().
+    lzma_filter filters[LZMA_FILTERS_MAX + 1];
+    int at = 0;
+    CHECK(lzma_str_to_filters("x86 lzma2:preset=3e", &at, filters, 0, nullptr) == nullptr);
+    char *spelled = nullptr;
+    CHECK_EQ(lzma_str_from_filters(&spelled, filters, 0, nullptr), LZMA_OK);
+    CHECK(spelled && strcmp(spelled, "x86 lzma2") == 0); // names alone, without flags
+    free(spelled);
+    lzma_filters_free(filters, nullptr);
+}
+
 } // namespace
 
 void test_compat()
@@ -1063,4 +1131,5 @@ void test_compat()
     test_bmode();
     test_zlib_c();
     test_bzip2_c();
+    test_lzma_c();
 }
