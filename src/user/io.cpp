@@ -27,6 +27,17 @@ void pipe_park_writer(void *ctx, u32 token, bool on)
     static_cast<Pipe *>(ctx)->park_sender(token, on);
 }
 
+// Room for a chunk, or nobody left to read one: pipe_write answers either
+// without parking.
+u32 pipe_ready_writer(void *ctx)
+{
+    Pipe &p  = *static_cast<Pipe *>(ctx);
+    u32 bits = p.hung_up() ? IO_GONE : 0;
+    if (!p.full() || p.closed() || p.hung_up())
+        bits |= IO_READY;
+    return bits;
+}
+
 Result<String> pipe_read(void *ctx)
 {
     Pipe &p          = *static_cast<Pipe *>(ctx);
@@ -41,6 +52,17 @@ Result<String> pipe_read(void *ctx)
 void pipe_park_reader(void *ctx, u32 token, bool on)
 {
     static_cast<Pipe *>(ctx)->park_receiver(token, on);
+}
+
+// A chunk queued, or the writer gone: pipe_read answers either without
+// parking, the second as end of input.
+u32 pipe_ready_reader(void *ctx)
+{
+    Pipe &p  = *static_cast<Pipe *>(ctx);
+    u32 bits = p.closed() ? IO_GONE : 0;
+    if (!p.empty() || p.closed())
+        bits |= IO_READY;
+    return bits;
 }
 
 Result<String> read_nothing(void *)
@@ -90,12 +112,12 @@ Result<String> file_read(void *ctx)
 
 Stream pipe_sink(Pipe &p)
 {
-    return Stream{ pipe_write, pipe_park_writer, &p };
+    return Stream{ pipe_write, pipe_park_writer, &p, pipe_ready_writer };
 }
 
 Source pipe_source(Pipe &p)
 {
-    return Source{ pipe_read, pipe_park_reader, &p };
+    return Source{ pipe_read, pipe_park_reader, &p, pipe_ready_reader };
 }
 
 Source null_source()

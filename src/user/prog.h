@@ -12,6 +12,15 @@
 #include "kernel/task.h"
 #include "kernel/types.h"
 
+// What a readiness probe answers about a stream, without touching it: whether
+// the next operation would park, and whether the far end has gone. Sys::Poll's
+// SYS_POLL_IN, OUT and HUP are these; the enum is here rather than taken from
+// the ABI because a stream knows nothing of syscalls.
+enum : u32 {
+    IO_READY = 1, // the operation would answer at once, end of input included
+    IO_GONE  = 2, // the far end closed or hung up
+};
+
 // A byte sink: the console, or a pipe. A function pointer rather than a
 // vtable, because the implementations are few and known.
 //
@@ -22,10 +31,18 @@
 struct Stream {
     using WriteFn = Result<usize> (*)(void *ctx, Str s);
     using ParkFn  = void (*)(void *ctx, u32 token, bool on);
+    using ReadyFn = u32 (*)(void *ctx);
 
-    WriteFn fn  = nullptr;
-    ParkFn park = nullptr;
-    void *ctx   = nullptr;
+    WriteFn fn    = nullptr;
+    ParkFn park   = nullptr;
+    void *ctx     = nullptr;
+    ReadyFn probe = nullptr; // IO_READY and IO_GONE; null is a sink that never parks
+
+    // What Sys::Poll asks, and the one question that may be asked without
+    // writing: a sink with no probe is a file or the screen, always ready.
+    bool ready() const { return !probe || (probe(ctx) & IO_READY); }
+
+    bool gone() const { return probe && (probe(ctx) & IO_GONE); }
 
     // The work happens in await_suspend rather than await_ready because only
     // await_suspend can reach the promise, and therefore the cancel state
@@ -106,12 +123,20 @@ struct Stream {
 // A byte source: a pipe, or a stream that is already at EOF. The mirror of
 // Stream, with the same park protocol. Err(Closed) is end of input.
 struct Source {
-    using ReadFn = Result<String> (*)(void *ctx);
-    using ParkFn = void (*)(void *ctx, u32 token, bool on);
+    using ReadFn  = Result<String> (*)(void *ctx);
+    using ParkFn  = void (*)(void *ctx, u32 token, bool on);
+    using ReadyFn = u32 (*)(void *ctx);
 
-    ReadFn fn   = nullptr;
-    ParkFn park = nullptr;
-    void *ctx   = nullptr;
+    ReadFn fn     = nullptr;
+    ParkFn park   = nullptr;
+    void *ctx     = nullptr;
+    ReadyFn probe = nullptr; // IO_READY and IO_GONE; null is a source that never parks
+
+    // Bytes waiting, or end of input: both are ready, because both answer a
+    // read at once. A source with no probe is a file or an empty stream.
+    bool ready() const { return !probe || (probe(ctx) & IO_READY); }
+
+    bool gone() const { return probe && (probe(ctx) & IO_GONE); }
 
     struct Read {
         Read(ReadFn fn, ParkFn park, void *ctx) : fn_(fn), park_(park), ctx_(ctx) {}
