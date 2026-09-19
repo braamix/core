@@ -65,6 +65,52 @@ Task<i32> waiter()
     co_return 0;
 }
 
+// Registered in both tables at once, which is what a poll with a timeout is.
+// Nothing in the kernel does this yet, so the rule it holds the scheduler to
+// lives here: whichever path fires takes the other registration with it.
+struct TimedWake {
+    explicit TimedWake(u32 ms) : ms_(ms) { w_.token = sched_token(); }
+
+    TimedWake(const TimedWake &)            = delete;
+    TimedWake &operator=(const TimedWake &) = delete;
+
+    ~TimedWake() { sched_unwait(&w_); }
+
+    u32 token() const { return w_.token; }
+
+    bool await_ready() const noexcept { return false; }
+
+    template <class P>
+    bool await_suspend(std::coroutine_handle<P> h)
+    {
+        w_.h      = h;
+        w_.cancel = h.promise().cancel;
+        if (!sched_wait_token(&w_) || !sched_wait_timer(&w_, ms_)) {
+            sched_unwait(&w_);
+            w_.failed = true;
+            return false;
+        }
+        return true;
+    }
+
+    Payload await_resume() const { return Payload{ w_.payload_ptr, w_.payload_len }; }
+
+private:
+    u32 ms_;
+    Waiter w_;
+};
+
+u32 timed_token;
+
+Task<i32> timed_waiter(u32 ms)
+{
+    TimedWake ev(ms);
+    timed_token = ev.token();
+    Payload p   = co_await ev;
+    mark(char('0' + p.len)); // 7 from the wake, 0 from the timer
+    co_return 0;
+}
+
 } // namespace
 
 void test_sched()
@@ -165,6 +211,35 @@ void test_sched()
     sched_wake(wake_token, 0, 3);
     CHECK_EQ(sched_tick(2), -1);
     CHECK(traced() == "");
+
+    // A waiter in both tables resumes once, and the wake takes the timer with
+    // it: a stale entry would arm the host for a deadline nobody waits on, and
+    // would resume a frame that has already gone.
+    sched_reset();
+    trace_n     = 0;
+    timed_token = 0;
+    u32 tw      = sched_spawn(timed_waiter(50));
+    CHECK_EQ(sched_tick(0), 50);
+    CHECK(timed_token != 0);
+    sched_wake(timed_token, 0, 7);
+    CHECK_EQ(sched_tick(1), -1); // no timer left armed
+    CHECK(traced() == "7");
+    CHECK(!sched_alive(tw));
+    CHECK_EQ(sched_stats().timers, u64(0));
+
+    // The other way round: the timer takes the token, so the wake that follows
+    // is the late event sched_wake already answers false to.
+    sched_reset();
+    trace_n     = 0;
+    timed_token = 0;
+    u32 tt      = sched_spawn(timed_waiter(10));
+    CHECK_EQ(sched_tick(0), 10);
+    CHECK_EQ(sched_tick(10), -1);
+    CHECK(traced() == "0");
+    CHECK(!sched_alive(tt));
+    CHECK(!sched_wake(timed_token, 0, 7));
+    CHECK_EQ(sched_stats().misses, u64(1));
+    CHECK_EQ(sched_stats().timers, u64(1));
 
     // Two id spaces. A pid is 1..SYS_PID_MAX and is what /proc lists; an
     // anonymous job is above it. Both are reached by the same cancel and the

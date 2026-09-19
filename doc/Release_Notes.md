@@ -1010,6 +1010,28 @@ vendored and that none is altered. The SDK installs it as
 level flag. The `sdk` test round-trips `/etc/help` through it under the
 installed harness, checks the magic, and hands the frame to Node.
 
+## Waiting on several descriptors at once
+
+A process could park on exactly one thing. `Read` is the only way to learn that
+a pipe has bytes, and it consumes them; `CancelState::waiting` is one slot, so
+a task cannot even be parked on two pipes by hand. A program holding a child's
+stdout and its stderr — which is every `communicate()` in every language that
+has one — had to read one of them to the end before looking at the other, and
+deadlocked when the child filled the one it was not reading. `Sys::Poll` is the
+missing question: *which of these is ready*, answered without taking anything.
+
+**The scheduler had to be fixed before the syscall could be written.** A
+`Waiter` carries `timed` and `listed`, for the timer queue and the wake table,
+and nothing had ever set both: `sched_wait_timer` had one caller, `Sleep`, and
+`Sleep` registers no token. So `sched_tick` cleared `timed` and left `listed`
+alone, `sched_wake` did the reverse, and a waiter in both tables would have been
+pushed onto the ready queue twice — the second resume entering a frame that had
+moved on, or gone. A poll with a timeout is exactly that waiter, and would have
+been the first. Each path now removes the other registration, which also keeps
+the host from being armed for a deadline nobody is waiting on any more. The unit
+case registers a waiter both ways and fires each path in turn, because no
+awaiter in the kernel does this yet and the rule would otherwise rot.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

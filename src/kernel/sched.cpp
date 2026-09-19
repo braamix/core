@@ -395,6 +395,12 @@ i32 sched_tick(f64 now_ms)
         Waiter *w = s.timers.back().w;
         s.timers.pop();
         w->timed = false;
+        // A waiter may be timed and listed at once — a poll with a timeout.
+        // Both registrations go, or the other path resumes the frame again.
+        if (w->listed) {
+            s.waits.remove(w->token);
+            w->listed = false;
+        }
         if (w->cancel && w->cancel->waiting == w)
             w->cancel->waiting = nullptr;
         s.timers_fired++;
@@ -442,7 +448,11 @@ bool sched_wake(u32 token, u32 ptr, u32 len)
         s.wakes++;
 
     s.waits.remove(token);
-    w->listed      = false;
+    w->listed = false;
+    if (w->timed) {
+        remove_timer(w);
+        w->timed = false;
+    }
     w->payload_ptr = ptr;
     w->payload_len = len;
     if (w->cancel && w->cancel->waiting == w)
