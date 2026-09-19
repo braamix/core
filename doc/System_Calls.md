@@ -1292,7 +1292,7 @@ is a `String`, whose capacity doubles, so a byte more would take two.
 The wire carries `src/kernel/result.h`'s `Error`, negated: `Invalid` 1,
 `NoMemory` 2, `NotFound` 3, `Exists` 4, `NotDir` 5, `IsDir` 6, `Perm` 7, `Io` 8,
 `Cancelled` 9, `Again` 10, `Unsupported` 11, `Closed` 12, `NotEmpty` 13, `Loop`
-14, `Intr` 15. `web/abi.js:9-13` mirrors the list.
+14, `Intr` 15, `Busy` 16. `web/abi.js:9-13` mirrors the list.
 
 Two never reach a process. `Again` is retried inside `proc_syscall` rather than
 reported, and `Cancelled` means the process is being destroyed, so `serve()`
@@ -1303,8 +1303,14 @@ Both start as a cancelled server task, and `serve()` tells them apart by
 `Proc::dead`: the process is going, or a signal abandoned the call and the
 process is still there to hear about it (Concept.md §3.5). Only the five calls
 a program parks on indefinitely can answer it — `Read`, `KeyRead`, `Sleep`,
-`Wait`, `ClipRead` — because `Intr` has to mean nothing happened, and an
-interrupted `Write` has lost how many bytes went.
+`Wait`, `ClipRead`, `Poll` — because `Intr` has to mean nothing happened, and
+an interrupted `Write` has lost how many bytes went.
+
+**`Busy` is `Poll`'s, and says which kind of refusal it is.** A second `Read` on
+one descriptor is `Perm`, and stays `Perm`: the call was not allowed. A `Poll`
+naming a descriptor another task holds is not a call that will never be
+allowed, it is one to issue again in a moment, and a program that cannot tell
+the two apart retries the wrong one. Nothing else answers it.
 
 ---
 

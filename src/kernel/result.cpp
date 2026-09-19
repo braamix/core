@@ -33,6 +33,8 @@ Str error_name(Error e)
         return "too many symbolic links";
     case Error::Intr:
         return "interrupted";
+    case Error::Busy:
+        return "descriptor busy";
     }
     return "unknown error";
 }

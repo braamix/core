@@ -346,7 +346,8 @@ void test_errno_bridge()
     // Round-trips for everything with a distinct number.
     Error round[] = { Error::Invalid,     Error::NoMemory, Error::NotFound, Error::Exists,
                       Error::NotDir,      Error::IsDir,    Error::Io,       Error::Again,
-                      Error::Unsupported, Error::Closed,   Error::NotEmpty, Error::Loop };
+                      Error::Unsupported, Error::Closed,   Error::NotEmpty, Error::Loop,
+                      Error::Busy };
     for (Error e : round)
         CHECK(error_of(errno_of(e)) == e);
 

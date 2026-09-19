@@ -27,6 +27,7 @@ int errno_of(Error e)
     case Error::Closed:      return EPIPE;
     case Error::NotEmpty:    return ENOTEMPTY;
     case Error::Loop:        return ELOOP;
+    case Error::Busy:        return EBUSY;
     }
     return EIO;
 }
@@ -48,6 +49,7 @@ Error error_of(int e)
     case EPIPE:       return Error::Closed;
     case ENOTEMPTY:   return Error::NotEmpty;
     case ELOOP:       return Error::Loop;
+    case EBUSY:       return Error::Busy;
     case EOPNOTSUPP:  return Error::Unsupported;
     case EFTYPE:      return Error::Invalid;
     }

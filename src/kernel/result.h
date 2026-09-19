@@ -21,6 +21,7 @@ enum class Error : u8 {
     NotEmpty, // a directory with children, removed without -r or renamed onto
     Loop,     // a path with more than FS_LINK_MAX symbolic links in it
     Intr,     // a syscall abandoned by a signal; the process is still alive
+    Busy,     // a descriptor another task of the process is already using
 };
 
 Str error_name(Error e);
