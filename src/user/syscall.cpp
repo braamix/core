@@ -528,6 +528,11 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
         switch (sys_op_code(c.op)) {
         case Sys::Write: {
             if (fd == SYS_STDOUT || fd == SYS_STDERR) {
+                if (p.io_busy[fd]) {
+                    status = -i32(Error::Perm);
+                    break;
+                }
+                StdioBusy busy(p, fd);
                 Stream out      = fd == SYS_STDOUT ? p.io.out : p.io.err;
                 Result<usize> r = Err(Error::Again);
                 CO_RETRY(r, out.write(payload));
@@ -589,6 +594,11 @@ Task<Result<String>> proc_syscall(Proc &p, Call &c)
             u32 want = sys_read_want(reinterpret_cast<const u8 *>(payload.data()), payload.size());
 
             if (fd == SYS_STDIN) {
+                if (p.io_busy[SYS_STDIN]) {
+                    status = -i32(Error::Perm);
+                    break;
+                }
+                StdioBusy busy(p, SYS_STDIN);
                 if (pend_reply(p.in_pend, want, reply, status))
                     break;
                 Result<String> r = Err(Error::Again);

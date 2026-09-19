@@ -1032,6 +1032,18 @@ the host from being armed for a deadline nobody is waiting on any more. The unit
 case registers a waiter both ways and fires each path in turn, because no
 awaiter in the kernel does this yet and the rule would otherwise rot.
 
+**Descriptors 0, 1 and 2 had no busy guard, and now have the one everything
+else has.** `HandleBusy` has allowed one reader and one writer per handle since
+pipes existed, because `Channel` displaces a second suspended receiver silently
+and panics on a second blocked sender. Descriptors below `SYS_FD_MIN` are not
+handles, so nothing carried the flag: two tasks of one process reading its
+stdin lost one of them, and two writing a full stdout crashed the kernel from
+user code. Nothing in the tree does either — a program's own runtime keeps one
+task per stream — which is why it went unnoticed. `Poll` has to hold these
+descriptors for the length of the call, so the flags exist now, and `Read` and
+`Write` check them too rather than only `Poll`: a guard that one call honours
+and two others walk past is not a guard.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 

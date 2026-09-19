@@ -1387,6 +1387,14 @@ read, or a second concurrent write, is `Err(Perm)`. On a pipe end that is
 re-entrant per object and the read offset would advance twice. Reading and
 writing one socket at once is fine, and is what `chat` does.
 
+**Descriptors 0, 1 and 2 are guarded the same way, and were not always.** They
+are streams rather than handles, so `Handle::busy_r` has nothing to sit on and
+the guard is `Proc::io_busy` indexed by the descriptor. Until `Sys::Poll`
+needed to hold them there was no guard at all, and two tasks of one process
+reading its stdin displaced each other silently on the pipe behind it, while
+two writing a full stdout reached `panic("channel: a second sender blocked on
+one channel")` — a user program reaching a kernel invariant.
+
 An empty read is the end of a stream, for all of them: a file at EOF, a hung-up
 pipe, a finished body, a socket whose peer has gone. `Error::Closed` from the
 kernel side becomes status 0 rather than an error, and `read_chunk` turns *that*

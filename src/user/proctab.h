@@ -279,6 +279,13 @@ struct Proc {
     // guard for a named screen. A ring has one receiver.
     bool keys_busy = false;
 
+    // HandleBusy's guard for the three descriptors that are streams rather
+    // than handles, indexed by the descriptor: one user of each at a time.
+    // Without it two tasks reading this stdin displace each other on the pipe
+    // behind it, and two writing a full stdout reach Channel's second-sender
+    // panic — a user program reaching a kernel invariant.
+    bool io_busy[3] = { false, false, false };
+
     // The call the host is staging bytes for, not yet issued, and the ones
     // that have been. A process owns them both, so a server task cancelled
     // mid-await leaks nothing.
@@ -312,6 +319,20 @@ struct Proc {
 
     i32 exit = 1;
     Vec<Handle *> fds;
+};
+
+// HandleBusy for descriptors 0, 1 and 2, held for the length of one syscall
+// and released however it leaves, including a frame destroyed while parked.
+struct StdioBusy {
+    StdioBusy(Proc &q, u32 fd) : p(q), ix(fd) { p.io_busy[ix] = true; }
+
+    StdioBusy(const StdioBusy &)            = delete;
+    StdioBusy &operator=(const StdioBusy &) = delete;
+
+    ~StdioBusy() { p.io_busy[ix] = false; }
+
+    Proc &p;
+    u32 ix;
 };
 
 // Abandons the calls a signal may take away, each answering Err(Intr). Closed,
