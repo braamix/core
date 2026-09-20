@@ -453,7 +453,7 @@ Each is a `Task<Result<T>>`. `Result` carries an `Error` and is unpacked with
 | Streams | `write_all(fd, Str)`, `read_chunk(fd)`, `read_some(fd, max)`, `close_fd(fd)` |
 | Files | `open_at(path, flags)`, `open_read`, `read_file`, `stat_of`, `list_dir`, `make_dir`, `make_dir_all`, `remove_path`, `touch_path`, `make_link`, `read_link`, `rename_path`, `seek_fd(fd, off, whence)`, `truncate_fd(fd, n)`, `copy_file`, `copy_tree`, `TreeWalk(root)` |
 | Directory | `cwd_get()`, `cwd_set(path)` — this process's own, inherited from whoever spawned it |
-| Children | `make_pipe()`, `spawn(Args, ChildIo, const Args *env)`, `wait_child(pid)`, `kill_child(pid)`, `set_fg(pid)` |
+| Children | `make_pipe()`, `spawn(Args, ChildIo, const Args *env)`, `wait_child(pid)`, `kill_child(pid)`, `set_fg(pid)`, `poll_fds(Span<PollFd>, ms)` |
 | Terminal | `tty_of(fd)`, `keys_claim(bool)`, `screen_claim(bool)`, `key_read()`, `cursor_get()`, `cursor_set(x, y, on)`, `style_set(fg, bg, attrs)`, `cursor_echo(x, y, cur, flags, runs)` — and from `proc/keyenc.h`, not a syscall: `key_encode(k, out)` |
 | System | `storage_of()`, `sleep_for(ms)`, `clock_now()` — and from `proc/rt.h`, synchronous rather than `Task`s: `proc_pid()`, `proc_now()`, `proc_random()` |
 | Environment | `proc_env(name)`, `proc_env_count()`, `proc_env_at(i)` — from `proc/rt.h`, and not syscalls |
@@ -482,6 +482,21 @@ that child is looked for. `spawn(argv, io)` searches what this process was
 given; `spawn(argv, io, &env)` searches whatever `env` says, and an `env` naming
 no `PATH` searches `/bin`. A name with a `/` in it is a path and is never
 searched.
+
+`poll_fds(fds, ms)` is how a program holding two pipes finds out which one has
+bytes. Each `PollFd` names a descriptor and `SYS_POLL_IN`, `SYS_POLL_OUT` or
+both; the call reports how many came back with something set, filling each
+`revents` in place, and 0 is the timeout. `SYS_POLL_FOREVER` waits as long as
+it takes and 0 asks without waiting. Nothing is read and nothing is consumed,
+so the read that follows gets everything that was there. **A program that
+spawns a child with a pipe on its stdout and another on its stderr must poll
+rather than read**: draining one to the end blocks while the child fills the
+other, and the two of them deadlock. `SYS_POLL_HUP` beside a result means that
+end has gone — a `SYS_POLL_IN` with it is the last of the bytes, then end of
+input. The descriptors are held for the call, so another task of the same
+process reading one meanwhile gets `Err(Perm)`, and a descriptor that waits on
+the host rather than on a pipe — a socket, a fetch body — is
+`Err(Unsupported)`. `^C` abandons the wait with `Err(Intr)`.
 
 `stat_of` answers a `FileInfo{kind, size, mtime}` and `list_dir` a `DirEntry`
 each, which is the same three fields plus a name. The `mtime` is milliseconds

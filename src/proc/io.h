@@ -234,6 +234,26 @@ struct Piped {
 
 Task<Result<Piped>> make_pipe();
 
+// One descriptor of a poll: what to watch for, and what came back. `events` is
+// SYS_POLL_IN, SYS_POLL_OUT or both, and `revents` is what is ready, with
+// SYS_POLL_HUP beside it when the far end has gone.
+struct PollFd {
+    u32 fd      = 0;
+    u32 events  = 0;
+    u32 revents = 0;
+};
+
+// Waits until one of `fds` is ready, `ms` passes (SYS_POLL_FOREVER to wait
+// indefinitely, 0 to ask and not wait), or a signal abandons the call with
+// Err(Intr). Reports how many have a non-zero `revents`, so 0 is the timeout,
+// and fills each one's in place.
+//
+// Nothing is read or written, and nothing is consumed: the descriptors are
+// held for the length of the call, so no other task of this process may use
+// one meanwhile. A descriptor that waits on a host call rather than a channel
+// — a socket, a fetch body — is Err(Unsupported).
+Task<Result<usize>> poll_fds(Span<PollFd> fds, u32 ms = SYS_POLL_FOREVER);
+
 // What a child is entered with. 0, 1 and 2 mean "the stream I was given"; a
 // descriptor from SYS_FD_MIN up is *moved* out of this process's table, which
 // is what closes a pipe's write end and therefore what gives the reader an end

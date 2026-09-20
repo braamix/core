@@ -600,6 +600,37 @@ Task<Result<Piped>> make_pipe()
     co_return Piped{ i32(sys_get_u32(p)), i32(sys_get_u32(p + 4)) };
 }
 
+Task<Result<usize>> poll_fds(Span<PollFd> fds, u32 ms)
+{
+    if (fds.size() > SYS_POLL_MAX)
+        co_return Err(Error::Invalid);
+
+    // A timeout, then a pair per descriptor. The reply is a word per pair in
+    // the same order, which is what lets revents go back in place.
+    String payload;
+    u8 head[4];
+    sys_put_u32(head, ms);
+    if (!payload.append(Str(reinterpret_cast<const char *>(head), sizeof(head))))
+        co_return Err(Error::NoMemory);
+    for (const PollFd &f : fds) {
+        u8 pair[8];
+        sys_put_u32(pair, f.fd);
+        sys_put_u32(pair + 4, f.events);
+        if (!payload.append(Str(reinterpret_cast<const char *>(pair), sizeof(pair))))
+            co_return Err(Error::NoMemory);
+    }
+
+    Result<SysReply> r = co_await sys_call(Sys::Poll, 0, payload.str());
+    if (r.is_err())
+        co_return Err(r.error());
+    if (r.value().data.size() < fds.size() * 4)
+        co_return Err(Error::Io);
+    const u8 *at = reinterpret_cast<const u8 *>(r.value().data.data());
+    for (usize i = 0; i < fds.size(); i++)
+        fds[i].revents = sys_get_u32(at + i * 4);
+    co_return usize(r.value().status);
+}
+
 Task<Result<u32>> spawn(Args v, ChildIo io, const Args *env)
 {
     // Three descriptor words, then the argv blob and the environment — the same
