@@ -12,10 +12,10 @@ namespace {
 
 constexpr Str USAGE =
     "Usage:\n"
-    "    polltest two       two children, two pipes, whichever answers first\n"
-    "    polltest -t <ms>   a pipe nobody writes, until the timeout\n"
-    "    polltest busy      a read and a poll of a descriptor a poll holds\n"
-    "    polltest wait      a poll nothing ends, for ^C\n";
+    "    polltest two      two children, two pipes\n"
+    "    polltest -t <ms>  a pipe nobody writes, and a timeout\n"
+    "    polltest busy     a descriptor another task polls\n"
+    "    polltest wait     a poll only ^C ends\n";
 
 // Every literal this program names, as a constant: a Str built from a literal
 // at run time is a call to strlen, which is not here.
