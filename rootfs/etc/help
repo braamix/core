@@ -85,6 +85,8 @@ Programs in /bin
   pbcopy    [<file>...] — copy the input to the clipboard
   pbpaste   print the clipboard
   pkg       [-v] <command> [<arg>...] — install and remove packages
+  polltest  two | -t <ms> | busy | wait — wait on several descriptors at
+            once, which is the only caller Sys::Poll has
   ps        list the tasks the kernel is running, and which are processes
   pwd       print the current directory
   rm        [-r] <path>... — remove files, or directories with -r

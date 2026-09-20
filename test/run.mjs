@@ -58,6 +58,7 @@ import * as seq from "./system/seq.mjs";
 import * as sh from "./system/sh.mjs";
 import * as sort from "./system/sort.mjs";
 import * as signal from "./system/signal.mjs";
+import * as poll from "./system/poll.mjs";
 import * as spawn from "./system/spawn.mjs";
 import * as subst from "./system/subst.mjs";
 import * as sysinfo from "./system/sysinfo.mjs";
@@ -118,6 +119,7 @@ const CASES = [
     ["process",    process_.check],
     ["worker",     worker.check],     // after process: the worker under one
     ["spawn",      spawn.check],
+    ["poll",       poll.check],      // after spawn: children and pipes, as that one leaves them
     ["sh",         sh.check],
     ["wrap",       wrap.check],
     ["respawn",    respawn.check],    // takes workers away; its blocks are 1 s apart

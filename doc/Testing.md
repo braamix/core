@@ -272,7 +272,9 @@ keystrokes is the thing under test — and it is what the rules are about.
   stale, and the `help` case fails on a forgotten line. A new program moves two
   written-down counts with it: `compared` in `test/unit/test_zip.cpp`, which is
   the archive's file count, and the three in `test/system/subst.mjs`, which
-  concatenates `/etc/help` three times.
+  concatenates `/etc/help` three times. A line that makes the document taller
+  than the grid `term` regrids to moves that number too — the case pipes the
+  whole of `help` and looks for headings that would otherwise scroll off.
 - **A change to the wasm ABI updates `test/system/abi.mjs` in the same
   commit** — the seven imports and nine exports, and every binary's three
   imports and four exports, are asserted there by name.

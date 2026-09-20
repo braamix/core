@@ -130,10 +130,11 @@ export function check() {
     if (pasted("a\r\nb\tc").join() !== [97, KEY.ENTER, 98, 32, 99].join())
         fail(`pasted() gave [${pasted("a\r\nb\tc")}]`);
 
-    // The document is 148 lines, so the grid has to hold all of it or the
-    // headings scroll off the top. SCREEN_MAX_ROWS is 256.
+    // The document is 164 lines and grows with every program, so the grid has
+    // to hold all of it and the prompt or the headings scroll off the top.
+    // SCREEN_MAX_ROWS is 256.
     submit("clear", 1045);
-    regrid(100, 160, "the resize before help failed");
+    regrid(100, 192, "the resize before help failed");
     // M3, first criterion. `help` is a #! script over `less`, and `less` off a
     // terminal is a `cat`, so the document reaches a pipe unchanged. That it
     // names every builtin and every binary is asserted against the archive
