@@ -1044,6 +1044,62 @@ descriptors for the length of the call, so the flags exist now, and `Read` and
 `Write` check them too rather than only `Poll`: a guard that one call honours
 and two others walk past is not a guard.
 
+**The call is one waiter, one token, armed on every channel named.** A poll
+does not read: it asks each descriptor whether the next operation would park,
+and `Stream` and `Source` grew a probe that answers that without performing
+one — `IO_READY` and `IO_GONE`, null meaning a file or the screen, which never
+parks. When nothing is ready the same token goes onto every channel through
+`park_receiver` and `park_sender`, the timeout goes on the same waiter, and
+the first of them to fire takes the rest of the registrations with it. A
+channel that fires afterwards finds nothing listed, which is the late event
+`sched_wake` has always answered false to. A wake that leaves nothing ready
+re-arms with a fresh token and what is left of the timeout, so the call cannot
+report ready for something that is not.
+
+**The alternative was a process-side one, and it cannot be written.** A task
+could in principle read each pipe in a task of its own and race them — except
+that `CancelState::waiting` is one slot per task tree, and the read that loses
+the race has already taken the bytes. Neither is repairable in a library; the
+question is about the scheduler's registrations, so it belongs where they are.
+
+**`Error::Busy` is a sixteenth error value, rather than `Perm` again.** A
+second `Read` on one descriptor has always been `Perm`, and stays so: it is a
+call that is not allowed. A `Poll` naming a descriptor another task holds is a
+call to make again in a moment, and a program that cannot tell the two apart
+retries the wrong one. Nothing else answers `Busy`.
+
+**What is not pollable is refused, not faked.** A socket, a fetch body, an
+inflate stream and a picked file wait on a host request rather than on a
+channel; there is nothing to arm, and the only way to know whether one is ready
+is to issue the read and keep the answer. That would make a poll consume, which
+is the one thing it must not do, so they are `Err(Unsupported)` until something
+needs otherwise. A direction a descriptor does not have — `SYS_POLL_OUT` on a
+pipe's read end — is `Err(Invalid)` rather than a wait that never ends.
+
+**`/bin/polltest` exists because §4.3 says an operation must have a caller in
+the tree.** Nothing else in `/bin` wants two pipes at once: every filter here
+reads one stream and writes another. So the caller is a demonstration, in the
+manner of `hog` and `spin` — four scenarios, one line each at a prompt, and
+the system case drives all four. `polltest two` is the shape a real program would
+write: two children, two pipes, and a line printed as it arrives rather than
+one pipe drained before the other is looked at.
+
+**`PROC_ABI` moves from 20 to 21, so every binary is rebuilt and every
+repository re-signed.** An added operation alone would not have moved it — the
+number refuses a stale binary, and one that never issues an operation cannot
+tell it is missing. Two things here do. `Error::Busy` is a value an older
+process runtime has no name for, and a program built against this SDK that
+polls on a 0.9 kernel would be told `Unsupported` in the middle of a wait
+rather than refused at exec, where a version mismatch belongs.
+
+**The port kit gets `<poll.h>` and `b_poll`, and one POSIX behaviour is not
+reproduced.** `poll(2)` marks a bad descriptor `POLLNVAL` in its own entry and
+carries on; this call holds every descriptor it names, so it refuses the whole
+call instead — `EINVAL` for a bad one, `EBUSY` for one another task holds,
+`ENOSYS` for one that cannot be polled. A port that reads `revents` to find
+which descriptor was wrong has to be changed, and that is the sort of thing
+Compat.md exists to say out loud rather than leave to be discovered.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 
