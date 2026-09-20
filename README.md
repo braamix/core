@@ -11,7 +11,7 @@ downloads a kernel and gives you a prompt. Your files stay in the browser and
 are still there tomorrow. It works on a phone.
 
 Braam is a small command-line system: a kernel, a filesystem, a terminal, a
-shell, fifty-six programs and a package manager. It is written from scratch in
+shell, fifty-seven programs and a package manager. It is written from scratch in
 C++20 and compiled to WebAssembly, which browsers run at close to native speed.
 The whole system is a few static files, so any web host can serve it.
 
@@ -93,6 +93,11 @@ is committed by renaming one symbolic link, so a tab that dies partway has
 installed nothing. The system ships pointed at <https://braamix.github.io>, and
 [doc/Package_Formats.md](doc/Package_Formats.md) §10 explains running one of
 your own.
+
+**Libraries to build against.** POSIX regular expressions, zlib, bzip2, xz and
+zstd ship in the SDK, so a program written here — or ported here — links one
+instead of carrying a copy of it. Nothing in the system links them: they are
+there for what you build.
 
 **An embedding API.** `web/braam.js` puts a terminal on any web page with
 `mount({ canvas })`, and `web/embed.html` is a working example. `web/dual.html`
@@ -187,7 +192,7 @@ is the guide and [examples/hello/](examples/hello/) is the worked example.
 
 ## Status
 
-Version 0.9. Everything above works and the tests pass. A tablet works too: tap
+Version 0.10. Everything above works and the tests pass. A tablet works too: tap
 to type, drag to select, with a row of buttons for the keys a touch keyboard
 does not have.
 
