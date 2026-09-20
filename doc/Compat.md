@@ -65,13 +65,13 @@ surrounding code does not change:
     if ((c = fgetc(f)) == EOF)          →  if ((c = co_await b_fgetc(f)) == EOF)
 ```
 
-`<stdio.h>`, `<sys/stat.h>`, `<fcntl.h>`, `<unistd.h>` and `<dirent.h>` declare
-the blocking names `__attribute__((unavailable(…)))`, so one build hands a
-porter every call site with its replacement named. `zip` found its 1208
-`co_await`s by hand. §4 is the family itself.
+`<stdio.h>`, `<sys/stat.h>`, `<fcntl.h>`, `<unistd.h>`, `<dirent.h>` and
+`<poll.h>` declare the blocking names `__attribute__((unavailable(…)))`, so one
+build hands a porter every call site with its replacement named. `zip` found
+its 1208 `co_await`s by hand. §4 is the family itself.
 
-`<sys/cdefs.h>` carries the three macros those five headers diagnose with, so
-there is one copy rather than five. Beside `BRAAM_BLOCKS`, `BRAAM_RENAMED` is
+`<sys/cdefs.h>` carries the three macros those six headers diagnose with, so
+there is one copy rather than six. Beside `BRAAM_BLOCKS`, `BRAAM_RENAMED` is
 for what the buffer or the listing already answers — `feof`, `ungetc`,
 `readdir` — which keeps C's shape and only moves its name, and `BRAAM_ABSENT`
 is what the kit has decided not to supply: `sscanf` and `vsscanf`, which name
@@ -258,15 +258,26 @@ FILE          b_fopen b_fdopen b_freopen b_fclose b_fflush b_fgetc b_fputc
               b_rewind b_printf b_fprintf b_vfprintf b_perror b_feof b_ferror
               b_clearerr b_fileno b_setvbuf, and b_stdin/b_stdout/b_stderr,
               which `stdin`, `stdout` and `stderr` are macros over
-descriptors   b_open b_creat b_close b_read b_write b_lseek b_ftruncate b_dup
-              b_isatty b_unlink b_rmdir b_mkdir b_remove b_rename b_chdir
-              b_getcwd b_access b_symlink b_readlink
+descriptors   b_open b_creat b_close b_read b_write b_poll b_lseek b_ftruncate
+              b_dup b_isatty b_unlink b_rmdir b_mkdir b_remove b_rename
+              b_chdir b_getcwd b_access b_symlink b_readlink
 metadata      b_stat b_lstat b_fstat
 directories   b_opendir b_readdir b_closedir b_rewinddir b_telldir b_seekdir
 ```
 
 What a port has to know beyond the prefix:
 
+- **`b_poll` refuses the call where POSIX marks the entry.** `<poll.h>` is the
+  kit's, `struct pollfd` and the `POLL*` constants are Linux's numbers, and
+  `POLLIN` and `POLLOUT` are what may be asked for — `POLLPRI` has no meaning
+  here and `POLLHUP` comes back beside either. The kernel holds every
+  descriptor named for the length of the call (System_Calls.md §8), so a
+  descriptor another task of this process is using is `EBUSY` and one that
+  cannot be polled at all — a socket, a fetch body — is `ENOSYS`, in both cases
+  for the whole call. **`POLLNVAL` is therefore never set**: a bad descriptor
+  is `EINVAL`, and a port that reads `revents` to find which one was wrong has
+  to be changed. At most `SYS_POLL_MAX` descriptors, beyond which `EINVAL`. A
+  negative timeout waits for ever, as POSIX says, and `^C` is `EINTR`.
 - **`b_fgetc` and `b_fputc` are awaiters, not `Task`s**, over `FileRead` and
   `FileWrite`: a `Task` per byte would put a coroutine frame on the shadow
   stack per byte (Concept.md §3.3). Their one byte lives in the `FILE`, so two

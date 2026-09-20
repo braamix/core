@@ -100,11 +100,18 @@ Task<int> raw()
 
     char buf[16];
     ssize_t n = co_await b_read(fd, buf, sizeof buf);
-    off_t at  = co_await b_lseek(fd, 0, SEEK_END);
+
+    // A file never parks, either way, so this answers without waiting — which
+    // is the only thing a poll of one can say.
+    struct pollfd watch = { fd, POLLIN, 0 };
+    int ready           = co_await b_poll(&watch, 1, 0);
+
+    off_t at = co_await b_lseek(fd, 0, SEEK_END);
     co_await b_close(fd);
 
     co_await b_printf("read %ld, end %lld, fstat %lld, tty %d\n", (long)n, (long long)at,
                       (long long)st.st_size, co_await b_isatty(0));
+    co_await b_printf("poll %d %d\n", ready, watch.revents);
     co_return 0;
 }
 

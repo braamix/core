@@ -13,6 +13,7 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <sys/stat.h>
@@ -146,6 +147,17 @@ Task<ssize_t> b_read(int fd, void *buf, size_t n);
 
 // All of them or none: a short write is not representable here.
 Task<ssize_t> b_write(int fd, const void *buf, size_t n);
+
+// <poll.h>'s poll. POLLIN and POLLOUT are what may be asked for, POLLHUP is
+// reported beside either, and a negative timeout waits for ever. How many
+// descriptors came back with something set, or -1.
+//
+// The kernel holds every descriptor named for the length of the call and
+// refuses the whole call rather than marking one entry: a descriptor another
+// task is using is EBUSY, and one that cannot be polled at all — a socket, a
+// fetch body — is ENOSYS. POLLNVAL is therefore never set; a bad descriptor
+// is EINVAL for the call (doc/Compat.md §4).
+Task<int> b_poll(struct pollfd *fds, nfds_t n, int timeout);
 
 Task<off_t> b_lseek(int fd, off_t off, int whence);
 Task<int> b_ftruncate(int fd, off_t n);

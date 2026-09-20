@@ -78,6 +78,48 @@ Task<ssize_t> b_read(int fd, void *buf, size_t n)
     co_return ssize_t(k);
 }
 
+Task<int> b_poll(struct pollfd *fds, nfds_t n, int timeout)
+{
+    if (!fds && n)
+        co_return fail_with(Error::Invalid);
+    if (n > SYS_POLL_MAX)
+        co_return fail_with(Error::Invalid);
+
+    Vec<PollFd> want;
+    if (!want.reserve(usize(n)))
+        co_return fail_with(Error::NoMemory);
+    for (nfds_t i = 0; i < n; i++) {
+        if (fds[i].fd < 0)
+            co_return fail_with(Error::Invalid);
+        u32 events = 0;
+        if (fds[i].events & POLLIN)
+            events |= SYS_POLL_IN;
+        if (fds[i].events & POLLOUT)
+            events |= SYS_POLL_OUT;
+        if (!want.push(PollFd{ u32(fds[i].fd), events, 0 }))
+            co_return fail_with(Error::NoMemory);
+    }
+
+    Result<usize> r = Err(Error::NoMemory);
+    if (Task<Result<usize>> t = poll_fds(Span<PollFd>(want.data(), want.size()),
+                                         timeout < 0 ? SYS_POLL_FOREVER : u32(timeout)))
+        r = co_await t;
+    if (r.is_err())
+        co_return fail_with(r.error());
+
+    for (nfds_t i = 0; i < n; i++) {
+        short got = 0;
+        if (want[usize(i)].revents & SYS_POLL_IN)
+            got |= POLLIN;
+        if (want[usize(i)].revents & SYS_POLL_OUT)
+            got |= POLLOUT;
+        if (want[usize(i)].revents & SYS_POLL_HUP)
+            got |= POLLHUP;
+        fds[i].revents = got;
+    }
+    co_return int(r.value());
+}
+
 Task<ssize_t> b_write(int fd, const void *buf, size_t n)
 {
     if (fd < 0 || !buf)
