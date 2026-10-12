@@ -327,10 +327,14 @@ Five operations, answered inside the export, never parking:
 | 4 | `Stage` | `a0` = bytes about to be copied in | a kernel address, or 0 |
 | 5 | `Random` | — | 32 random bits |
 
-`exec_sys` (`src/user/exec.cpp:446-470`) is a plain switch with no scheduling in
-it at all. Note that `Sys::Exit` only *records* the status on the process
-record; the process still has to return from `_start`/`_resume` before the step
-reports `Exited`.
+`exec_sys` (`src/user/exec.cpp`) is a plain switch with no scheduling in it at
+all. Note that `Sys::Exit` only *records* the status on the process record; the
+process still has to return from `_start`/`_resume` before the step reports
+`Exited` — or trap. A trap after `Sys::Exit` is that exit and not a crash,
+because a C `exit()` called from plain code has no way to unwind to the export
+and return. Either way, the `Write`s the process issued in that last step are
+performed, in order, before it is reaped: that is how such an `exit()` gets its
+stdio buffers out, by posting them and exiting in one step.
 
 **`Sys::Stage` is the host's syscall, not a program's.** It exists so the host
 can ask where to copy a payload, and a program never calls it — but a hostile

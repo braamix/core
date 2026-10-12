@@ -135,6 +135,20 @@ Task<i32> serve(ProcRef p, Call *c)
     co_return 0;
 }
 
+// The Writes a process issued in the step that ended it, performed in order. A
+// C exit() from deep in plain code cannot await its stdio buffers, so it posts
+// them and exits in one step; nothing answers them, and nobody is left to hear.
+Task<void> drain(Proc &p)
+{
+    for (usize i = 0; i < p.calls.size(); i++) {
+        Call *c = p.calls[i];
+        if (c->server || sys_op_code(c->op) != Sys::Write)
+            continue;
+        if (Task<Result<String>> t = proc_syscall(p, *c))
+            co_await t;
+    }
+}
+
 // Where a spawn waits. A program *is* a worker now and there is no second place
 // to put one, so a host with none to give is waited out rather than failed: 10
 // ms, then 20, 50, 100, 200, 500, and a second from there on, with a line each
@@ -395,9 +409,13 @@ Task<i32> exec_process(Executable &exe, Args args, Stdio io, Term &term, Str cwd
         if (s.is_err())
             co_return s.error() == Error::Cancelled ? 130 : 1;
 
-        if (s.value() == ProcStep::Exited) {
+        // A trap after Sys::Exit is that exit: plain code cannot unwind, so a C
+        // exit() reports its status and traps.
+        if (s.value() == ProcStep::Exited || (s.value() == ProcStep::Trapped && p->exited)) {
             if (died)
                 *died = false;
+            if (Task<void> d = drain(*p))
+                co_await d;
             co_return p->exit;
         }
         if (s.value() == ProcStep::Trapped) {
@@ -454,7 +472,8 @@ i32 exec_sys(u32 pid, u32 op, u32 a0, u32, u32)
     g_stats.sysfast++;
     switch (Sys(op)) {
     case Sys::Exit:
-        p->exit = i32(a0);
+        p->exit   = i32(a0);
+        p->exited = true;
         return 0;
     case Sys::GetPid:
         return i32(pid);

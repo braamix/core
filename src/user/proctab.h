@@ -316,6 +316,7 @@ struct Proc {
     u32 max_pages = 0; // the memory cap this instance was given, for /proc
     u32 pages     = 0; // and what it has committed, as of its last step
     bool dead     = false;
+    bool exited   = false; // Sys::Exit was called: a trap after it is that exit
 
     i32 exit = 1;
     Vec<Handle *> fds;
