@@ -5,9 +5,77 @@ say *what* a thing is; this file says *why* it is that way.
 [Concept.md](Concept.md) remains the specification — where this document and the
 spec disagree about intent, the spec wins and one of the two needs amending.
 
-Nothing has been written for the release after 0.10 yet. It goes here, under a
-new heading appended above the ones before it, and the whole moves to
-[releases/](releases/) when the release is cut.
+The release after 0.10 is being written, and starts below. New sections are
+appended under it, and the whole moves to [releases/](releases/) when the
+release is cut.
+
+## The exit plain code can make, and the buffers it takes with it
+
+A process ends when its root task returns (§4.3). That is the whole of it for a
+program written here — `proc_main` returns a status, `src/proc/`'s runtime
+reports it on the way out of `_start` — and it is unreachable for plain C
+compiled by something that is not making coroutines. `exit(2)` can be called ten
+frames deep from code with no awaitable anywhere in it, and there is no way from
+there back to the export. Such a program had exactly one way to stop: record a
+status with `Sys::Exit` and trap. The kernel read the trap as what a trap has
+always been — `"<name>: crashed"` on stderr and status 132 — and threw away
+whatever the program had just written.
+
+`devel/cc`'s libc in the applications tree is what asked. A C compiler hosted
+here compiles ordinary C, whose `exit()` has to work from anywhere and whose
+stdio buffers have to come out with it; the ports in that tree get away without
+this because each of them *unwinds* — `vi`'s `ex_exit` records a status and
+leaves by the route an error already took, and every `ziperr()` in `zip` became
+a return, which upstream's never had to be — which is a rewrite of the
+program's control flow, and not something a compiler can do to its input.
+
+**A trap after `Sys::Exit` is that exit, and one bit tells the two apart.**
+`Proc::exited` is set by the synchronous `Sys::Exit` arm, and `exec_process`
+treats `Trapped` with that bit as `Exited`. A trap with no `Sys::Exit` before it
+is still a crash: still 132, still the diagnostic, still `died` left alone for
+init. Nothing has to trust the trap itself — the process said what it was ending
+with *before* it stopped, through the one operation that cannot park and cannot
+fail.
+
+**The writes queued in that last step are performed, which is the half that
+makes it usable.** A C `exit()` cannot await its buffers, so the libc *posts*
+them — `sys_async` with a token nobody will ever wait on — and exits in the same
+step. Nothing had been serving those calls: a step that ends the process returns
+before the stepper spawns their server jobs, so the bytes sat in a staging block
+and were freed with the record. `drain()` performs them in the order they were
+issued, before the process is reaped. The ordinary path drains too, and was
+losing the same bytes: a program that posts a write and returns from `_start` in
+one step is not a strange thing to be, it is simply one that did not wait for a
+byte count it had no use for.
+
+**Writes, and nothing else.** `drain()` skips every call that is not a
+`Sys::Write` and every one a server has already taken. The rest either have an
+answer with nobody left to receive it or an effect that lands in the wrong
+place: a `Read` would take bytes off a pipe and drop them, an `Open` would bind
+a descriptor into a table about to be freed. A write is the one operation whose
+whole point is its side effect, and whose reply the dead do not need.
+
+**A drained write parks like any other.** It goes through `proc_syscall` with
+the process's stdio still alive and its handles still held, so a full pipe
+suspends the exit until the reader drains it — exactly the wait the write would
+have had a step earlier. `^C` still reaches it, because the drain is awaited in
+`exec_process`'s own frame, and the queue it walks is no longer than one a step
+could already leave behind.
+
+**The case assembles a program rather than shipping one.** Nothing in this tree
+exits this way, so there is nothing in `/bin` to point at — and a program added
+to `/bin` for it would have nothing to demonstrate to a user. The case in
+`test/system/process.mjs` builds the wasm module by hand instead: post a `Write`
+of `hi\n`, call `Sys::Exit(7)`, `unreachable`, stamped with `/bin/true`'s own
+`braam` section so `exec` accepts it. It asserts that the output arrives, that
+the status is 7 rather than 132, and that the same program down a pipe sends
+three bytes to `wc`. Hand-assembled wasm in a test is not free to read, which is
+why it is worth saying what it buys: the behaviour is the kernel's answer to a
+shape no binary here has, and the alternative was to trust it until a package
+hit it.
+
+No ABI change, and nothing in `src/cmd/` or `src/proc/` moved; this went out as
+0.10.1.
 
 Releases before this one are one file each in [releases/](releases/), newest
 first:
