@@ -77,6 +77,44 @@ hit it.
 No ABI change, and nothing in `src/cmd/` or `src/proc/` moved; this went out as
 0.10.1.
 
+## The backslash at the end of a line
+
+POSIX 2.2.1 makes a backslash-newline outside single quotes a line continued:
+both bytes are removed, and the line goes on as if they had never been typed.
+The shell had half of that. A text ending in a backslash already failed to
+parse with `more` set, so the prompt already asked for the rest under `PS2` and
+joined the two lines with a newline — and then the lexer and the expander read
+`\` followed by a newline as what any other escape is, the next byte taken
+literally. `echo one \` then `two` printed `one` and a second argument that
+began with a newline; `true && \` then `echo yes` looked for a command named
+newline-`echo` and found none. The continuation came back to a prompt, and did
+the wrong thing with what it had collected.
+
+**It is removed in two places, because a word keeps its text as written.** The
+lexer skips a backslash-newline where it skips blanks, so between tokens the
+pair separates no more than the blanks around it do — which is what makes
+`a &&\` at the end of a line work. Inside a word it is left alone, as quotes
+are: the word the parser sees is the raw text, which is how any quoting at all
+defeats a reserved word, and the expander takes the pair out at the same point
+it takes the quotes out. That is also why `"…"` gets it for nothing and `'…'`
+does not: the expander's walk over a double-quoted span sees the backslash, and
+its walk over a single-quoted one sees no escapes at all.
+
+**Two consequences are not POSIX's, and are left.** POSIX removes the pair
+before tokenizing, so `&\`, newline, `&` is `&&` and `do\`, newline, `ne` is the
+reserved word `done`. Here the first is two `&`s and the second is a word that
+spells nothing reserved, because the operator was lexed and the word was
+compared before anything removed the pair. Doing it POSIX's way means a pass
+that rewrites the text before the lexer sees it, and that pass cannot be blind:
+the body of a here-document lies in the same text, and in the body of a quoted
+one, `<<'EOF'`, a backslash-newline is two bytes that must survive. Where a body
+begins is the parser's knowledge, found from the lexer's position after the line
+that names it, so the pass would need the parse it runs before. Nobody splits an
+operator or a keyword across lines, and a line ending between tokens or inside
+an argument is every continuation anyone writes.
+
+No ABI change; this went out as 0.10.2.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 
