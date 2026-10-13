@@ -396,6 +396,12 @@ Result<void> Walk::run(Str s, bool in_quotes, bool literal, u32 depth)
         }
 
         if (c == '\\') {
+            // A line continued, inside a word or a "…": gone, as POSIX has it,
+            // where the escape below would keep the newline.
+            if (i + 1 < s.size() && s[i + 1] == '\n') {
+                i += 2;
+                continue;
+            }
             if (!in_quotes) {
                 if (i + 1 >= s.size())
                     return fail("unterminated quote");

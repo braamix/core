@@ -19,6 +19,11 @@ bool is_blank(char c)
     return c == ' ' || c == '\t' || c == '\r' || c == '\v' || c == '\f';
 }
 
+bool continued(Str s, usize i)
+{
+    return s[i] == '\\' && i + 1 < s.size() && s[i + 1] == '\n';
+}
+
 } // namespace
 
 usize brace_end(Str s, usize at)
@@ -120,8 +125,10 @@ Result<Tok> Lexer::next(Str &word)
     word = Str();
 
     for (;;) {
-        while (i_ < s_.size() && is_blank(s_[i_]))
-            i_++;
+        // A backslash-newline is a line continued (POSIX 2.2.1): nothing at
+        // all, so it separates no more than the blanks around it do.
+        while (i_ < s_.size() && (is_blank(s_[i_]) || continued(s_, i_)))
+            i_ += s_[i_] == '\\' ? 2 : 1;
         // A comment only where a token could start, so `a#b` is one word.
         if (i_ >= s_.size() || s_[i_] != '#')
             break;

@@ -181,6 +181,14 @@ void test_tokenize()
     CHECK(lexed("echo \"`a b`\"") == "{echo}{\"`a b`\"}");
     CHECK(lexed("echo (x)") == "{echo}({x})"); // still operators on their own
 
+    // A backslash-newline is a line continued: nothing between tokens, and
+    // left in a word for the expander to take out with the quotes.
+    CHECK(lexed("echo a \\\nb") == "{echo}{a}{b}");
+    CHECK(lexed("a &&\\\n  b") == "{a}&&{b}");
+    CHECK(lexed("\\\necho") == "{echo}");
+    CHECK(lexed("echo a\\\nb") == "{echo}{a\\\nb}");
+    CHECK(lexed("echo 'a\\\nb'") == "{echo}{'a\\\nb'}");
+
     CHECK(lexed("echo 'a") == "{echo}!");
     CHECK(lexed("echo \"a") == "{echo}!");
     CHECK(lexed("echo a\\") == "{echo}!");

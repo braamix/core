@@ -235,6 +235,12 @@ void test_expand()
     CHECK(text("'a'\"b\"c") == "{abc}");
     CHECK(text("x'y z'w") == "{xy zw}");
 
+    // A backslash-newline is nothing, outside quotes and inside "…" alike;
+    // inside '…' it is two characters like any others.
+    CHECK(text("a\\\nb") == "{ab}");
+    CHECK(text("\"a\\\nb\"") == "{ab}");
+    CHECK(text("'a\\\nb'") == "{a\\\nb}");
+
     // A backslash outside quotes takes the next character literally.
     CHECK(text("\\|") == "{|}");
     CHECK(text("a\\ b") == "{a b}");

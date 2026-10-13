@@ -40,6 +40,24 @@ export function check() {
     if (row(cont, cont.cursor_y) !== prompt())
         fail(`the continuation did not come back to a prompt`);
 
+    // So does a line ending in a backslash, and the backslash-newline is then
+    // nothing at all: between words, after an operator, inside a word and
+    // inside "…".
+    const continued = (first, second, want) => {
+        vrun("clear");
+        cont = vrun(first);
+        if (row(cont, cont.cursor_y) !== ">")
+            fail(`\`${first}\` left ${JSON.stringify(row(cont, cont.cursor_y))}, expected >`);
+        cont = vrun(second);
+        if (!rows(cont).includes(want))
+            fail(`\`${first}\` then \`${second}\` printed ${JSON.stringify(rows(cont))}, ` +
+                 `expected ${want}`);
+    };
+    continued("echo one \\", "two", "one two");
+    continued("true && \\", "echo yes", "yes");
+    continued("echo con\\", "cat", "concat");
+    continued('echo "in\\', 'side"', "inside");
+
     // An unclosed group asks too, and PS2 is a variable.
     vrun("clear");
     vrun("PS2=... ");

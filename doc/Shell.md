@@ -191,7 +191,12 @@ live one:
   escapes; **every other backslash stands for itself**, so `"a\nb"` is `a`, a
   backslash, `n`, `b`.
 - **`\`** outside quotes — the next byte is literal. A backslash at the very end
-  of the text is an unterminated quote, not a line continuation.
+  of the text is an unterminated quote, so the prompt asks for more under `PS2`.
+
+**A backslash followed by a newline is a line continued**, outside quotes and
+inside `"…"` alike: the two bytes are nothing at all, so `echo one \` and
+`two` on the next line is `echo one two`, and `echo con\` then `cat` prints
+`concat`. Inside `'…'` they are two bytes like any others.
 
 **Reserved words are reserved by position only**, and any quoting at all defeats
 them, because the check is against the word as written. So `echo done` prints
