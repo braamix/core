@@ -37,6 +37,18 @@ first:
 
 ---
 
+## `rm -f`
+
+`rm -f` is POSIX's: an operand that is not there is passed over without a word
+and without touching the status, and `rm -f` with no operands at all is 0
+rather than the usage block. Only `NotFound` is forgiven. A directory without
+`-r`, or a store that refuses, is still reported and still 1, because `-f`
+exists so that a script can say "make sure this is gone", and a path that is
+still there is not gone. There is nothing for it to override besides: no
+prompt, since there is no `-i`, and no permission, since there are no file
+permissions. `-r` and `-f` now go through `OptParse`, so `-rf` and `-fr` bundle
+as they do everywhere else.
+
 ## The archive read in memory
 
 `zip_entries` walks the central directory and reads each entry's local header

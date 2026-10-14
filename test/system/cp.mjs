@@ -79,9 +79,19 @@ export function check() {
     line("rm y1 y2");
 
     // Bare is asking rather than getting it wrong: 0, and nothing removed.
-    is("rm; echo $?", "Usage:|    rm [-r] <path>...|Options:|" +
-                      "    -r    remove directories, and what is in them|0");
+    is("rm; echo $?", "Usage:|    rm [-rf] <path>...|Options:|" +
+                      "    -r    remove directories, and what is in them|" +
+                      "    -f    pass over a path that is not there, silently|0");
     is("cat a", "one");
+
+    // -f is silent and successful over a path that is not there, and over no
+    // path at all; any other failure is still reported.
+    is("rm nope; echo $?", "rm: nope: not found|1");
+    is("rm -f nope; echo $?", "0");
+    is("rm -f; echo $?", "0");
+    line("mkdir h; echo x > h/x");
+    is("rm -f h nope; echo $?", "rm: h: directory not empty|1");
+    is("rm -fr h nope; test -d h; echo $?", "1");
 
     // Several sources need a directory to land in.
     is("cp a n c", "Usage:|    cp [-r] [-fi] [-n] <src> <dst>|    cp [-r] [-fi] [-n] <src>... <dir>|Options:|" +

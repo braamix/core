@@ -89,7 +89,8 @@ Programs in /bin
             once, which is the only caller Sys::Poll has
   ps        list the tasks the kernel is running, and which are processes
   pwd       print the current directory
-  rm        [-r] <path>... — remove files, or directories with -r
+  rm        [-rf] <path>... — remove files, or directories with -r; -f
+            passes over a path that is not there
   seq       [-w] [-f <fmt>] [-s <str>] [-t <str>] [<first> [<incr>]] <last>
             — count from <first> to <last>; -w pads with zeros
   sh        [-eux] [-s | -c <command> | <file>] [<arg>...] — the shell
