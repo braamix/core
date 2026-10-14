@@ -1,6 +1,7 @@
 // Derived from fmt_fp in musl's src/stdio/vfprintf.c (MIT), the engine behind
 // printf's %f, %e, %g and %a. Long double becomes double, frexpl goes with it,
-// and out/pad write into a Sink instead of a FILE.
+// and out/pad write into a Sink instead of a FILE. No local shadows another
+// name, which vcc does not allow: the inner blocks reuse s, and round is rnd.
 #include "cvt.h"
 
 #define MAX(a,b) ((a)>(b) ? (a) : (b))
@@ -65,7 +66,7 @@ int fmt_fp(Sink *f, double y, int w, int p, int fl, int t)
 	} else prefix++, pl=0;
 
 	if (!isfinite(y)) {
-		char *s = (t&32)?"inf":"INF";
+		s = (t&32)?"inf":"INF";
 		if (y!=y) s=(t&32)?"nan":"NAN";
 		pad(f, ' ', w, 3+pl, fl&~ZERO_PAD);
 		out(f, prefix, pl);
@@ -78,7 +79,7 @@ int fmt_fp(Sink *f, double y, int w, int p, int fl, int t)
 	if (y) e2--;
 
 	if ((t|32)=='a') {
-		double round = 8.0;
+		double rnd = 8.0;
 		int re;
 
 		if (t&32) prefix += 9;
@@ -88,16 +89,16 @@ int fmt_fp(Sink *f, double y, int w, int p, int fl, int t)
 		else re=LDBL_MANT_DIG/4-1-p;
 
 		if (re) {
-			round *= 1<<(LDBL_MANT_DIG%4);
-			while (re--) round*=16;
+			rnd *= 1<<(LDBL_MANT_DIG%4);
+			while (re--) rnd*=16;
 			if (*prefix=='-') {
 				y=-y;
-				y-=round;
-				y+=round;
+				y-=rnd;
+				y+=rnd;
 				y=-y;
 			} else {
-				y+=round;
-				y-=round;
+				y+=rnd;
+				y-=rnd;
 			}
 		}
 
@@ -185,17 +186,17 @@ int fmt_fp(Sink *f, double y, int w, int p, int fl, int t)
 		x = *d % i;
 		/* Are there any significant digits past j? */
 		if (x || d+1!=z) {
-			double round = 2/LDBL_EPSILON;
+			double rnd = 2/LDBL_EPSILON;
 			double small;
 			if ((*d/i & 1) || (i==1000000000 && d>a && (d[-1]&1)))
-				round += 2;
+				rnd += 2;
 			if (x<i/2) small=0x0.8p0;
 			else if (x==i/2 && d+1==z) small=0x1.0p0;
 			else small=0x1.8p0;
-			if (pl && *prefix=='-') round*=-1, small*=-1;
+			if (pl && *prefix=='-') rnd*=-1, small*=-1;
 			*d -= x;
-			/* Decide whether to round by probing round+small */
-			if (round+small != round) {
+			/* Decide whether to round by probing rnd+small */
+			if (rnd+small != rnd) {
 				*d = *d + i;
 				while (*d > 999999999) {
 					*d--=0;
@@ -251,14 +252,14 @@ int fmt_fp(Sink *f, double y, int w, int p, int fl, int t)
 	if ((t|32)=='f') {
 		if (a>r) a=r;
 		for (d=a; d<=r; d++) {
-			char *s = fmt_u(*d, buf+9);
+			s = fmt_u(*d, buf+9);
 			if (d!=a) while (s>buf) *--s='0';
 			else if (s==buf+9) *--s='0';
 			out(f, s, buf+9-s);
 		}
 		if (p || (fl&ALT_FORM)) out(f, ".", 1);
 		for (; d<z && p>0; d++, p-=9) {
-			char *s = fmt_u(*d, buf+9);
+			s = fmt_u(*d, buf+9);
 			while (s>buf) *--s='0';
 			out(f, s, MIN(9,p));
 		}
@@ -266,7 +267,7 @@ int fmt_fp(Sink *f, double y, int w, int p, int fl, int t)
 	} else {
 		if (z<=a) z=a+1;
 		for (d=a; d<z && p>=0; d++) {
-			char *s = fmt_u(*d, buf+9);
+			s = fmt_u(*d, buf+9);
 			if (s==buf+9) *--s='0';
 			if (d!=a) while (s>buf) *--s='0';
 			else {
