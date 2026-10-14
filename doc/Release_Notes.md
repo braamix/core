@@ -5,9 +5,9 @@ say *what* a thing is; this file says *why* it is that way.
 [Concept.md](Concept.md) remains the specification — where this document and the
 spec disagree about intent, the spec wins and one of the two needs amending.
 
-Nothing has been written for the release after 0.11 yet. It goes here, under a
-new heading appended above the ones before it, and the whole moves to
-[releases/](releases/) when the release is cut.
+What follows the index below is the release after 0.11, under headings
+appended in order; the whole moves to [releases/](releases/) when the release
+is cut.
 
 Releases before this one are one file each in [releases/](releases/), newest
 first:
@@ -37,3 +37,13 @@ first:
 
 ---
 
+## The archive read in memory
+
+`zip_entries` walks the central directory and reads each entry's local header
+through the `ZipSource`. Over a `MemZipSource` that read never parks, and an
+await that never parks is not free: the awaiter resumes on its own stack, so a
+loop of them grows the native stack an entry at a time (§3.3). A few hundred
+entries were enough to overflow Safari's, which is smaller than Chrome's or
+Node's, and so neither suite saw it. An archive already in memory is now read
+plainly through `ZipSource::bytes()`, and one in the store keeps the await,
+since its read does park and returns through the trampoline.

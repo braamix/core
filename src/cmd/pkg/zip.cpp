@@ -171,12 +171,19 @@ Task<ZipRead> zip_entries(ZipSource &src, ZipDir &out)
         // the data is the classic way to get this wrong.
         if (local > total || total - local < LOCAL_BYTES)
             co_return ZipRead::Malformed;
+        // An archive in memory is read plainly: an await per entry would cost
+        // native stack per entry, and a few hundred overflow Safari's.
+        Str lh;
         Result<String> head = Err(Error::NoMemory);
-        if (Task<Result<String>> t = src_read(src, local, LOCAL_BYTES))
-            head = co_await t;
-        if (head.is_err())
-            co_return head.error() == Error::NoMemory ? ZipRead::NoMemory : ZipRead::Io;
-        Str lh = head.value().str();
+        if (const Str *mem = src.bytes()) {
+            lh = mem->substr(usize(local), LOCAL_BYTES);
+        } else {
+            if (Task<Result<String>> t = src_read(src, local, LOCAL_BYTES))
+                head = co_await t;
+            if (head.is_err())
+                co_return head.error() == Error::NoMemory ? ZipRead::NoMemory : ZipRead::Io;
+            lh = head.value().str();
+        }
         if (u32at(lh, 0) != LOCAL_SIG)
             co_return ZipRead::Malformed;
 

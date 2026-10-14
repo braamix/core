@@ -27,6 +27,11 @@ struct ZipSource {
 
     // Exactly out.size() bytes at `off`. Err(Invalid) past the end.
     virtual Task<Result<void>> read(u64 off, Span<u8> out) = 0;
+
+    // The whole archive, when it is in memory; null otherwise. A read of one
+    // never parks, and an await that never parks costs native stack, so a
+    // loop over the entries reads it plainly.
+    virtual const Str *bytes() { return nullptr; }
 };
 
 // A ZipSource over bytes already in hand.
@@ -36,6 +41,8 @@ struct MemZipSource : ZipSource {
     u64 size() override { return bytes_.size(); }
 
     Task<Result<void>> read(u64 off, Span<u8> out) override;
+
+    const Str *bytes() override { return &bytes_; }
 
 private:
     Str bytes_;
