@@ -115,6 +115,26 @@ an argument is every continuation anyone writes.
 
 No ABI change; this went out as 0.10.2.
 
+## The libm a user can rebuild
+
+The SDK now carries `src/math/` whole, as `share/braam/src/math/`, and its
+`CMakeLists.txt` builds two ways: inside this tree it is one more
+`add_subdirectory`, and on its own it finds the installed SDK and links
+`braam::flags` instead of `braam_flags` — the shape `examples/hello` already
+has, and for the same reason, that the file a user is given is the one the
+build compiles. The archive it makes is byte-identical to the shipped one.
+
+libm is the library a port is likeliest to want different: another rounding of
+a transcendental, a function musl has and `native.c` replaced, a flag the
+toolchain file does not pass. Without the sources that is a clone of this tree
+and a build of all of it, for one archive with no dependency above
+`braam::flags`. The other five libraries stay as they are — zlib, bzip2, liblzma
+and zstd have upstreams a user can fetch, and `regex` is one file. musl's
+`COPYRIGHT` now goes into `share/doc/braam/` as well, which it should have done
+from the first SDK that shipped its code.
+
+No ABI change; this went out as 0.10.3.
+
 Releases before this one are one file each in [releases/](releases/), newest
 first:
 
