@@ -55,6 +55,7 @@ Either way, this is what you get:
 | `share/braam/examples/bzpipe/` | a third, which compresses with `braam::bzip2` (§6) |
 | `share/braam/examples/xzpipe/` | a fourth, which compresses with `braam::lzma` (§6) |
 | `share/braam/examples/zstdpipe/` | a fifth, which compresses with `braam::zstd` (§6) |
+| `share/braam/src/math/` | `libbraam_math.a`'s sources, which rebuild it against this SDK (§6) |
 | `share/braam/test/system/harness.mjs` | the headless harness (§3.3), with its fakes beside it |
 | `share/braam/web/` | the kernel and boot archive the harness runs, and the JS they need |
 | `share/doc/braam/Programming_Manual.md` | this file |
@@ -825,6 +826,20 @@ for a width. `/bin/seq` is what calls it.
 unreferenced archive member. `sqrt` alone costs 309 bytes, since it is one wasm
 instruction; `exp` 3.1 KB, `sin` and `cos` together 5.3 KB, `pow` 8.3 KB, and
 twelve transcendentals at once 24 KB.
+
+**The library's sources come with the SDK**, in `share/braam/src/math/`, and
+its `CMakeLists.txt` builds `libbraam_math.a` on its own:
+
+```sh
+cmake -S $SDK/share/braam/src/math -B build \
+      --toolchain $SDK/lib/cmake/braam/wasm32-unknown-unknown.cmake
+cmake --build build
+```
+
+`musl/` is upstream verbatim, under the MIT licence in
+`share/doc/braam/musl-COPYRIGHT`; `cvt/` is musl's `strtod` and `printf`
+engines, adapted. The archive that results is the one in `lib/braam/`, and can
+replace it.
 
 ### Regular expressions — `regex/regex.h`
 

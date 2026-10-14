@@ -5,6 +5,18 @@
 #
 # Left upstream: *l.c, nexttoward.c, nexttowardf.c, all long double, which is
 # 113-bit quad here and needs compiler-rt. Eight more are native.c's.
+#
+# The SDK ships this directory as share/braam/src/math. On its own this file
+# finds the installed SDK and builds libbraam_math.a; inside Braam's own tree it
+# is one more add_subdirectory.
+if(TARGET braam_flags)
+    set(BRAAM_MATH_FLAGS braam_flags)
+else()
+    cmake_minimum_required(VERSION 3.24)
+    project(braam_math LANGUAGES C CXX)
+    find_package(braam REQUIRED)
+    set(BRAAM_MATH_FLAGS braam::flags)
+endif()
 
 # cvt/ is musl's strtod and printf engines, derived rather than verbatim: long
 # double is 113-bit quad here, and stdio does not exist. Same -w for the same
@@ -18,7 +30,7 @@ add_library(braam_math STATIC
     native.c
     ${BRAAM_MUSL_SOURCES})
 
-target_link_libraries(braam_math PUBLIC braam_flags)
+target_link_libraries(braam_math PUBLIC ${BRAAM_MATH_FLAGS})
 
 # <stdint.h>, <limits.h>, <float.h> and <stddef.h> are clang's freestanding
 # headers -- part of the compiler, no functions and no runtime. There is still

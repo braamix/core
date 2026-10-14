@@ -27,6 +27,7 @@ set(BRAAM_INSTALL_LIBDIR      lib/braam)
 set(BRAAM_INSTALL_CMAKEDIR    lib/cmake/braam)
 set(BRAAM_INSTALL_LIBEXECDIR  libexec/braam)
 set(BRAAM_INSTALL_EXAMPLESDIR share/braam/examples)
+set(BRAAM_INSTALL_SRCDIR      share/braam/src)
 set(BRAAM_INSTALL_HARNESSDIR  share/braam)
 set(BRAAM_INSTALL_DOCDIR      share/doc/braam)
 
@@ -281,6 +282,9 @@ install(PROGRAMS tools/stamp.py tools/mkpkg.py tools/pack.py
 install(DIRECTORY examples/hello examples/zpipe examples/bzpipe examples/xzpipe
                   examples/zstdpipe
         DESTINATION ${BRAAM_INSTALL_EXAMPLESDIR})
+# libbraam_math.a's sources, which build on their own against the SDK.
+install(DIRECTORY src/math/
+        DESTINATION ${BRAAM_INSTALL_SRCDIR}/math)
 
 # The headless harness, for a program's own tests, and the kernel and archive
 # it boots. The import closure keeps its relative layout: harness.mjs reaches
@@ -292,6 +296,7 @@ install(FILES web/abi.js web/fs.js web/host.js web/proc.js web/svc.js
               $<TARGET_FILE:kernel> ${CMAKE_BINARY_DIR}/web/rootfs.zip
         DESTINATION ${BRAAM_INSTALL_HARNESSDIR}/web)
 install(FILES doc/Programming_Manual.md LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR})
+install(FILES src/math/musl/COPYRIGHT DESTINATION ${BRAAM_INSTALL_DOCDIR} RENAME musl-COPYRIGHT)
 install(FILES src/zlib/LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR} RENAME zlib-LICENSE)
 install(FILES src/bzip2/LICENSE DESTINATION ${BRAAM_INSTALL_DOCDIR} RENAME bzip2-LICENSE)
 install(FILES src/lzma/COPYING.0BSD DESTINATION ${BRAAM_INSTALL_DOCDIR} RENAME lzma-LICENSE)
